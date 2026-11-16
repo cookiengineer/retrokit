@@ -2099,21 +2099,3 @@ bool WKPreferencesGetMediaStreamEnabled(WKPreferencesRef preferencesRef)
 {
     return true;
 }
-
-void WKPreferencesSetForceFTPDirectoryListings(WKPreferencesRef, bool)
-{
-}
-
-bool WKPreferencesGetForceFTPDirectoryListings(WKPreferencesRef)
-{
-    return false;
-}
-
-void WKPreferencesSetFTPDirectoryTemplatePath(WKPreferencesRef, WKStringRef)
-{
-}
-
-WKStringRef WKPreferencesCopyFTPDirectoryTemplatePath(WKPreferencesRef)
-{
-    return toCopiedAPI(String { });
-}

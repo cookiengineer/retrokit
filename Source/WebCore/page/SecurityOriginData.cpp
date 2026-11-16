@@ -187,7 +187,7 @@ static bool schemeRequiresHost(const URL& url)
     // We expect URLs with these schemes to have authority components. If the
     // URL lacks an authority component, we get concerned and mark the origin
     // as opaque.
-    return url.protocolIsInHTTPFamily() || url.protocolIs("ftp"_s);
+    return url.protocolIsInHTTPFamily();
 }
 
 bool SecurityOriginData::shouldTreatAsOpaqueOrigin(const URL& url)

@@ -317,7 +317,6 @@ namespace WebCore {
     WEBCORE_EXPORT String pluginTooSmallText();
 
     WEBCORE_EXPORT String multipleFileUploadText(unsigned numberOfFiles);
-    String unknownFileSizeText();
 
 #if PLATFORM(IOS_FAMILY)
     String htmlSelectMultipleItems(size_t num);

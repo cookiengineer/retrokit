@@ -106,7 +106,7 @@ ExceptionOr<URLPatternComponent> URLPatternComponent::compile(StringView input, 
 // https://urlpattern.spec.whatwg.org/#protocol-component-matches-a-special-scheme
 bool URLPatternComponent::matchSpecialSchemeProtocol() const
 {
-    static constexpr std::array specialSchemeList { "ftp"_s, "file"_s, "http"_s, "https"_s, "ws"_s, "wss"_s };
+    static constexpr std::array specialSchemeList { "file"_s, "http"_s, "https"_s, "ws"_s, "wss"_s };
     return std::ranges::any_of(specialSchemeList, [this](const String& scheme) {
         return componentExec(scheme).has_value();
     });

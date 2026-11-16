@@ -1782,7 +1782,6 @@ private:
     void wasBlocked() final { ASSERT_NOT_REACHED(); }
     void cannotShowURL() final { ASSERT_NOT_REACHED(); }
     void wasBlockedByRestrictions() final { ASSERT_NOT_REACHED(); }
-    void wasBlockedByDisabledFTP() final { ASSERT_NOT_REACHED(); }
 
     void didReceiveResponse(WebCore::ResourceResponse&& response, NegotiatedLegacyTLS, PrivateRelayed, ResponseCompletionHandler&& completionHandler)
     {
@@ -1874,7 +1873,6 @@ void NetworkSessionCocoa::loadImageForDecoding(WebCore::ResourceRequest&& reques
         void wasBlocked() final { completeWithBlockedError(); }
         void cannotShowURL() final { completeWithBlockedError(); }
         void wasBlockedByRestrictions() final { completeWithBlockedError(); }
-        void wasBlockedByDisabledFTP() final { completeWithBlockedError(); }
         void completeWithBlockedError()
         {
             didCompleteWithError(blockedError({ URL { m_url } }), WebCore::NetworkLoadMetrics { });

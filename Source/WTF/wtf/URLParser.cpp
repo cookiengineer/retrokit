@@ -598,7 +598,6 @@ void URLParser::encodeNonUTF8Query(const Vector<char16_t>& source, const URLText
 
 std::optional<uint16_t> URLParser::defaultPortForProtocol(StringView scheme)
 {
-    static constexpr uint16_t ftpPort = 21;
     static constexpr uint16_t httpPort = 80;
     static constexpr uint16_t httpsPort = 443;
     static constexpr uint16_t wsPort = 80;
@@ -640,12 +639,6 @@ std::optional<uint16_t> URLParser::defaultPortForProtocol(StringView scheme)
         default:
             return std::nullopt;
         }
-    case 'f':
-        if (length == 3
-            && scheme[1] == 't'
-            && scheme[2] == 'p')
-            return ftpPort;
-        return std::nullopt;
     default:
         return std::nullopt;
     }
@@ -655,7 +648,6 @@ enum class Scheme {
     WS,
     WSS,
     File,
-    FTP,
     HTTP,
     HTTPS,
     NonSpecial
@@ -669,11 +661,6 @@ ALWAYS_INLINE static Scheme scheme(StringView scheme)
     switch (scheme[0]) {
     case 'f':
         switch (length) {
-        case 3:
-            if (scheme[1] == 't'
-                && scheme[2] == 'p')
-                return Scheme::FTP;
-            return Scheme::NonSpecial;
         case 4:
             if (scheme[1] == 'i'
                 && scheme[2] == 'l'
@@ -849,7 +836,6 @@ void URLParser::copyURLPartsUntil(const URL& base, URLPart part, const CodePoint
     case Scheme::File:
         m_urlIsFile = true;
         [[fallthrough]];
-    case Scheme::FTP:
     case Scheme::HTTP:
     case Scheme::HTTPS:
         m_urlIsSpecial = true;
@@ -1239,8 +1225,6 @@ void URLParser::parse(std::span<const CharacterType> input, const URL& base, con
                 case Scheme::HTTP:
                 case Scheme::HTTPS:
                     m_url.m_protocolIsInHTTPFamily = true;
-                    [[fallthrough]];
-                case Scheme::FTP:
                     m_urlIsSpecial = true;
                     if (base.protocolIs(urlScheme))
                         state = State::SpecialRelativeOrAuthority;

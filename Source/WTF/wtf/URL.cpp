@@ -111,8 +111,7 @@ StringView URL::lastPathComponent() const LIFETIME_BOUND
 bool URL::hasSpecialScheme() const
 {
     // https://url.spec.whatwg.org/#special-scheme
-    return protocolIs("ftp"_s)
-        || protocolIsFile()
+    return protocolIsFile()
         || protocolIs("http"_s)
         || protocolIs("https"_s)
         || protocolIs("ws"_s)
@@ -139,7 +138,6 @@ bool URL::hasFetchScheme() const
 
 bool URL::protocolIsSecure() const
 {
-    // Note: FTPS is not considered secure for WebKit purposes.
     return protocolIs("https"_s)
         || protocolIs("wss"_s);
 }
@@ -1087,10 +1085,6 @@ bool portAllowed(const URL& url)
     // If the port is not in the blocked port list, allow it.
     ASSERT(std::is_sorted(std::begin(blockedPortList), std::end(blockedPortList)));
     if (!std::binary_search(std::begin(blockedPortList), std::end(blockedPortList), port.value()))
-        return true;
-
-    // Allow ports 21 and 22 for FTP URLs, as Mozilla does.
-    if ((port.value() == 21 || port.value() == 22) && url.protocolIs("ftp"_s))
         return true;
 
     // Allow any port number in a file URL, since the port number is ignored.

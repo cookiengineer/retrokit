@@ -453,10 +453,6 @@ WK_EXPORT bool WKPreferencesGetBoolValueForKeyForTesting(WKPreferencesRef, WKStr
 
 // The following are all deprecated and do nothing. They should be removed when possible.
 
-WK_EXPORT void WKPreferencesSetForceFTPDirectoryListings(WKPreferencesRef, bool) WK_C_API_DEPRECATED;
-WK_EXPORT bool WKPreferencesGetForceFTPDirectoryListings(WKPreferencesRef) WK_C_API_DEPRECATED;
-WK_EXPORT void WKPreferencesSetFTPDirectoryTemplatePath(WKPreferencesRef, WKStringRef) WK_C_API_DEPRECATED;
-WK_EXPORT WKStringRef WKPreferencesCopyFTPDirectoryTemplatePath(WKPreferencesRef) WK_C_API_DEPRECATED;
 WK_EXPORT void WKPreferencesSetCSSOMViewScrollingAPIEnabled(WKPreferencesRef, bool) WK_C_API_DEPRECATED;
 WK_EXPORT bool WKPreferencesGetCSSOMViewScrollingAPIEnabled(WKPreferencesRef) WK_C_API_DEPRECATED;
 WK_EXPORT void WKPreferencesSetPageCacheSupportsPlugins(WKPreferencesRef, bool) WK_C_API_DEPRECATED;

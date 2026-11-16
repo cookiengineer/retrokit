@@ -7376,7 +7376,7 @@ bool Document::isCookieAverse() const
         return false;
 
     // A Document whose URL's scheme is not a network scheme is cookie-averse (https://fetch.spec.whatwg.org/#network-scheme).
-    return !cookieURL.protocolIsInHTTPFamily() && !cookieURL.protocolIs("ftp"_s);
+    return !cookieURL.protocolIsInHTTPFamily();
 }
 
 ExceptionOr<String> Document::cookie()

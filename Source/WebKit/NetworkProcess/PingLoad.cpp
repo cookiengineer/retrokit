@@ -212,12 +212,6 @@ void PingLoad::wasBlockedByRestrictions()
     didFinish(wasBlockedByRestrictionsError(ResourceRequest { URL { currentURL() } }));
 }
 
-void PingLoad::wasBlockedByDisabledFTP()
-{
-    PING_RELEASE_LOG("wasBlockedByDisabledFTP");
-    didFinish(ftpDisabledError(ResourceRequest(URL { currentURL() })));
-}
-
 void PingLoad::timeoutTimerFired()
 {
     PING_RELEASE_LOG("timeoutTimerFired");

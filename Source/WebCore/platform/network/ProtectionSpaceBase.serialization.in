@@ -26,11 +26,8 @@ header: <WebCore/ProtectionSpaceBase.h>
 [CustomHeader, WebKitPlatform] enum class WebCore::ProtectionSpaceBaseServerType : uint8_t {
     HTTP,
     HTTPS,
-    FTP,
-    FTPS,
     ProxyHTTP,
     ProxyHTTPS,
-    ProxyFTP,
     ProxySOCKS,
 };
 using WebCore::ProtectionSpace::ServerType = WebCore::ProtectionSpaceBaseServerType;

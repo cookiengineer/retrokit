@@ -1107,24 +1107,82 @@ encrypted-media	flag	WEBKIT_OPTION_DEPEND(ENABLE_ENCRYPTED_MEDIA ENABLE_VIDEO)	S
 encrypted-media	flag	WEBKIT_OPTION_DEPEND(ENABLE_LEGACY_ENCRYPTED_MEDIA ENABLE_VIDEO)	Source/cmake/WebKitFeatures.cmake	removed	source	e39143f750c3526db63090b3af156b14071eb4d5	line=227; commit=e39143f750c3
 encrypted-media	flag	WEBKIT_OPTION_DEPEND(ENABLE_THUNDER ENABLE_ENCRYPTED_MEDIA)	Source/cmake/WebKitFeatures.cmake	removed	source	e39143f750c3526db63090b3af156b14071eb4d5	line=236; commit=e39143f750c3
 ftp	file	-	Source/WTF/Scripts/GeneratePreferences.rb	modified	source	bb8adb1d3b752d717edaf65cd17a708247ea75eb	origin=bb8adb1d3b752d717edaf65cd17a708247ea75eb :unicorn: FTP Support
+ftp	file	-	Source/WTF/Scripts/Preferences/UnifiedWebPreferences.yaml	modified	source	manual:ftp-2.54	FTP plumbing added after 2.34.1; removed in the 2.54 migration
+ftp	pref	FTPEnabled:	Source/WTF/Scripts/Preferences/UnifiedWebPreferences.yaml	removed	source	manual:ftp-2.54	FTP plumbing added after 2.34.1; removed in the 2.54 migration; developer preference removed
 ftp	pref	FTPDirectoryTemplatePath:	Source/WTF/Scripts/Preferences/WebPreferences.yaml	removed	source	bb8adb1d3b752d717edaf65cd17a708247ea75eb	line=723; commit=bb8adb1d3b75
 ftp	pref	ForceFTPDirectoryListings:	Source/WTF/Scripts/Preferences/WebPreferences.yaml	removed	source	bb8adb1d3b752d717edaf65cd17a708247ea75eb	line=767; commit=bb8adb1d3b75
+ftp	file	-	Source/WTF/wtf/URL.cpp	modified	source	manual:ftp-2.54	FTP plumbing added after 2.34.1; removed in the 2.54 migration
+ftp	file	-	Source/WTF/wtf/URL.h	modified	source	manual:ftp-2.54	FTP plumbing added after 2.34.1; removed in the 2.54 migration
+ftp	method	WTF::URL::protocolIsInFTPFamily	Source/WTF/wtf/URL.h	removed	source	manual:ftp-2.54	FTP plumbing added after 2.34.1; removed in the 2.54 migration
+ftp	behavior	ftp-and-ftps-schemes-are-not-special	Source/WTF/wtf/URLParser.cpp	modified	source	manual:ftp-2.54	FTP plumbing added after 2.34.1; removed in the 2.54 migration; ftp:// and ftps:// URLs are no longer special or loadable
 ftp	enum_value	WTF::Scheme::FTP	Source/WTF/wtf/URLParser.cpp	removed	source	bb8adb1d3b752d717edaf65cd17a708247ea75eb	line=635
 ftp	file	-	Source/WTF/wtf/URLParser.cpp	modified	source	bb8adb1d3b752d717edaf65cd17a708247ea75eb	origin=bb8adb1d3b752d717edaf65cd17a708247ea75eb :unicorn: FTP Support
+ftp	file	-	Source/WebCore/Modules/url-pattern/URLPatternComponent.cpp	modified	source	manual:ftp-2.54	FTP plumbing added after 2.34.1; removed in the 2.54 migration
 ftp	file	-	Source/WebCore/Scripts/GenerateSettings.rb	modified	source	bb8adb1d3b752d717edaf65cd17a708247ea75eb	origin=bb8adb1d3b752d717edaf65cd17a708247ea75eb :unicorn: FTP Support
 ftp	build_ref	html/FTPDirectoryDocument.cpp	Source/WebCore/Sources.txt	removed	source	bb8adb1d3b752d717edaf65cd17a708247ea75eb	line=1047; commit=bb8adb1d3b75
 ftp	build_ref	loader/FTPDirectoryParser.cpp	Source/WebCore/Sources.txt	removed	source	bb8adb1d3b752d717edaf65cd17a708247ea75eb	line=1467; commit=bb8adb1d3b75
+ftp	file	-	Source/WebCore/dom/Document.cpp	modified	source	manual:ftp-2.54	FTP plumbing added after 2.34.1; removed in the 2.54 migration
 ftp	file	-	Source/WebCore/html/FTPDirectoryDocument.cpp	removed	source	bb8adb1d3b752d717edaf65cd17a708247ea75eb	origin=bb8adb1d3b752d717edaf65cd17a708247ea75eb :unicorn: FTP Support
 ftp	file	-	Source/WebCore/html/FTPDirectoryDocument.h	removed	source	bb8adb1d3b752d717edaf65cd17a708247ea75eb	origin=bb8adb1d3b752d717edaf65cd17a708247ea75eb :unicorn: FTP Support
 ftp	file	-	Source/WebCore/loader/FTPDirectoryParser.cpp	removed	source	bb8adb1d3b752d717edaf65cd17a708247ea75eb	origin=bb8adb1d3b752d717edaf65cd17a708247ea75eb :unicorn: FTP Support
 ftp	file	-	Source/WebCore/loader/FTPDirectoryParser.h	removed	source	bb8adb1d3b752d717edaf65cd17a708247ea75eb	origin=bb8adb1d3b752d717edaf65cd17a708247ea75eb :unicorn: FTP Support
+ftp	file	-	Source/WebCore/page/SecurityOriginData.cpp	modified	source	manual:ftp-2.54	FTP plumbing added after 2.34.1; removed in the 2.54 migration
+ftp	file	-	Source/WebCore/platform/LocalizedStrings.cpp	modified	source	manual:ftp-2.54	FTP plumbing added after 2.34.1; removed in the 2.54 migration
+ftp	file	-	Source/WebCore/platform/LocalizedStrings.h	modified	source	manual:ftp-2.54	FTP plumbing added after 2.34.1; removed in the 2.54 migration
+ftp	function	WebCore::unknownFileSizeText	Source/WebCore/platform/LocalizedStrings.cpp	removed	source	manual:ftp-2.54	FTP plumbing added after 2.34.1; removed in the 2.54 migration; only used by FTP directory listings; definition lives in the .cpp (header not indexed)
+ftp	file	-	Source/WebCore/platform/Logging.h	modified	source	manual:ftp-2.54	FTP plumbing added after 2.34.1; removed in the 2.54 migration
 ftp	file	-	Source/WebCore/platform/network/CredentialStorage.cpp	modified	source	bb8adb1d3b752d717edaf65cd17a708247ea75eb	origin=bb8adb1d3b752d717edaf65cd17a708247ea75eb :unicorn: FTP Support
 ftp	file	-	Source/WebCore/platform/network/ProtectionSpaceBase.cpp	modified	source	bb8adb1d3b752d717edaf65cd17a708247ea75eb	origin=bb8adb1d3b752d717edaf65cd17a708247ea75eb :unicorn: FTP Support
-ftp	enum_value	WebCore::ProtectionSpaceServerType::ProtectionSpaceProxyFTP	Source/WebCore/platform/network/ProtectionSpaceBase.h	removed	source	bb8adb1d3b752d717edaf65cd17a708247ea75eb	line=42
-ftp	enum_value	WebCore::ProtectionSpaceServerType::ProtectionSpaceServerFTP	Source/WebCore/platform/network/ProtectionSpaceBase.h	removed	source	bb8adb1d3b752d717edaf65cd17a708247ea75eb	line=38
-ftp	enum_value	WebCore::ProtectionSpaceServerType::ProtectionSpaceServerFTPS	Source/WebCore/platform/network/ProtectionSpaceBase.h	removed	source	bb8adb1d3b752d717edaf65cd17a708247ea75eb	line=39
+ftp	enum_value	WebCore::ProtectionSpaceBaseServerType::FTP	Source/WebCore/platform/network/ProtectionSpaceBase.h	removed	source	bb8adb1d3b752d717edaf65cd17a708247ea75eb	line=38; renamed upstream
+ftp	enum_value	WebCore::ProtectionSpaceBaseServerType::FTPS	Source/WebCore/platform/network/ProtectionSpaceBase.h	removed	source	bb8adb1d3b752d717edaf65cd17a708247ea75eb	line=39; renamed upstream
+ftp	enum_value	WebCore::ProtectionSpaceBaseServerType::ProxyFTP	Source/WebCore/platform/network/ProtectionSpaceBase.h	removed	source	bb8adb1d3b752d717edaf65cd17a708247ea75eb	line=42; renamed upstream
 ftp	file	-	Source/WebCore/platform/network/ProtectionSpaceBase.h	modified	source	bb8adb1d3b752d717edaf65cd17a708247ea75eb	origin=bb8adb1d3b752d717edaf65cd17a708247ea75eb :unicorn: FTP Support
+ftp	file	-	Source/WebCore/platform/network/ProtectionSpaceBase.serialization.in	modified	source	manual:ftp-2.54	FTP plumbing added after 2.34.1; removed in the 2.54 migration
+ftp	file	-	Source/WebCore/platform/network/cocoa/ProtectionSpaceCocoa.mm	modified	source	manual:ftp-2.54	FTP plumbing added after 2.34.1; removed in the 2.54 migration
+ftp	file	-	Source/WebCore/platform/network/curl/AuthenticationChallengeCurl.cpp	modified	source	manual:ftp-2.54	FTP plumbing added after 2.34.1; removed in the 2.54 migration
+ftp	file	-	Source/WebCore/platform/network/soup/AuthenticationChallengeSoup.cpp	modified	source	manual:ftp-2.54	FTP plumbing added after 2.34.1; removed in the 2.54 migration
+ftp	file	-	Source/WebCore/platform/network/soup/NetworkStorageSessionSoup.cpp	modified	source	manual:ftp-2.54	FTP plumbing added after 2.34.1; removed in the 2.54 migration
+ftp	file	-	Source/WebKit/NetworkProcess/BackgroundFetchLoad.cpp	modified	source	manual:ftp-2.54	FTP plumbing added after 2.34.1; removed in the 2.54 migration
+ftp	file	-	Source/WebKit/NetworkProcess/BackgroundFetchLoad.h	modified	source	manual:ftp-2.54	FTP plumbing added after 2.34.1; removed in the 2.54 migration
+ftp	method	WebKit::BackgroundFetchLoad::wasBlockedByDisabledFTP	Source/WebKit/NetworkProcess/BackgroundFetchLoad.h	removed	source	manual:ftp-2.54	FTP plumbing added after 2.34.1; removed in the 2.54 migration
+ftp	file	-	Source/WebKit/NetworkProcess/NetworkCORSPreflightChecker.cpp	modified	source	manual:ftp-2.54	FTP plumbing added after 2.34.1; removed in the 2.54 migration
+ftp	file	-	Source/WebKit/NetworkProcess/NetworkCORSPreflightChecker.h	modified	source	manual:ftp-2.54	FTP plumbing added after 2.34.1; removed in the 2.54 migration
+ftp	method	WebKit::NetworkCORSPreflightChecker::wasBlockedByDisabledFTP	Source/WebKit/NetworkProcess/NetworkCORSPreflightChecker.h	removed	source	manual:ftp-2.54	FTP plumbing added after 2.34.1; removed in the 2.54 migration
+ftp	file	-	Source/WebKit/NetworkProcess/NetworkDataTask.cpp	modified	source	manual:ftp-2.54	FTP plumbing added after 2.34.1; removed in the 2.54 migration
+ftp	enum_value	WebKit::NetworkDataTask::FailureType::FTPDisabled	Source/WebKit/NetworkProcess/NetworkDataTask.h	removed	source	manual:ftp-2.54	FTP plumbing added after 2.34.1; removed in the 2.54 migration; nested enum not indexed by equivalence; covered by leak token
+ftp	file	-	Source/WebKit/NetworkProcess/NetworkDataTask.h	modified	source	manual:ftp-2.54	FTP plumbing added after 2.34.1; removed in the 2.54 migration
+ftp	method	WebKit::NetworkDataTaskClient::wasBlockedByDisabledFTP	Source/WebKit/NetworkProcess/NetworkDataTask.h	removed	source	manual:ftp-2.54	FTP plumbing added after 2.34.1; removed in the 2.54 migration
+ftp	file	-	Source/WebKit/NetworkProcess/NetworkLoad.cpp	modified	source	manual:ftp-2.54	FTP plumbing added after 2.34.1; removed in the 2.54 migration
+ftp	file	-	Source/WebKit/NetworkProcess/NetworkLoad.h	modified	source	manual:ftp-2.54	FTP plumbing added after 2.34.1; removed in the 2.54 migration
+ftp	method	WebKit::NetworkLoad::wasBlockedByDisabledFTP	Source/WebKit/NetworkProcess/NetworkLoad.h	removed	source	manual:ftp-2.54	FTP plumbing added after 2.34.1; removed in the 2.54 migration
+ftp	file	-	Source/WebKit/NetworkProcess/NetworkProcess.cpp	modified	source	manual:ftp-2.54	FTP plumbing added after 2.34.1; removed in the 2.54 migration
+ftp	field	WebKit::NetworkProcess::m_ftpEnabled	Source/WebKit/NetworkProcess/NetworkProcess.h	removed	source	manual:ftp-2.54	FTP plumbing added after 2.34.1; removed in the 2.54 migration
+ftp	file	-	Source/WebKit/NetworkProcess/NetworkProcess.h	modified	source	manual:ftp-2.54	FTP plumbing added after 2.34.1; removed in the 2.54 migration
+ftp	method	WebKit::NetworkProcess::ftpEnabled	Source/WebKit/NetworkProcess/NetworkProcess.h	removed	source	manual:ftp-2.54	FTP plumbing added after 2.34.1; removed in the 2.54 migration
+ftp	field	WebKit::NetworkProcessCreationParameters::ftpEnabled	Source/WebKit/NetworkProcess/NetworkProcessCreationParameters.h	removed	source	manual:ftp-2.54	FTP plumbing added after 2.34.1; removed in the 2.54 migration
+ftp	file	-	Source/WebKit/NetworkProcess/NetworkProcessCreationParameters.h	modified	source	manual:ftp-2.54	FTP plumbing added after 2.34.1; removed in the 2.54 migration
+ftp	file	-	Source/WebKit/NetworkProcess/NetworkProcessCreationParameters.serialization.in	modified	source	manual:ftp-2.54	FTP plumbing added after 2.34.1; removed in the 2.54 migration
+ftp	file	-	Source/WebKit/NetworkProcess/PingLoad.cpp	modified	source	manual:ftp-2.54	FTP plumbing added after 2.34.1; removed in the 2.54 migration
+ftp	file	-	Source/WebKit/NetworkProcess/PingLoad.h	modified	source	manual:ftp-2.54	FTP plumbing added after 2.34.1; removed in the 2.54 migration
+ftp	method	WebKit::PingLoad::wasBlockedByDisabledFTP	Source/WebKit/NetworkProcess/PingLoad.h	removed	source	manual:ftp-2.54	FTP plumbing added after 2.34.1; removed in the 2.54 migration
+ftp	file	-	Source/WebKit/NetworkProcess/cocoa/NetworkSessionCocoa.mm	modified	source	manual:ftp-2.54	FTP plumbing added after 2.34.1; removed in the 2.54 migration
+ftp	file	-	Source/WebKit/Shared/WebErrors.cpp	modified	source	manual:ftp-2.54	FTP plumbing added after 2.34.1; removed in the 2.54 migration
+ftp	file	-	Source/WebKit/Shared/WebErrors.h	modified	source	manual:ftp-2.54	FTP plumbing added after 2.34.1; removed in the 2.54 migration
+ftp	function	WebKit::ftpDisabledError	Source/WebKit/Shared/WebErrors.h	removed	source	manual:ftp-2.54	FTP plumbing added after 2.34.1; removed in the 2.54 migration
+ftp	file	-	Source/WebKit/UIProcess/API/C/WKAPICast.h	modified	source	manual:ftp-2.54	FTP plumbing added after 2.34.1; removed in the 2.54 migration
+ftp	file	-	Source/WebKit/UIProcess/API/C/WKPreferences.cpp	modified	source	manual:ftp-2.54	FTP plumbing added after 2.34.1; removed in the 2.54 migration
+ftp	function	WKPreferencesCopyFTPDirectoryTemplatePath	Source/WebKit/UIProcess/API/C/WKPreferences.cpp	removed	source	manual:ftp-2.54	FTP plumbing added after 2.34.1; removed in the 2.54 migration; deprecated stub
+ftp	function	WKPreferencesGetForceFTPDirectoryListings	Source/WebKit/UIProcess/API/C/WKPreferences.cpp	removed	source	manual:ftp-2.54	FTP plumbing added after 2.34.1; removed in the 2.54 migration; deprecated stub
+ftp	function	WKPreferencesSetFTPDirectoryTemplatePath	Source/WebKit/UIProcess/API/C/WKPreferences.cpp	removed	source	manual:ftp-2.54	FTP plumbing added after 2.34.1; removed in the 2.54 migration; deprecated stub
+ftp	function	WKPreferencesSetForceFTPDirectoryListings	Source/WebKit/UIProcess/API/C/WKPreferences.cpp	removed	source	manual:ftp-2.54	FTP plumbing added after 2.34.1; removed in the 2.54 migration; deprecated stub
+ftp	file	-	Source/WebKit/UIProcess/API/C/WKPreferencesRefPrivate.h	modified	source	manual:ftp-2.54	FTP plumbing added after 2.34.1; removed in the 2.54 migration
+ftp	enum_value	kWKProtectionSpaceProxyTypeFTP	Source/WebKit/UIProcess/API/C/WKProtectionSpaceTypes.h	removed	source	manual:ftp-2.54	FTP plumbing added after 2.34.1; removed in the 2.54 migration; C API constant; values after it are renumbered; anonymous C enum not indexed by equivalence; covered by leak token
+ftp	enum_value	kWKProtectionSpaceServerTypeFTP	Source/WebKit/UIProcess/API/C/WKProtectionSpaceTypes.h	removed	source	manual:ftp-2.54	FTP plumbing added after 2.34.1; removed in the 2.54 migration; C API constant; values after it are renumbered; anonymous C enum not indexed by equivalence; covered by leak token
+ftp	enum_value	kWKProtectionSpaceServerTypeFTPS	Source/WebKit/UIProcess/API/C/WKProtectionSpaceTypes.h	removed	source	manual:ftp-2.54	FTP plumbing added after 2.34.1; removed in the 2.54 migration; C API constant; values after it are renumbered; anonymous C enum not indexed by equivalence; covered by leak token
 ftp	file	-	Source/WebKit/UIProcess/API/C/WKProtectionSpaceTypes.h	modified	source	bb8adb1d3b752d717edaf65cd17a708247ea75eb	origin=bb8adb1d3b752d717edaf65cd17a708247ea75eb :unicorn: FTP Support
+ftp	file	-	Source/WebKit/UIProcess/API/glib/WebKitAuthenticationRequest.cpp	modified	source	manual:ftp-2.54	FTP plumbing added after 2.34.1; removed in the 2.54 migration
+ftp	file	-	Source/WebKit/UIProcess/Cocoa/WebProcessPoolCocoa.mm	modified	source	manual:ftp-2.54	FTP plumbing added after 2.34.1; removed in the 2.54 migration
+ftp	file	-	Source/WebKitLegacy/ios/Misc/WebNSStringExtrasIOS.m	modified	source	manual:ftp-2.54	FTP plumbing added after 2.34.1; removed in the 2.54 migration
 ftp	flag	WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_FTPDIR PRIVATE ON)	Source/cmake/OptionsFTW.cmake	removed	source	bb8adb1d3b752d717edaf65cd17a708247ea75eb	line=81; commit=bb8adb1d3b75
 ftp	flag	WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_FTPDIR PRIVATE OFF)	Source/cmake/OptionsGTK.cmake	removed	source	bb8adb1d3b752d717edaf65cd17a708247ea75eb	line=146; commit=bb8adb1d3b75
 ftp	flag	WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_FTPDIR PRIVATE OFF)	Source/cmake/OptionsPlayStation.cmake	removed	source	bb8adb1d3b752d717edaf65cd17a708247ea75eb	line=75; commit=bb8adb1d3b75
@@ -1821,6 +1879,7 @@ geolocation	field	WebCore::SecurityContext::m_geolocationAccessed	Source/WebCore
 geolocation	file	-	Source/WebCore/dom/SecurityContext.h	modified	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	origin=ba5ff6e41dbe314de89048801345d5e2a1c83b8e :unicorn: Geolocation API
 geolocation	method	WebCore::SecurityContext::geolocationAccessed	Source/WebCore/dom/SecurityContext.h	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	line=114
 geolocation	method	WebCore::SecurityContext::setGeolocationAccessed	Source/WebCore/dom/SecurityContext.h	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	line=115
+geolocation	enum_value	WebCore::TaskSource::Geolocation	Source/WebCore/dom/TaskSource.h	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	line=35; belongs to Geolocation, not WebXR
 geolocation	build_ref	"url": "https://www.w3.org/TR/geolocation-API/"	Source/WebCore/features.json	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	line=445; commit=ba5ff6e41dbe
 geolocation	config_line	"name": "Geolocation API",	Source/WebCore/features.json	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	line=440; commit=ba5ff6e41dbe
 geolocation	file	-	Source/WebCore/loader/MixedContentChecker.cpp	modified	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	origin=ba5ff6e41dbe314de89048801345d5e2a1c83b8e :unicorn: Geolocation API
@@ -9224,7 +9283,6 @@ webxr	config_line	WebXRLayer conditional=WEBXR	Source/WebCore/dom/EventTargetFac
 webxr	config_line	WebXRSession conditional=WEBXR	Source/WebCore/dom/EventTargetFactory.in	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	line=67; commit=70c5c9a54927
 webxr	config_line	WebXRSpace conditional=WEBXR	Source/WebCore/dom/EventTargetFactory.in	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	line=68; commit=70c5c9a54927
 webxr	config_line	WebXRSystem conditional=WEBXR	Source/WebCore/dom/EventTargetFactory.in	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	line=69; commit=70c5c9a54927
-geolocation	enum_value	WebCore::TaskSource::Geolocation	Source/WebCore/dom/TaskSource.h	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	line=35; belongs to Geolocation, not WebXR
 webxr	enum_value	WebCore::TaskSource::WebXR	Source/WebCore/dom/TaskSource.h	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	line=47
 webxr	file	-	Source/WebCore/dom/TaskSource.h	modified	source	70c5c9a549279cb1995ab08dbec2e8885778a233	origin=70c5c9a549279cb1995ab08dbec2e8885778a233 :unicorn: WebXR API
 webxr	build_ref	"url": "https://immersive-web.github.io/webxr/",	Source/WebCore/features.json	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	line=783; commit=70c5c9a54927

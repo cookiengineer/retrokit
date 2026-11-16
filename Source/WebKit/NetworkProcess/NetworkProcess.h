@@ -444,8 +444,6 @@ public:
     RTCDataChannelRemoteManagerProxy& rtcDataChannelProxy();
 #endif
 
-    bool ftpEnabled() const { return m_ftpEnabled; }
-
     void getPendingPushMessage(PAL::SessionID, CompletionHandler<void(const std::optional<WebPushMessage>&)>&&);
     void getPendingPushMessages(PAL::SessionID, CompletionHandler<void(const Vector<WebPushMessage>&)>&&);
     void processPushMessage(PAL::SessionID, WebPushMessage&&, WebCore::PushPermissionState, bool builtInNotificationsEnabled, CompletionHandler<void(bool, std::optional<WebCore::NotificationPayload>&&)>&&);
@@ -691,7 +689,6 @@ private:
     HashSet<WebPageProxyIdentifier> m_pagesWithRelaxedThirdPartyCookieBlocking;
 
     bool m_privateClickMeasurementEnabled { true };
-    bool m_ftpEnabled { false };
     bool m_isSuspended { false };
     bool m_didSyncCookiesForClose { false };
 #if PLATFORM(COCOA)

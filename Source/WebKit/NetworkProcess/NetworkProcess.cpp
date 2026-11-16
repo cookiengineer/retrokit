@@ -346,7 +346,6 @@ void NetworkProcess::initializeNetworkProcess(NetworkProcessCreationParameters&&
 #if HAVE(ENHANCED_SECURITY_LINKS)
     setIsEnhancedSecurityLinksEnabled(parameters.enableEnhancedSecurityLinks);
 #endif
-    m_ftpEnabled = parameters.ftpEnabled;
 
     for (auto& [processIdentifier, paths] : parameters.allowedFilePaths)
         allowFilesAccessFromWebProcess(processIdentifier, paths, [] { });

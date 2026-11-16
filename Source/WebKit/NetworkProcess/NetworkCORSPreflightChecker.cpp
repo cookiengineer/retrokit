@@ -186,11 +186,6 @@ void NetworkCORSPreflightChecker::wasBlockedByRestrictions()
     m_completionCallback(ResourceError { errorDomainWebKitInternal, 0, m_parameters.originalRequest.url(), "Preflight response was blocked"_s, ResourceError::Type::AccessControl });
 }
 
-void NetworkCORSPreflightChecker::wasBlockedByDisabledFTP()
-{
-    m_completionCallback(ftpDisabledError(m_parameters.originalRequest));
-}
-
 NetworkTransactionInformation NetworkCORSPreflightChecker::takeInformation()
 {
     ASSERT(m_shouldCaptureExtraNetworkLoadMetrics);

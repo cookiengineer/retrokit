@@ -100,12 +100,6 @@ NetworkDataTask::NetworkDataTask(NetworkSession& session, NetworkDataTaskClient&
         return;
     }
 
-    if (!session.networkProcess().ftpEnabled()
-        && requestWithCredentials.url().protocolIsInFTPFamily()) {
-        scheduleFailure(FailureType::FTPDisabled);
-        return;
-    }
-
     protect(networkSession())->registerNetworkDataTask(*this);
 }
 
@@ -140,8 +134,6 @@ void NetworkDataTask::scheduleFailure(FailureType type)
         case FailureType::RestrictedURL:
             client->wasBlockedByRestrictions();
             return;
-        case FailureType::FTPDisabled:
-            client->wasBlockedByDisabledFTP();
         }
     });
 }

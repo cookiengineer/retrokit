@@ -79,7 +79,6 @@ struct NetworkProcessCreationParameters {
     Vector<String> urlSchemesRegisteredAsNoAccess;
 
     bool enablePrivateClickMeasurement { true };
-    bool ftpEnabled { false };
 #if PLATFORM(COCOA)
     bool enableModernDownloadProgress { false };
 #endif

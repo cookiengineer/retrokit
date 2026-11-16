@@ -185,7 +185,6 @@ public:
     bool protocolIsData() const { return protocolIs("data"_s); }
     bool protocolIsFile() const { return protocolIs("file"_s); }
     WTF_EXPORT_PRIVATE bool protocolIsJavaScript() const;
-    bool protocolIsInFTPFamily() const { return protocolIs("ftp"_s) || protocolIs("ftps"_s); }
     bool protocolIsInHTTPFamily() const { return m_protocolIsInHTTPFamily; }
     WTF_EXPORT_PRIVATE bool protocolIsSecure() const;
     bool hasOpaquePath() const { return m_hasOpaquePath; }

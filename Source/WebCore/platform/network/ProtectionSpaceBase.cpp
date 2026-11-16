@@ -44,14 +44,12 @@ bool ProtectionSpaceBase::isProxy() const
 {
     return m_serverType == ServerType::ProxyHTTP
         || m_serverType == ServerType::ProxyHTTPS
-        || m_serverType == ServerType::ProxyFTP
         || m_serverType == ServerType::ProxySOCKS;
 }
 
 bool ProtectionSpaceBase::receivesCredentialSecurely() const
 {
     return m_serverType == ServerType::HTTPS
-        || m_serverType == ServerType::FTPS
         || m_serverType == ServerType::ProxyHTTPS
         || m_authenticationScheme == AuthenticationScheme::HTTPDigest;
 }

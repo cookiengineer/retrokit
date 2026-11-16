@@ -50,8 +50,6 @@ ProtectionSpace::ServerType AuthenticationChallenge::protectionSpaceServerTypeFr
         return isForProxy ? ProtectionSpace::ServerType::ProxyHTTPS : ProtectionSpace::ServerType::HTTPS;
     if (url.protocolIs("http"_s))
         return isForProxy ? ProtectionSpace::ServerType::ProxyHTTP : ProtectionSpace::ServerType::HTTP;
-    if (url.protocolIs("ftp"_s))
-        return isForProxy ? ProtectionSpace::ServerType::ProxyFTP : ProtectionSpace::ServerType::FTP;
     return isForProxy ? ProtectionSpace::ServerType::ProxyHTTP : ProtectionSpace::ServerType::HTTP;
 }
 

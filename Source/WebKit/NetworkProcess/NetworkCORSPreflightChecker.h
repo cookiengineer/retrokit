@@ -91,7 +91,6 @@ private:
     void wasBlocked() final;
     void cannotShowURL() final;
     void wasBlockedByRestrictions() final;
-    void wasBlockedByDisabledFTP() final;
 
     Parameters m_parameters;
     const Ref<NetworkProcess> m_networkProcess;

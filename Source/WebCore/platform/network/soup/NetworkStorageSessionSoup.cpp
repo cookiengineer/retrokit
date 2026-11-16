@@ -186,10 +186,6 @@ static ASCIILiteral schemeFromProtectionSpaceServerType(ProtectionSpace::ServerT
     case ProtectionSpace::ServerType::HTTPS:
     case ProtectionSpace::ServerType::ProxyHTTPS:
         return "https"_s;
-    case ProtectionSpace::ServerType::FTP:
-    case ProtectionSpace::ServerType::ProxyFTP:
-        return "ftp"_s;
-    case ProtectionSpace::ServerType::FTPS:
     case ProtectionSpace::ServerType::ProxySOCKS:
         break;
     }

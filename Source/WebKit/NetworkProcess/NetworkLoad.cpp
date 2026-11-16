@@ -185,17 +185,6 @@ void NetworkLoad::willPerformHTTPRedirection(ResourceResponse&& redirectResponse
     ASSERT(!redirectResponse.isNull());
     ASSERT(RunLoop::isMain());
 
-    if (!m_networkProcess->ftpEnabled() && request.url().protocolIsInFTPFamily()) {
-        m_task->clearClient();
-        m_task = nullptr;
-        WebCore::NetworkLoadMetrics emptyMetrics;
-        didCompleteWithError(ResourceError { errorDomainWebKitInternal, 0, url(), "FTP URLs are disabled"_s, ResourceError::Type::AccessControl }, emptyMetrics);
-
-        if (completionHandler)
-            completionHandler({ });
-        return;
-    }
-
     RefPtr client = m_client.get();
 
     if (!client)
@@ -336,12 +325,6 @@ void NetworkLoad::wasBlockedByRestrictions()
 {
     if (RefPtr client = m_client.get())
         client->didFailLoading(wasBlockedByRestrictionsError(m_currentRequest));
-}
-
-void NetworkLoad::wasBlockedByDisabledFTP()
-{
-    if (RefPtr client = m_client.get())
-        client->didFailLoading(ftpDisabledError(m_currentRequest));
 }
 
 void NetworkLoad::didNegotiateModernTLS(const URL& url)

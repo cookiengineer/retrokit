@@ -5,7 +5,7 @@ custom-protocol	Legacy Custom Protocol Support	removed	SECURITY.md#legacy-hacks	
 device-sensors	Device Motion and Orientation APIs	removed	SECURITY.md#ecmascript-apis	DEVICE_ORIENTATION,DeviceMotion,DeviceOrientation
 docs	Documentation	maintenance		
 encrypted-media	Encrypted Media API	removed	SECURITY.md#ecmascript-apis	ENCRYPTED_MEDIA,EME,MediaKeys
-ftp	FTP Support	removed	SECURITY.md#ecmascript-apis	FTPDIR,FTPDirectory
+ftp	FTP Support	removed	SECURITY.md#ecmascript-apis	FTPDIR,FTPDirectory,FTPEnabled,ftpEnabled,protocolIsInFTPFamily,FTPDisabled,ftpDisabledError,wasBlockedByDisabledFTP,unknownFileSizeText,kWKProtectionSpaceServerTypeFTP,kWKProtectionSpaceServerTypeFTPS,kWKProtectionSpaceProxyTypeFTP,ForceFTPDirectoryListings,FTPDirectoryTemplatePath
 fullscreen-pip	Fullscreen and Picture-in-Picture	removed	SECURITY.md#ecmascript-apis	FULLSCREEN,PICTURE_IN_PICTURE,EnterPictureInPictureEvent
 gamepad	Gamepad API	removed	SECURITY.md#ecmascript-apis	GAMEPAD,Gamepad,navigator.getGamepads
 geolocation	Geolocation API	removed	SECURITY.md#ecmascript-apis	GEOLOCATION,Geolocation,Geoposition

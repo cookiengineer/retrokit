@@ -116,7 +116,6 @@ private:
     void wasBlocked() final;
     void cannotShowURL() final;
     void wasBlockedByRestrictions() final;
-    void wasBlockedByDisabledFTP() final;
     void didNegotiateModernTLS(const URL&) final;
 
     void notifyDidReceiveResponse(WebCore::ResourceResponse&&, NegotiatedLegacyTLS, PrivateRelayed, ResponseCompletionHandler&&);

@@ -220,12 +220,6 @@ void BackgroundFetchLoad::wasBlockedByRestrictions()
     didFinish(wasBlockedByRestrictionsError(ResourceRequest { URL { currentURL() } }));
 }
 
-void BackgroundFetchLoad::wasBlockedByDisabledFTP()
-{
-    BGLOAD_RELEASE_LOG("wasBlockedByDisabledFTP");
-    didFinish(ftpDisabledError(ResourceRequest(URL { currentURL() })));
-}
-
 const URL& BackgroundFetchLoad::currentURL() const
 {
     return m_networkLoadChecker->url();

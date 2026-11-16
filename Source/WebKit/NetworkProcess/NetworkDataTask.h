@@ -77,7 +77,6 @@ public:
     virtual void wasBlocked() = 0;
     virtual void cannotShowURL() = 0;
     virtual void wasBlockedByRestrictions() = 0;
-    virtual void wasBlockedByDisabledFTP() = 0;
 
     virtual bool shouldCaptureExtraNetworkLoadMetrics() const { return false; }
 
@@ -163,8 +162,7 @@ protected:
     enum class FailureType : uint8_t {
         Blocked,
         InvalidURL,
-        RestrictedURL,
-        FTPDisabled
+        RestrictedURL
     };
     void scheduleFailure(FailureType);
 

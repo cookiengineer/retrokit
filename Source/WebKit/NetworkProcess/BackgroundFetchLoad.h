@@ -78,7 +78,6 @@ private:
     void wasBlocked() final;
     void cannotShowURL() final;
     void wasBlockedByRestrictions() final;
-    void wasBlockedByDisabledFTP() final;
 
     // WebCore::BackgroundFetchRecordLoader
     void abort() final;

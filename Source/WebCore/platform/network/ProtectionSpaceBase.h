@@ -35,11 +35,8 @@ class ProtectionSpace;
 enum class ProtectionSpaceBaseServerType : uint8_t {
     HTTP = 1, // NOLINT
     HTTPS, // NOLINT
-    FTP, // NOLINT
-    FTPS, // NOLINT
     ProxyHTTP,
     ProxyHTTPS,
-    ProxyFTP,
     ProxySOCKS
 };
 

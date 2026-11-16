@@ -39,11 +39,6 @@ static ProtectionSpace::ServerType type(NSURLProtectionSpace *space)
             return ProtectionSpace::ServerType::ProxyHTTP;
         if ([proxyType isEqualToString:NSURLProtectionSpaceHTTPSProxy])
             return ProtectionSpace::ServerType::ProxyHTTPS;
-// FIXME: rdar://144814079
-ALLOW_DEPRECATED_DECLARATIONS_BEGIN
-        if ([proxyType isEqualToString:NSURLProtectionSpaceFTPProxy])
-            return ProtectionSpace::ServerType::ProxyFTP;
-ALLOW_DEPRECATED_DECLARATIONS_END
         if ([proxyType isEqualToString:NSURLProtectionSpaceSOCKSProxy])
             return ProtectionSpace::ServerType::ProxySOCKS;
 
@@ -56,10 +51,6 @@ ALLOW_DEPRECATED_DECLARATIONS_END
         return ProtectionSpace::ServerType::HTTP;
     if ([protocol caseInsensitiveCompare:@"https"] == NSOrderedSame)
         return ProtectionSpace::ServerType::HTTPS;
-    if ([protocol caseInsensitiveCompare:@"ftp"] == NSOrderedSame)
-        return ProtectionSpace::ServerType::FTP;
-    if ([protocol caseInsensitiveCompare:@"ftps"] == NSOrderedSame)
-        return ProtectionSpace::ServerType::FTPS;
 
     ASSERT_NOT_REACHED();
     return ProtectionSpace::ServerType::HTTP;
@@ -121,24 +112,12 @@ NSURLProtectionSpace *ProtectionSpace::nsSpace() const
     case ProtectionSpace::ServerType::HTTPS:
         protocol = @"https";
         break;
-    case ProtectionSpace::ServerType::FTP:
-        protocol = @"ftp";
-        break;
-    case ProtectionSpace::ServerType::FTPS:
-        protocol = @"ftps";
-        break;
     case ProtectionSpace::ServerType::ProxyHTTP:
         proxyType = NSURLProtectionSpaceHTTPProxy;
         break;
     case ProtectionSpace::ServerType::ProxyHTTPS:
         proxyType = NSURLProtectionSpaceHTTPSProxy;
         break;
-// FIXME: rdar://144814079
-ALLOW_DEPRECATED_DECLARATIONS_BEGIN
-    case ProtectionSpace::ServerType::ProxyFTP:
-        proxyType = NSURLProtectionSpaceFTPProxy;
-        break;
-ALLOW_DEPRECATED_DECLARATIONS_END
     case ProtectionSpace::ServerType::ProxySOCKS:
         proxyType = NSURLProtectionSpaceSOCKSProxy;
         break;

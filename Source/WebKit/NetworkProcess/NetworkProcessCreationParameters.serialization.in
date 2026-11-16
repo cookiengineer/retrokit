@@ -56,7 +56,6 @@ headers: "NetworkProcessCreationParameters.h" "AuxiliaryProcessCreationParameter
     Vector<String> urlSchemesRegisteredAsNoAccess
 
     bool enablePrivateClickMeasurement
-    bool ftpEnabled
 #if PLATFORM(COCOA)
     bool enableModernDownloadProgress
 #endif

@@ -72,7 +72,6 @@
                 if ([workString _web_hasCaseInsensitivePrefix:@"http:"] ||
                     [workString _web_hasCaseInsensitivePrefix:@"https:"] ||
                     [workString _web_hasCaseInsensitivePrefix:@"file:"] ||
-                    [workString _web_hasCaseInsensitivePrefix:@"ftp:"] ||
                     [workString _web_hasCaseInsensitivePrefix:@"javascript:"] ||
                     [workString _web_hasCaseInsensitivePrefix:@"about:"] ||
                     [workString _web_hasCaseInsensitivePrefix:@"radar:"] ||
@@ -107,15 +106,6 @@
                 if ([[workString lowercaseString] hasPrefix:@"www."]) {
                     // - just prepend "http://"
                     [workString insertString:@"http://" atIndex:0];
-                    URL = [NSURL _webkit_URLWithUserTypedString:workString];
-                    if (URL != nil) {
-                        [result addObject:URL];
-                    }
-                    
-                // apparent hostname contains a dot and starts with "ftp."
-                } else if ([[workString lowercaseString] hasPrefix:@"ftp."]) {
-                    // - just prepend "ftp://"
-                    [workString insertString:@"ftp://" atIndex:0];
                     URL = [NSURL _webkit_URLWithUserTypedString:workString];
                     if (URL != nil) {
                         [result addObject:URL];

@@ -3195,20 +3195,6 @@ ExtensibleSSOEnabled:
     WebKit:
       default: true
 
-FTPEnabled:
-  type: bool
-  status: developer
-  category: networking
-  humanReadableName: "FTP support enabled"
-  humanReadableDescription: "FTP support enabled"
-  defaultValue:
-    WebCore:
-      default: false
-    WebKit:
-      default: false
-    WebKitLegacy:
-      default: false
-
 FacebookLiveRecordingQuirkEnabled:
   type: bool
   status: internal
