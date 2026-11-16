@@ -313,13 +313,38 @@ make shell DISTRO=debian
 # Run the MiniBrowser smoke test (needs Xvfb).
 make smoke DISTRO=debian
 
-# Remove local build directories.
+# Inspect or clear the persistent compiler cache.
+make ccache-stats DISTRO=debian
+make ccache-clean DISTRO=debian
+
+# Remove local build directories (keeps ccache).
 make clean
+
+# Remove builds, ccache and container images.
+make distclean
 ```
 
 The build directory is `build/<distro>` and is intentionally ignored by Git.
 The container runs as a user matching the host UID/GID via Podman's
 `--userns=keep-id`, so build artifacts are owned by the invoking user.
+
+Compiler caching is persistent and per-distribution:
+
+- The host cache lives at `build/ccache/<distro>`.
+- It is mounted into the container at `/ccache`.
+- `CCACHE_BASEDIR=/work` and `CCACHE_MAXSIZE=20G` are set by the Makefile.
+- `make clean` removes the build output but keeps the ccache.
+- `make distclean` removes both build output and cache.
+
+Useful cache commands:
+
+```bash
+make ccache-stats DISTRO=debian
+make ccache-clean DISTRO=debian
+```
+
+A repeated MiniBrowser compilation was verified to hit the shared cache
+across separate `podman run` invocations.
 
 If Podman is not installed, install it through the host package manager and
 verify rootless operation:

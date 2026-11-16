@@ -118,10 +118,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   && rm -rf /var/lib/apt/lists/*
 
 RUN useradd --create-home --uid 1000 --shell /bin/bash builder \
+  && mkdir -p /ccache \
+  && chown builder:builder /ccache \
   && git config --system --add safe.directory /work
 
 USER builder
 ENV HOME=/home/builder
+ENV CCACHE_DIR=/ccache
+ENV CCACHE_BASEDIR=/work
+ENV CCACHE_MAXSIZE=20G
 WORKDIR /work
 
 CMD ["/bin/bash"]

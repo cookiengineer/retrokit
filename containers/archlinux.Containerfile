@@ -110,10 +110,15 @@ RUN pacman -Syu --noconfirm --needed \
   && rm -rf /var/cache/pacman/pkg/* /var/lib/pacman/sync/*
 
 RUN useradd --create-home --uid 1000 --shell /bin/bash builder \
+  && mkdir -p /ccache \
+  && chown builder:builder /ccache \
   && git config --system --add safe.directory /work
 
 USER builder
 ENV HOME=/home/builder
+ENV CCACHE_DIR=/ccache
+ENV CCACHE_BASEDIR=/work
+ENV CCACHE_MAXSIZE=20G
 WORKDIR /work
 
 CMD ["/bin/bash"]
