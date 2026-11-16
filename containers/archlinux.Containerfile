@@ -21,6 +21,7 @@ RUN pacman -Syu --noconfirm --needed \
     cmake \
     ninja \
     ruby \
+    ruby-erb \
     python \
     perl \
     git \
