@@ -42,6 +42,9 @@ media controls, inspector resources and the GLib dependency-file workaround.
 Recent commits on `migrate/2.54`:
 
 ```text
+e2b68191b Share persistent per-distro ccache across container runs
+f62961975 Add glib2-devel to Arch build container
+0d47081ff Add ruby-erb to Arch build container
 06be042a7 Clean Arch container cache and enable ccache
 bb6320d48 Add rootless Podman build containers and handover document
 3d9477656 Fix WebXR build fallout and restore Geolocation task source
@@ -260,16 +263,17 @@ cmake -DPORT=GTK -DCMAKE_BUILD_TYPE=Release \
   -GNinja
 ```
 
-The Debian 13 container now builds the full tree and runs MiniBrowser:
+Both build containers now build the full tree and run MiniBrowser:
 
 ```text
-make build DISTRO=debian   -> success (WebKit + MiniBrowser)
-make smoke DISTRO=debian   -> success (MiniBrowser --help under Xvfb)
+make build DISTRO=debian     -> success (WebKit + MiniBrowser)
+make smoke DISTRO=debian     -> success (MiniBrowser --help under Xvfb)
+make build DISTRO=archlinux  -> success (WebKit + MiniBrowser)
+make smoke DISTRO=archlinux  -> success (MiniBrowser --help under Xvfb)
 ```
 
-The Arch Linux container configures successfully. A full Arch build is the
-remaining container validation. The host itself does not need Ruby because the
-build runs inside the containers.
+The host itself does not need Ruby because the build runs inside the
+containers. Both images are also validated by a full end-to-end compile.
 
 Build caveats:
 
