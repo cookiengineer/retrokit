@@ -348,7 +348,7 @@ make ccache-clean DISTRO=debian
 ```
 
 A repeated MiniBrowser compilation was verified to hit the shared cache
-across separate `podman run` invocations.
+across separate `podman run` invocations on both Debian and Arch Linux.
 
 If Podman is not installed, install it through the host package manager and
 verify rootless operation:
