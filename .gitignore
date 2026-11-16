@@ -3,6 +3,13 @@ CMakeFiles
 cmake_install.cmake
 __pycache__
 
+# Local upstream WebKit checkout and generated upstreamcheck artifacts
+/upstream_repo/
+/Helpers/upstreamcheck/.cache/
+/Helpers/upstreamcheck/manifest/candidates/
+/Helpers/upstreamcheck/manifest/migration-plan.md
+/Helpers/upstreamcheck/upstreamcheck
+
 /.ninja_deps
 /.ninja_log
 /build.ninja

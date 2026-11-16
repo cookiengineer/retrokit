@@ -54,6 +54,21 @@ ninja;
 The complete list of available options is described in the [Source/cmake/WebKitFeatures.cmake](/Source/cmake/WebKitFeatures.cmake) file.
 
 
+# Upstream Maintenance
+
+The fork diverges from upstream WebKit through a large removal layer. The
+[upstreamcheck](./Helpers/upstreamcheck/README.md) helper maintains a manifest
+of that divergence, verifies that removed APIs do not reappear after an
+upstream update, and generates per-feature migration candidates.
+
+```bash
+cd Helpers/upstreamcheck;
+go build -o upstreamcheck ./cmd/upstreamcheck;
+./upstreamcheck status;
+./upstreamcheck lint;
+```
+
+
 # Debugging
 
 A `Debug` build has support for the `WEBKIT_DEBUG` environment variable, which can activate
