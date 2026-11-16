@@ -6,8 +6,6 @@ list(APPEND WebCore_SYSTEM_INCLUDE_DIRECTORIES
 )
 
 list(APPEND WebCore_SOURCES
-  accessibility/playstation/AXObjectCachePlayStation.cpp
-  accessibility/playstation/AccessibilityObjectPlayStation.cpp
 
   editing/glib/EditorGLib.cpp
 

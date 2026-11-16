@@ -98,11 +98,6 @@
 #include <wtf/PlatformEnableWin.h>
 #endif
 
-/* --------- PlayStation port --------- */
-#if PLATFORM(PLAYSTATION)
-#include <wtf/PlatformEnablePlayStation.h>
-#endif
-
 /* --------- GTK/WPE port --------- */
 #if PLATFORM(GTK) || PLATFORM(WPE)
 #include <wtf/PlatformEnableGlib.h>

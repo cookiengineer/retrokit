@@ -795,9 +795,6 @@ private:
     Vector<int> m_fileDescriptors;
     UnixFileDescriptor m_socketDescriptor;
 #endif
-#if PLATFORM(PLAYSTATION)
-    RefPtr<WTF::Thread> m_socketMonitor;
-#endif
 #elif OS(DARWIN)
     // Called on the connection queue.
     void receiveSourceEventHandler();

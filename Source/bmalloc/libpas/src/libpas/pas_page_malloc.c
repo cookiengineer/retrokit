@@ -75,8 +75,6 @@ static bool madv_zero_supported = false;
 
 #if PAS_OS(DARWIN)
 #define PAS_VM_TAG VM_MAKE_TAG(VM_MEMORY_TCMALLOC)
-#elif PAS_PLATFORM(PLAYSTATION) && defined(VM_MAKE_TAG)
-#define PAS_VM_TAG VM_MAKE_TAG(VM_TYPE_USER1)
 #else
 #define PAS_VM_TAG -1
 #endif
@@ -419,9 +417,6 @@ static void commit_impl(void* ptr, size_t size, bool do_mprotect, bool is_symmet
          * so there's nothing to re-commit.
          */
     }
-#elif PAS_PLATFORM(PLAYSTATION)
-    /* We don't need to call madvise to map page. */
-    PAS_ASSERT(!is_symmetric);
 #elif PAS_OS(FREEBSD)
     PAS_ASSERT(!is_symmetric);
     PAS_SYSCALL(madvise(ptr, size, MADV_NORMAL));

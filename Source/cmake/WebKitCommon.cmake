@@ -77,7 +77,6 @@ if (NOT HAS_RUN_WEBKIT_COMMON)
         IOS
         JSCOnly
         Mac
-        PlayStation
         WPE
         Win
     )

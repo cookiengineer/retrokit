@@ -42,7 +42,7 @@
 #include <sys/mman.h>
 #endif
 
-/* PlayStation does not currently support the backtrace API. Android API versions < 33 don't, either. Windows does not either. Linux only with GLibc and not uCLibc/Musl. */
+/* Android API versions < 33 don't support the backtrace API. Windows does not either. Linux only with GLibc and not uCLibc/Musl. */
 #if (PAS_OS(ANDROID) && __ANDROID_API__ >= 33) || PAS_OS(DARWIN) || (PAS_OS(LINUX) && defined(__GLIBC__) && !defined(__UCLIBC__))
 #include <execinfo.h>
 #else

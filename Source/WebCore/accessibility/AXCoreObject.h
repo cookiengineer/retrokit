@@ -81,7 +81,7 @@ class AccessibilityObjectAtspi;
 
 typedef WebCore::AccessibilityObjectAtspi AccessibilityObjectWrapper;
 
-#elif PLATFORM(PLAYSTATION) || PLATFORM(HAIKU)
+#elif PLATFORM(HAIKU)
 class AccessibilityObjectWrapper : public RefCounted<AccessibilityObjectWrapper> { };
 #else
 class AccessibilityObjectWrapper;
@@ -1505,7 +1505,7 @@ private:
     RetainPtr<WebAccessibilityObjectWrapper> m_wrapper;
 #elif PLATFORM(WIN)
     COMPtr<AccessibilityObjectWrapper> m_wrapper;
-#elif PLATFORM(PLAYSTATION) || PLATFORM(HAIKU)
+#elif PLATFORM(HAIKU)
     RefPtr<AccessibilityObjectWrapper> m_wrapper;
 #elif USE(ATSPI)
     RefPtr<AccessibilityObjectAtspi> m_wrapper;

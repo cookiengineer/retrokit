@@ -369,7 +369,7 @@ void WTFPrintBacktrace(std::span<void* const> stack)
     WTFPrintBacktraceWithPrefixAndPrintStream(out, stack, "");
 }
 
-#if !defined(NDEBUG) || !(OS(DARWIN) || PLATFORM(PLAYSTATION))
+#if !defined(NDEBUG) || !OS(DARWIN)
 void WTFCrash()
 {
 #if ASAN_ENABLED
@@ -391,7 +391,7 @@ void WTFCrash()
 {
     CRASH();
 }
-#endif // !defined(NDEBUG) || !(OS(DARWIN) || PLATFORM(PLAYSTATION))
+#endif // !defined(NDEBUG) || !OS(DARWIN)
 
 #if ENABLE(CONJECTURE_ASSERT)
 int wtfConjectureAssertIsEnabled = 0;
@@ -655,7 +655,7 @@ void WTFInitializeLogChannelStatesFromString(WTFLogChannel* channels[], size_t c
 
 } // extern "C"
 
-#if !ASAN_ENABLED && (OS(DARWIN) || PLATFORM(PLAYSTATION)) && (CPU(X86_64) || CPU(ARM64))
+#if !ASAN_ENABLED && OS(DARWIN) && (CPU(X86_64) || CPU(ARM64))
 
 void WTFCrashWithInfoImpl(int, const char*, const char*, UCPURegister reason, UCPURegister misc1, UCPURegister misc2, UCPURegister misc3, UCPURegister misc4, UCPURegister misc5, UCPURegister misc6)
 {
@@ -737,7 +737,7 @@ void WTFCrashWithInfoImpl(int, const char*, const char*, UCPURegister, UCPURegis
 void WTFCrashWithInfoImpl(int, const char*, const char*, UCPURegister, UCPURegister) { CRASH(); }
 void WTFCrashWithInfoImpl(int, const char*, const char*, UCPURegister) { CRASH(); }
 
-#endif // (OS(DARWIN) || PLATFORM(PLAYSTATION)) && (CPU(X64_64) || CPU(ARM64))
+#endif // OS(DARWIN) && (CPU(X64_64) || CPU(ARM64))
 
 namespace WTF {
 

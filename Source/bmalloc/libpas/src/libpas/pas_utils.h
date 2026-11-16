@@ -88,9 +88,7 @@ PAS_BEGIN_EXTERN_C;
 
 #define PAS_ALIGNED(amount) __attribute__((aligned(amount)))
 
-#if PAS_PLATFORM(PLAYSTATION) && !defined(alignof)
-#define PAS_ALIGNOF(type) _Alignof(type)
-#elif defined(__cplusplus)
+#if defined(__cplusplus)
 #define PAS_ALIGNOF(type) alignof(type)
 #else
 #define PAS_ALIGNOF(type) _Alignof(type)

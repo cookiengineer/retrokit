@@ -79,7 +79,6 @@ static const unsigned s_defaultSampleCount = 4;
 static const unsigned s_defaultSampleCount = 0;
 #endif
 
-#if !(PLATFORM(PLAYSTATION) && USE(COORDINATED_GRAPHICS))
 static sk_sp<const GrGLInterface> skiaGLInterface()
 {
     static NeverDestroyed<sk_sp<const GrGLInterface>> grGLInterface {
@@ -365,19 +364,16 @@ private:
     unsigned m_sampleCount { 0 };
     size_t m_maxResourceCacheBytes { 0 };
 };
-#endif
 
 GLContext* PlatformDisplay::skiaGLContext()
 {
-#if PLATFORM(GTK) || PLATFORM(WPE) || (PLATFORM(PLAYSTATION) && !USE(COORDINATED_GRAPHICS))
+#if PLATFORM(GTK) || PLATFORM(WPE)
     if (!s_skiaGLContext) {
         s_skiaGLContext = SkiaGLContext::create(*this);
         m_skiaGLContexts.add(*s_skiaGLContext);
     }
     return s_skiaGLContext->skiaGLContext();
 #else
-    // The PlayStation OpenGL implementation does not dispatch to the context bound to
-    // the current thread so Skia cannot use OpenGL with coordinated graphics.
     return nullptr;
 #endif
 }

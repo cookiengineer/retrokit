@@ -20,7 +20,7 @@ media-usage	Media Usage API	removed	SECURITY.md#ecmascript-apis	MEDIA_USAGE,Medi
 misc	Miscellaneous divergence	maintenance		
 payment	Payment and Apple Pay APIs	removed	SECURITY.md#ecmascript-apis	PAYMENT_REQUEST,APPLE_PAY,ApplePay,PaymentRequest
 platform-hurd	GNU/HURD Platform Support	removed	SECURITY.md#target-platforms	HURD,__GNU__
-platform-playstation	PlayStation Platform Support	removed	SECURITY.md#target-platforms	PLATFORM_PLAYSTATION,PlayStation
+platform-playstation	PlayStation Platform Support	removed	SECURITY.md#target-platforms	PLATFORM_PLAYSTATION,PlayStation,PLAYSTATION,BPLATFORM_PLAYSTATION,PAS_PLATFORM_PLAYSTATION,WTF_PLATFORM_PLAYSTATION,WPE_BACKEND_PLAYSTATION,__SCE__
 platform-unix	Outdated Unix Platform Support	removed	SECURITY.md#target-platforms	__sun,HPUX,IRIX,__osf
 platform-watchos	watchOS Platform Support	removed	SECURITY.md#target-platforms	TARGET_OS_WATCH,WATCHOS
 plugins	Legacy Plugin APIs	removed	SECURITY.md#legacy-plugins	NETSCAPE_PLUGIN_API,NPAPI,PluginDocument,RenderEmbeddedObject

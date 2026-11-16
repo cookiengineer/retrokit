@@ -193,10 +193,6 @@
 #define PAS_PLATFORM_VISION 1
 #endif
 
-#if defined(__SCE__)
-#define PAS_PLATFORM_PLAYSTATION 1
-#endif
-
 #if PAS_COMPILER(GCC_COMPATIBLE)
 /* __LP64__ is not defined on 64bit Windows since it uses LLP64. Using __SIZEOF_POINTER__ is simpler. */
 #if __SIZEOF_POINTER__ == 8

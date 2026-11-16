@@ -6796,7 +6796,6 @@ ProcessSwapOnCrossSiteNavigationEnabled:
   exposed: [ WebKit ]
   defaultValue:
     WebKit:
-      "PLATFORM(PLAYSTATION)": false
       default: true
 
 PromiseIsPromiseEnabled:

@@ -60,8 +60,6 @@ class RenderThemeMac;
 class RenderThemeIOS;
 #elif USE(THEME_ADWAITA)
 class RenderThemeAdwaita;
-#elif PLATFORM(PLAYSTATION)
-class RenderThemePlayStation;
 #endif
 
 template<typename> struct MinimallySerializingSpaceSeparatedRectEdges;
@@ -88,8 +86,6 @@ public:
     WEBCORE_EXPORT static RenderThemeIOS& singleton();
 #elif USE(THEME_ADWAITA)
     WEBCORE_EXPORT static RenderThemeAdwaita& singleton();
-#elif PLATFORM(PLAYSTATION)
-    WEBCORE_EXPORT static RenderThemePlayStation& singleton();
 #else
     WEBCORE_EXPORT static RenderTheme& singleton();
 #endif

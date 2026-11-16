@@ -100,10 +100,7 @@ static std::optional<size_t> NODELETE stackSize(ThreadType threadType)
     // Return the stack size for the created thread based on its type.
     // If the stack size is not specified, then use the system default. Platforms can tune the values here.
     // Enable STACK_STATS in StackStats.h to create a build that will track the information for tuning.
-#if PLATFORM(PLAYSTATION)
-    if (threadType == ThreadType::JavaScript)
-        return 512 * KB;
-#elif OS(DARWIN) && (ASAN_ENABLED || ASSERT_ENABLED)
+#if OS(DARWIN) && (ASAN_ENABLED || ASSERT_ENABLED)
     if (threadType == ThreadType::Compiler)
         return 1 * MB; // ASan / Debug build needs more stack space.
 #elif OS(WINDOWS)

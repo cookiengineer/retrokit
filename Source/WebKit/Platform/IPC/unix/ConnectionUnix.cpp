@@ -114,13 +114,6 @@ void Connection::platformInvalidate()
     if (!m_isConnected)
         return;
 
-#if PLATFORM(PLAYSTATION)
-    if (m_socketMonitor) {
-        m_socketMonitor->detach();
-        m_socketMonitor = nullptr;
-    }
-#endif
-
     m_isConnected = false;
 }
 
@@ -334,27 +327,6 @@ void Connection::platformOpen()
 {
     RefPtr<Connection> protectedThis(this);
     m_isConnected = true;
-
-#if PLATFORM(PLAYSTATION)
-    m_socketMonitor = Thread::create("SocketMonitor"_s, [protectedThis] {
-        {
-            int fd;
-            while ((fd = protectedThis->socketDescriptor()) != -1) {
-                int maxFd = fd;
-                fd_set fdSet;
-                FD_ZERO(&fdSet);
-                FD_SET(fd, &fdSet);
-
-                if (-1 != select(maxFd + 1, &fdSet, 0, 0, 0)) {
-                    if (FD_ISSET(fd, &fdSet))
-                        protectedThis->readyReadHandler();
-                }
-            }
-
-        }
-    });
-    return;
-#endif
 
     // Schedule a call to readyReadHandler. Data may have arrived before installation of the signal handler.
     m_connectionQueue->dispatch([protectedThis] {

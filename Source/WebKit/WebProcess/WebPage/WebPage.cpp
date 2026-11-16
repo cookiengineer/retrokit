@@ -2740,7 +2740,7 @@ void WebPage::drawRect(GraphicsContext& graphicsContext, const IntRect& rect)
 
     protect(m_mainFrame->coreLocalFrame()->view())->paint(graphicsContext, rect);
 
-#if PLATFORM(GTK) || PLATFORM(WIN) || PLATFORM(PLAYSTATION) || PLATFORM(WPE)
+#if PLATFORM(GTK) || PLATFORM(WIN) || PLATFORM(WPE)
     if (!m_page->settings().acceleratedCompositingEnabled() && m_page->inspectorController().enabled() && m_page->inspectorController().shouldShowOverlay()) {
         graphicsContext.beginTransparencyLayer(1);
         m_page->inspectorController().drawHighlight(graphicsContext);
@@ -5223,7 +5223,7 @@ void WebPage::updatePreferences(const WebPreferencesStore& store)
 
     updateSettingsGenerated(store, settings);
 
-#if !PLATFORM(GTK) && !PLATFORM(WIN) && !PLATFORM(PLAYSTATION) && !PLATFORM(WPE)
+#if !PLATFORM(GTK) && !PLATFORM(WIN) && !PLATFORM(WPE)
     if (!settings.acceleratedCompositingEnabled()) {
         WEBPAGE_RELEASE_LOG(Layers, "updatePreferences: acceleratedCompositingEnabled setting was false. WebKit cannot function in this mode; changing setting to true");
         settings.setAcceleratedCompositingEnabled(true);

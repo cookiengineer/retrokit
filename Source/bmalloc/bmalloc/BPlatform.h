@@ -114,10 +114,6 @@
 #define BPLATFORM_APPLETV 1
 #endif
 
-#if defined(__SCE__)
-#define BPLATFORM_PLAYSTATION 1
-#endif
-
 #if defined(BUILDING_GTK__)
 #define BPLATFORM_GTK 1
 #elif defined(BUILDING_WPE__)
@@ -397,7 +393,7 @@
 
 /* BENABLE(LIBPAS) is enabling libpas build. But this does not mean we use libpas for bmalloc replacement. */
 #if !defined(BENABLE_LIBPAS)
-#if (!BUSE(MIMALLOC) && !BUSE(SYSTEM_MALLOC)) && BCPU(ADDRESS64) && (BOS(DARWIN) || BOS(WINDOWS) || (BOS(LINUX) && (BCPU(X86_64) || BCPU(ARM64))) || BPLATFORM(PLAYSTATION))
+#if (!BUSE(MIMALLOC) && !BUSE(SYSTEM_MALLOC)) && BCPU(ADDRESS64) && (BOS(DARWIN) || BOS(WINDOWS) || (BOS(LINUX) && (BCPU(X86_64) || BCPU(ARM64))))
 #define BENABLE_LIBPAS 1
 #ifndef PAS_BMALLOC
 #define PAS_BMALLOC 1

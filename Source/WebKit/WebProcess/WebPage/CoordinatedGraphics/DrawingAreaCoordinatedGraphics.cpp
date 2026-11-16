@@ -47,10 +47,6 @@
 #include <WebCore/ShareableBitmap.h>
 #include <wtf/SetForScope.h>
 
-#if PLATFORM(PLAYSTATION)
-#include "LayerTreeHostPlayStation.h"
-#endif
-
 #if USE(GLIB_EVENT_LOOP)
 #include <wtf/glib/RunLoopSourcePriority.h>
 #endif

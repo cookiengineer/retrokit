@@ -202,7 +202,7 @@ static void* scavenger_thread_main(void* arg)
     if (verbose)
         pas_log("Scavenger is running in thread %p\n", (void*)pthread_self());
 
-#if PAS_OS(DARWIN) || PAS_PLATFORM(PLAYSTATION)
+#if PAS_OS(DARWIN)
 #if PAS_BMALLOC
     pthread_setname_np("JavaScriptCore libpas scavenger");
 #else

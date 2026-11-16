@@ -101,7 +101,6 @@ void CachedMatchFinder::performSearch(StringView buffer, unsigned startOffset, c
     };
 
     if (backwards) {
-#if !PLATFORM(PLAYSTATION)
         icuSearcher.setOffset(startOffset);
         while (true) {
             std::optional<size_t> matchStartCandidate = icuSearcher.previous();
@@ -115,25 +114,6 @@ void CachedMatchFinder::performSearch(StringView buffer, unsigned startOffset, c
             if (callback(*matchStartCandidate, *matchStartCandidate + matchLength) == SearchShouldContinue::No)
                 break;
         }
-#else
-        icuSearcher.setOffset(0);
-        Vector<std::pair<size_t, size_t>> matches;
-        while (true) {
-            std::optional<size_t> matchStartCandidate = icuSearcher.next();
-            if (!matchStartCandidate || *matchStartCandidate >= startOffset)
-                break;
-            size_t matchLength = static_cast<size_t>(icuSearcher.matchedLength());
-            if (!matchLength)
-                break;
-            if (!isMatch(*matchStartCandidate, matchLength))
-                continue;
-            matches.append({ *matchStartCandidate, *matchStartCandidate + matchLength });
-        }
-        for (auto [start, end] : matches | std::views::reverse) {
-            if (callback(start, end) == SearchShouldContinue::No)
-                break;
-        }
-#endif
     } else {
         icuSearcher.setOffset(startOffset);
         while (true) {

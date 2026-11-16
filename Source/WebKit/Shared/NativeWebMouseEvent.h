@@ -85,8 +85,6 @@ public:
 #if ENABLE(WPE_PLATFORM)
     explicit NativeWebMouseEvent(WPEEvent*);
 #endif
-#elif PLATFORM(PLAYSTATION)
-    NativeWebMouseEvent(struct wpe_input_pointer_event*, float deviceScaleFactor, WebMouseEventSyntheticClickType = WebMouseEventSyntheticClickType::NoTap);
 #elif PLATFORM(WIN)
     NativeWebMouseEvent(HWND, UINT message, WPARAM, LPARAM, bool, float deviceScaleFactor);
 #endif

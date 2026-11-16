@@ -25,6 +25,4 @@
 #include <WebCore/RenderThemeMac.h>
 #elif USE(THEME_ADWAITA)
 #include <WebCore/RenderThemeAdwaita.h>
-#elif PLATFORM(PLAYSTATION)
-#include <WebCore/RenderThemePlayStation.h>
 #endif

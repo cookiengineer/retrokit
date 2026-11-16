@@ -163,7 +163,6 @@ std::optional<size_t> ICUSearcher::next()
     return static_cast<size_t>(result);
 }
 
-#if !PLATFORM(PLAYSTATION)
 std::optional<size_t> ICUSearcher::previous()
 {
     UErrorCode status = U_ZERO_ERROR;
@@ -173,7 +172,6 @@ std::optional<size_t> ICUSearcher::previous()
         return std::nullopt;
     return static_cast<size_t>(result);
 }
-#endif
 
 size_t ICUSearcher::matchedLength()
 {

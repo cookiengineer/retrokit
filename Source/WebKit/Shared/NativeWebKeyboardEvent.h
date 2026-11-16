@@ -87,9 +87,6 @@ public:
     NativeWebKeyboardEvent(WPEEvent*, const String&, bool isAutoRepeat);
     NativeWebKeyboardEvent(const String&, std::optional<Vector<WebCore::CompositionUnderline>>&&, std::optional<EditingRange>&&);
 #endif
-#elif PLATFORM(PLAYSTATION)
-    enum class HandledByInputMethod : bool { No, Yes };
-    NativeWebKeyboardEvent(struct wpe_input_keyboard_event*, const String&, bool isAutoRepeat, HandledByInputMethod, std::optional<Vector<WebCore::CompositionUnderline>>&&, std::optional<EditingRange>&&);
 #elif PLATFORM(WIN)
     NativeWebKeyboardEvent(HWND, UINT message, WPARAM, LPARAM, Vector<MSG>&& pendingCharEvents);
 #endif

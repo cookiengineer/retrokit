@@ -125,11 +125,6 @@ public:
         m_useSystemHeap = !bmalloc::api::isEnabled();
 #if USE(LIBPAS)
         if (!m_useSystemHeap) [[likely]] {
-#if PLATFORM(PLAYSTATION)
-            // libpas isn't calling pas_page_malloc commit, so we've got to commit the region ourselves
-            // https://bugs.webkit.org/show_bug.cgi?id=292771
-            OSAllocator::commit((void *) g_jscConfig.startOfStructureHeap, MarkedBlock::blockSize, true, false);
-#endif
             bmalloc_force_auxiliary_heap_into_reserved_memory(&structureHeap, reinterpret_cast<uintptr_t>(g_jscConfig.startOfStructureHeap) + MarkedBlock::blockSize, reinterpret_cast<uintptr_t>(g_jscConfig.startOfStructureHeap) + g_jscConfig.sizeOfStructureHeap);
             return;
         }
@@ -150,11 +145,6 @@ public:
 #if USE(LIBPAS)
             void* result = bmalloc_try_allocate_auxiliary_with_alignment_inline(&structureHeap, MarkedBlock::blockSize, MarkedBlock::blockSize, pas_always_compact_allocation_mode);
 
-#if PLATFORM(PLAYSTATION)
-            // libpas isn't calling pas_page_malloc commit, so we've got to commit the region ourselves
-            // https://bugs.webkit.org/show_bug.cgi?id=292771
-            OSAllocator::commit(result, MarkedBlock::blockSize, true, false);
-#endif
             return result;
 #elif USE(MIMALLOC)
             return mi_heap_malloc_aligned(structureHeap, MarkedBlock::blockSize, MarkedBlock::blockSize);
@@ -203,7 +193,7 @@ WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
     static void commitBlock(void* block)
     {
-#if OS(UNIX) && !PLATFORM(PLAYSTATION) && ASSERT_ENABLED
+#if OS(UNIX) && ASSERT_ENABLED
         constexpr bool readable = true;
         constexpr bool writable = true;
         OSAllocator::protect(block, MarkedBlock::blockSize, readable, writable);
@@ -216,7 +206,7 @@ WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
     static void decommitBlock(void* block)
     {
-#if OS(UNIX) && !PLATFORM(PLAYSTATION) && ASSERT_ENABLED
+#if OS(UNIX) && ASSERT_ENABLED
         constexpr bool readable = false;
         constexpr bool writable = false;
         OSAllocator::protect(block, MarkedBlock::blockSize, readable, writable);
@@ -261,7 +251,7 @@ size_t StructureMemoryManager::computePreferredStructureHeapReservationSize()
     static std::once_flag onceKey;
     std::call_once(onceKey, [] {
         size_t baseSize { 0 };
-#if PLATFORM(PLAYSTATION) || OS(QNX)
+#if OS(QNX)
         baseSize = 128 * MB;
 #elif (PLATFORM(IOS_FAMILY) && !CPU(ARM64E)) || PLATFORM(WATCHOS) || PLATFORM(APPLETV)
         baseSize = 512 * MB;

@@ -32,7 +32,7 @@
 #include <os/log.h>
 #endif
 
-#if defined(NDEBUG) && (BOS(DARWIN) || BPLATFORM(PLAYSTATION))
+#if defined(NDEBUG) && BOS(DARWIN)
 
 #if BASAN_ENABLED
 #define BBreakpointTrap()  __builtin_trap()
@@ -54,7 +54,7 @@
         __builtin_unreachable(); \
     } while (false)
 
-#else // not defined(NDEBUG) && (BOS(DARWIN) || BPLATFORM(PLAYSTATION))
+#else // not defined(NDEBUG) && BOS(DARWIN)
 
 #if BASAN_ENABLED
 #define BCRASH() __builtin_trap()
@@ -73,7 +73,7 @@
 #endif // defined(__GNUC__)
 #endif // BASAN_ENABLED
 
-#endif // defined(NDEBUG) && (BOS(DARWIN) || BPLATFORM(PLAYSTATION))
+#endif // defined(NDEBUG) && BOS(DARWIN)
 
 #define BASSERT_IMPL(x) do { \
     if (!(x)) \

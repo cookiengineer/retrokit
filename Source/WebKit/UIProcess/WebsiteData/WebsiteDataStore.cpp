@@ -2363,7 +2363,7 @@ String WebsiteDataStore::defaultCacheStorageDirectory(const String& baseCacheDir
 
 String WebsiteDataStore::defaultGeneralStorageDirectory(const String& baseDataDirectory)
 {
-#if PLATFORM(PLAYSTATION) || USE(GLIB)
+#if USE(GLIB)
     return websiteDataDirectoryFileSystemRepresentation("storage"_s, baseDataDirectory);
 #else
     return websiteDataDirectoryFileSystemRepresentation("Storage"_s, baseDataDirectory);
@@ -2372,7 +2372,7 @@ String WebsiteDataStore::defaultGeneralStorageDirectory(const String& baseDataDi
 
 String WebsiteDataStore::defaultNetworkCacheDirectory(const String& baseCacheDirectory)
 {
-#if PLATFORM(PLAYSTATION) || USE(GLIB)
+#if USE(GLIB)
     return cacheDirectoryFileSystemRepresentation("WebKitCache"_s, baseCacheDirectory);
 #else
     return cacheDirectoryFileSystemRepresentation("NetworkCache"_s, baseCacheDirectory);
@@ -2386,9 +2386,7 @@ String WebsiteDataStore::defaultMediaCacheDirectory(const String& baseCacheDirec
 
 String WebsiteDataStore::defaultIndexedDBDatabaseDirectory(const String& baseDataDirectory)
 {
-#if PLATFORM(PLAYSTATION)
-    return websiteDataDirectoryFileSystemRepresentation("indexeddb"_s, baseDataDirectory);
-#elif USE(GLIB)
+#if USE(GLIB)
     return websiteDataDirectoryFileSystemRepresentation(String::fromUTF8("databases" G_DIR_SEPARATOR_S "indexeddb"), baseDataDirectory);
 #else
     return websiteDataDirectoryFileSystemRepresentation("IndexedDB"_s, baseDataDirectory);
@@ -2397,7 +2395,7 @@ String WebsiteDataStore::defaultIndexedDBDatabaseDirectory(const String& baseDat
 
 String WebsiteDataStore::defaultServiceWorkerRegistrationDirectory(const String& baseDataDirectory)
 {
-#if PLATFORM(PLAYSTATION) || USE(GLIB)
+#if USE(GLIB)
     return websiteDataDirectoryFileSystemRepresentation("serviceworkers"_s, baseDataDirectory);
 #else
     return websiteDataDirectoryFileSystemRepresentation("ServiceWorkers"_s, baseDataDirectory);
@@ -2406,9 +2404,7 @@ String WebsiteDataStore::defaultServiceWorkerRegistrationDirectory(const String&
 
 String WebsiteDataStore::defaultWebSQLDatabaseDirectory(const String& baseDataDirectory)
 {
-#if PLATFORM(PLAYSTATION)
-    return websiteDataDirectoryFileSystemRepresentation("websql"_s, baseDataDirectory);
-#elif USE(GLIB)
+#if USE(GLIB)
     return websiteDataDirectoryFileSystemRepresentation("databases"_s, baseDataDirectory);
 #else
     return websiteDataDirectoryFileSystemRepresentation("WebSQL"_s, baseDataDirectory);
@@ -2429,9 +2425,7 @@ String WebsiteDataStore::defaultHSTSStorageDirectory(const String& baseCacheDire
 
 String WebsiteDataStore::defaultLocalStorageDirectory(const String& baseDataDirectory)
 {
-#if PLATFORM(PLAYSTATION)
-    return websiteDataDirectoryFileSystemRepresentation("local"_s, baseDataDirectory);
-#elif USE(GLIB)
+#if USE(GLIB)
     return websiteDataDirectoryFileSystemRepresentation("localstorage"_s, baseDataDirectory);
 #else
     return websiteDataDirectoryFileSystemRepresentation("LocalStorage"_s, baseDataDirectory);
@@ -2440,7 +2434,7 @@ String WebsiteDataStore::defaultLocalStorageDirectory(const String& baseDataDire
 
 String WebsiteDataStore::defaultMediaKeysStorageDirectory(const String& baseDataDirectory)
 {
-#if PLATFORM(PLAYSTATION) || USE(GLIB)
+#if USE(GLIB)
     return websiteDataDirectoryFileSystemRepresentation("mediakeys"_s, baseDataDirectory);
 #elif OS(WINDOWS)
     return websiteDataDirectoryFileSystemRepresentation("MediaKeyStorage"_s, baseDataDirectory);
@@ -2476,7 +2470,7 @@ String WebsiteDataStore::defaultMediaKeysHashSaltsStorageDirectory(const String&
 
 String WebsiteDataStore::defaultResourceLoadStatisticsDirectory(const String& baseDataDirectory)
 {
-#if PLATFORM(PLAYSTATION) || USE(GLIB)
+#if USE(GLIB)
     return websiteDataDirectoryFileSystemRepresentation("itp"_s, baseDataDirectory);
 #else
     return websiteDataDirectoryFileSystemRepresentation("ResourceLoadStatistics"_s, baseDataDirectory);
@@ -2496,7 +2490,7 @@ String WebsiteDataStore::defaultJavaScriptConfigurationDirectory(const String&)
 #if ENABLE(CONTENT_EXTENSIONS)
 String WebsiteDataStore::defaultResourceMonitorThrottlerDirectory(const String& baseDataDirectory)
 {
-#if PLATFORM(PLAYSTATION) || USE(GLIB)
+#if USE(GLIB)
     return websiteDataDirectoryFileSystemRepresentation("resourcemonitorthrottler"_s, baseDataDirectory);
 #else
     return websiteDataDirectoryFileSystemRepresentation("ResourceMonitorThrottler"_s, baseDataDirectory);

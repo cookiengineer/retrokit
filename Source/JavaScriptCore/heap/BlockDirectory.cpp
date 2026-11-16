@@ -66,10 +66,10 @@ void BlockDirectory::setSubspace(Subspace* subspace)
 
 void BlockDirectory::updatePercentageOfPagedOutPages(SimpleStats& stats)
 {
-    // FIXME: We should figure out a solution for Windows and PlayStation.
+    // FIXME: We should figure out a solution for Windows.
     // QNX doesn't have mincore(), though the information can be had. But since all mapped
     // pages are resident, does it matter?
-#if OS(UNIX) && !PLATFORM(PLAYSTATION) && !OS(QNX) && !OS(HAIKU)
+#if OS(UNIX) && !OS(QNX) && !OS(HAIKU)
     size_t pageSize = WTF::pageSize();
     ASSERT(!(MarkedBlock::blockSize % pageSize));
     auto numberOfPagesInMarkedBlock = MarkedBlock::blockSize / pageSize;

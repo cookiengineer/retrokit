@@ -520,13 +520,7 @@ public:
     void notifyPreferencesChanged(const String& domain, const String& key, const std::optional<String>& encodedValue);
 #endif
 
-#if PLATFORM(PLAYSTATION)
-    const String& webProcessPath() const LIFETIME_BOUND { return m_resolvedPaths.webProcessPath; }
-    const String& networkProcessPath() const LIFETIME_BOUND { return m_resolvedPaths.networkProcessPath; }
-    int32_t userId() const { return m_userId; }
-#endif
-
-#if PLATFORM(WIN) // FIXME: remove this line when this feature is enabled for playstation port.
+#if PLATFORM(WIN)
 #if ENABLE(REMOTE_INSPECTOR)
     void setPagesControlledByAutomation(bool);
 #endif
@@ -880,10 +874,6 @@ private:
         String injectedBundlePath;
         String uiProcessBundleResourcePath;
 
-#if PLATFORM(PLAYSTATION)
-        String webProcessPath;
-        String networkProcessPath;
-#endif
 
         Vector<String> additionalWebProcessSandboxExtensionPaths;
     };
@@ -936,9 +926,6 @@ private:
     WebProcessWithMediaStreamingCounter m_webProcessWithMediaStreamingCounter;
     bool m_mediaStreamingActivity { false };
 
-#if PLATFORM(PLAYSTATION)
-    int32_t m_userId { -1 };
-#endif
 
     static bool s_useSeparateServiceWorkerProcess;
 

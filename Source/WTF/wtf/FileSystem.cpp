@@ -509,7 +509,6 @@ bool deleteEmptyDirectory(const String& path)
     return std::filesystem::remove(fsPath, ec);
 }
 
-#if !PLATFORM(PLAYSTATION)
 bool moveFile(const String& oldPath, const String& newPath)
 {
     auto fsOldPath = toStdFileSystemPath(oldPath);
@@ -530,7 +529,6 @@ bool moveFile(const String& oldPath, const String& newPath)
         return false;
     return std::filesystem::remove_all(fsOldPath, ec);
 }
-#endif
 
 std::optional<uint64_t> fileSize(const String& path)
 {
@@ -566,7 +564,6 @@ std::optional<uint64_t> directorySize(const String& path)
     return size;
 }
 
-#if !PLATFORM(PLAYSTATION)
 std::optional<uint64_t> volumeFreeSpace(const String& path)
 {
     std::error_code ec;
@@ -584,7 +581,6 @@ std::optional<uint64_t> volumeCapacity(const String& path)
         return std::nullopt;
     return spaceInfo.capacity;
 }
-#endif
 
 bool createSymbolicLink(const String& targetPath, const String& symbolicLinkPath)
 {
@@ -631,14 +627,12 @@ std::optional<uint64_t> hardLinkCount(const String& path)
     return ec ? std::nullopt : std::make_optional(linkCount);
 }
 
-#if !PLATFORM(PLAYSTATION)
 bool deleteNonEmptyDirectory(const String& path)
 {
     std::error_code ec;
     std::filesystem::remove_all(toStdFileSystemPath(path), ec);
     return !ec;
 }
-#endif
 
 std::optional<WallTime> fileModificationTime(const String& path)
 {
@@ -738,16 +732,13 @@ FileHandle createDumpFile(StringView filename, StringView extension, StringView 
     return openFile(makeString(path, pathSeparator, filename, extension), FileOpenMode::ReadWrite);
 }
 
-#if !PLATFORM(PLAYSTATION)
 String realPath(const String& path)
 {
     std::error_code ec;
     auto canonicalPath = std::filesystem::canonical(toStdFileSystemPath(path), ec);
     return ec ? path : fromStdFileSystemPath(canonicalPath);
 }
-#endif
 
-#if !PLATFORM(PLAYSTATION)
 Vector<String> listDirectory(const String& path)
 {
     Vector<String> fileNames;
@@ -786,7 +777,6 @@ void traverseDirectory(const String& path, NOESCAPE const Function<void(const St
         }
     }
 }
-#endif
 
 #if !ENABLE(FILESYSTEM_POSIX_FAST_PATH)
 
@@ -832,7 +822,7 @@ String pathByAppendingComponents(StringView path, std::span<const StringView> co
 
 #endif
 
-#if !OS(WINDOWS) && !PLATFORM(COCOA) && !PLATFORM(PLAYSTATION) && !PLATFORM(GLIB)
+#if !OS(WINDOWS) && !PLATFORM(COCOA) && !PLATFORM(GLIB)
 
 String createTemporaryDirectory()
 {
@@ -850,7 +840,7 @@ String createTemporaryDirectory()
     return stringFromFileSystemRepresentation(newTempDir.span().data());
 }
 
-#endif // !OS(WINDOWS) && !PLATFORM(COCOA)
+#endif // !OS(WINDOWS) && !PLATFORM(COCOA) && !PLATFORM(GLIB)
 
 #endif // HAVE(STD_FILESYSTEM) || HAVE(STD_EXPERIMENTAL_FILESYSTEM)
 

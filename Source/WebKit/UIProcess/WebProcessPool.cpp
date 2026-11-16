@@ -2614,7 +2614,7 @@ void setLockdownModeEnabledGloballyForTesting(std::optional<bool>)
 }
 #endif
 
-#if PLATFORM(WIN) // FIXME: remove this line when this feature is enabled for playstation port.
+#if PLATFORM(WIN)
 #if ENABLE(REMOTE_INSPECTOR)
 void WebProcessPool::setPagesControlledByAutomation(bool controlled)
 {

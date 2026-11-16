@@ -36,12 +36,7 @@ namespace WebCore {
 
 inline int sqliteBindBlob(sqlite3_stmt* statement, int index, std::span<const uint8_t> data, void(*destructor)(void*) = SQLITE_TRANSIENT)
 {
-    // sqlite3_bind_blob64() symbol is undefined on the PlayStation port.
-#if PLATFORM(PLAYSTATION)
-    return sqlite3_bind_blob(statement, index, data.data(), data.size(), destructor); // NOLINT
-#else
     return sqlite3_bind_blob64(statement, index, data.data(), data.size(), destructor); // NOLINT
-#endif
 }
 
 inline int sqliteBindText(sqlite3_stmt* statement, int index, std::span<const char> text, void(*destructor)(void*) = SQLITE_TRANSIENT)

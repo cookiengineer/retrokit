@@ -146,7 +146,7 @@ set(_webkit_c_api_headers
     WebProcess/InjectedBundle/API/c/WKBundleScriptWorld.h
 )
 
-# The low-level WebKit C API is the public API on non-Cocoa ports (Windows, PlayStation),
+# The low-level WebKit C API is the public API on non-Cocoa ports (Windows),
 # but is shipped as SPI (in PrivateHeaders) on Cocoa.
 if (APPLE)
     list(APPEND WebKit_PRIVATE_FRAMEWORK_HEADERS ${_webkit_c_api_headers})

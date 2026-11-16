@@ -607,11 +607,6 @@ void WebProcessProxy::getLaunchOptions(ProcessLauncher::LaunchOptions& launchOpt
     if (isPrewarmed())
         launchOptions.extraInitializationData.add<HashTranslatorASCIILiteral>("is-prewarmed"_s, "1"_s);
 
-#if PLATFORM(PLAYSTATION)
-    launchOptions.processPath = m_processPool->webProcessPath();
-    launchOptions.userId = m_processPool->userId();
-#endif
-
     if (processPool().shouldMakeNextWebProcessLaunchFailForTesting()) {
         processPool().setShouldMakeNextWebProcessLaunchFailForTesting(false);
         launchOptions.shouldMakeProcessLaunchFailForTesting = true;
