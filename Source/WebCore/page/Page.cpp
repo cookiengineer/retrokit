@@ -98,7 +98,6 @@
 #include "FrameLoader.h"
 #include "FrameSelection.h"
 #include "FrameTree.h"
-#include "GeolocationController.h"
 #include "GraphicsLayer.h"
 #include "HTMLElement.h"
 #include "HTMLImageElement.h"
@@ -1875,10 +1874,6 @@ void Page::didCommitLoad()
     resetImageAnalysisQueue();
 #endif
 
-#if ENABLE(GEOLOCATION)
-    if (CheckedPtr geolocationController = GeolocationController::from(this))
-        geolocationController->didNavigatePage();
-#endif
 
     m_fixedContainerEdgesAndElements = std::make_pair(makeUniqueRef<FixedContainerEdges>(), WeakElementEdges { });
 

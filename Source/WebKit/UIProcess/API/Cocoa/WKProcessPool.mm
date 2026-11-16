@@ -66,7 +66,6 @@
 
 #if PLATFORM(IOS_FAMILY)
 #import <WebCore/WebCoreThreadSystemInterface.h>
-#import "WKGeolocationProviderIOS.h"
 #endif
 
 @interface _WKProcessInfo()
@@ -92,8 +91,6 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
 
     RetainPtr<_WKAutomationSession> _automationSession;
 #if PLATFORM(IOS_FAMILY)
-    RetainPtr<WKGeolocationProviderIOS> _geolocationProvider;
-    RetainPtr<id <_WKGeolocationCoreLocationProvider>> _coreLocationProvider;
 #endif // PLATFORM(IOS_FAMILY)
 }
 ALLOW_DEPRECATED_IMPLEMENTATIONS_END
@@ -177,11 +174,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 }
 
 #if PLATFORM(IOS_FAMILY)
-- (WKGeolocationProviderIOS *)_geolocationProvider
 {
-    if (!_geolocationProvider)
-        _geolocationProvider = adoptNS([[WKGeolocationProviderIOS alloc] initWithProcessPool:*_processPool]);
-    return _geolocationProvider.get();
 }
 #endif // PLATFORM(IOS_FAMILY)
 
@@ -613,21 +606,6 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 {
     _processPool->setCookieStoragePartitioningEnabled(enabled);
 }
-
-#if PLATFORM(IOS_FAMILY)
-- (id <_WKGeolocationCoreLocationProvider>)_coreLocationProvider
-{
-    return _coreLocationProvider.get();
-}
-
-- (void)_setCoreLocationProvider:(id<_WKGeolocationCoreLocationProvider>)coreLocationProvider
-{
-    if (_geolocationProvider)
-        [NSException raise:NSGenericException format:@"Changing the location provider is not supported after a web view in the process pool has begun servicing geolocation requests."];
-
-    _coreLocationProvider = coreLocationProvider;
-}
-#endif // PLATFORM(IOS_FAMILY)
 
 - (void)_getActivePagesOriginsInWebProcessForTesting:(pid_t)pid completionHandler:(void(^)(NSArray<NSString *> *))completionHandler
 {

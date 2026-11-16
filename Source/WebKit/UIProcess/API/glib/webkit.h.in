@@ -70,8 +70,6 @@
 #endif
 #include <@API_INCLUDE_PREFIX@/WebKitFindController.h>
 #include <@API_INCLUDE_PREFIX@/WebKitFormSubmissionRequest.h>
-#include <@API_INCLUDE_PREFIX@/WebKitGeolocationManager.h>
-#include <@API_INCLUDE_PREFIX@/WebKitGeolocationPermissionRequest.h>
 #include <@API_INCLUDE_PREFIX@/WebKitHitTestResult.h>
 #if ENABLE(2022_GLIB_API)
 #include <@API_INCLUDE_PREFIX@/WebKitImage.h>

@@ -142,11 +142,6 @@ Modules/filesystem/FileSystemSyncAccessHandle.cpp
 Modules/filesystem/FileSystemWritableFileStream.cpp
 Modules/filesystem/FileSystemWritableFileStreamSink.cpp @cost:3
 Modules/filesystem/WorkerFileSystemStorageConnection.cpp @cost:3
-Modules/geolocation/GeoNotifier.cpp
-Modules/geolocation/Geolocation.cpp @cost:3
-Modules/geolocation/GeolocationController.cpp
-Modules/geolocation/GeolocationCoordinates.cpp
-Modules/geolocation/NavigatorGeolocation.cpp
 Modules/highlight/AppHighlightRangeData.cpp
 Modules/highlight/AppHighlightStorage.cpp @cost:4
 Modules/highlight/Highlight.cpp @cost:4
@@ -2771,7 +2766,6 @@ platform/mediastream/RealtimeOutgoingAudioSource.cpp
 platform/mediastream/RealtimeOutgoingVideoSource.cpp
 platform/mediastream/RealtimeVideoCaptureSource.cpp
 platform/mediastream/WebRTCProvider.cpp
-platform/mock/GeolocationClientMock.cpp
 platform/mock/MockRealtimeAudioSource.cpp
 platform/mock/MockRealtimeMediaSourceCenter.cpp
 platform/mock/MockRealtimeVideoSource.cpp
@@ -4333,10 +4327,6 @@ JSGPUVertexState.cpp
 JSGPUVertexStepMode.cpp
 JSGainNode.cpp
 JSGainOptions.cpp
-JSGeolocation.cpp
-JSGeolocationCoordinates.cpp
-JSGeolocationPosition.cpp
-JSGeolocationPositionError.cpp
 JSGetAnimationsOptions.cpp
 JSGetComposedRangesOptions.cpp
 JSGetHTMLOptions.cpp
@@ -4695,9 +4685,6 @@ JSPoint2D.cpp
 JSPointerEvent.cpp
 JSPointerLockOptions.cpp
 JSPopStateEvent.cpp
-JSPositionCallback.cpp
-JSPositionErrorCallback.cpp
-JSPositionOptions.cpp
 JSPredefinedColorSpace.cpp
 JSPredicateCallback.cpp
 JSProcessingInstruction.cpp

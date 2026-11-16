@@ -53,7 +53,6 @@
 #include <wtf/text/WTFString.h>
 
 // Supplements
-#include "WebGeolocationManagerProxy.h"
 #include "WebNotificationManagerProxy.h"
 
 namespace API {
@@ -400,11 +399,6 @@ void WKContextPreconnectToServer(WKContextRef, WKURLRef)
 WKWebsiteDataStoreRef WKContextGetWebsiteDataStore(WKContextRef)
 {
     return WKWebsiteDataStoreGetDefaultDataStore();
-}
-
-WKGeolocationManagerRef WKContextGetGeolocationManager(WKContextRef contextRef)
-{
-    return WebKit::toAPI(protect(protect(WebKit::toImpl(contextRef))->supplement<WebKit::WebGeolocationManagerProxy>()).get());
 }
 
 WKIconDatabaseRef WKContextGetIconDatabase(WKContextRef)

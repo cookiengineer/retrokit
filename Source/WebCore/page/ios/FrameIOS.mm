@@ -596,19 +596,6 @@ void LocalFrame::overflowScrollPositionChangedForNode(const IntPoint& position, 
     scrollableArea->didEndScroll(); // FIXME: Should we always call this?
 }
 
-void LocalFrame::resetAllGeolocationPermission()
-{
-    if (document()->window())
-        protect(document())->window()->resetAllGeolocationPermission();
-
-    for (RefPtr child = tree().firstChild(); child; child = child->tree().nextSibling()) {
-        auto* localChild = dynamicDowncast<LocalFrame>(child.get());
-        if (!localChild)
-            continue;
-        localChild->resetAllGeolocationPermission();
-    }
-}
-
 } // namespace WebCore
 
 #endif // PLATFORM(IOS_FAMILY)

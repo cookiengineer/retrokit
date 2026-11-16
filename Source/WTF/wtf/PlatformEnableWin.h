@@ -40,10 +40,6 @@
 /* --------- Windows port --------- */
 
 
-#if !defined(ENABLE_GEOLOCATION)
-#define ENABLE_GEOLOCATION 1
-#endif
-
 #if !defined(ENABLE_OPENTYPE_MATH)
 #define ENABLE_OPENTYPE_MATH 1
 #endif

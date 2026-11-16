@@ -48,10 +48,6 @@
 #import <wtf/RunLoop.h>
 #import <wtf/SetForScope.h>
 
-#if PLATFORM(IOS_FAMILY)
-#import "WebGeolocationProviderIOS.h"
-#endif
-
 #if ENABLE(WIRELESS_PLAYBACK_TARGET) && !PLATFORM(IOS_FAMILY)
 #import "WebMediaPlaybackTargetPicker.h"
 #endif
@@ -134,7 +130,6 @@ int pluginDatabaseClientCount = 0;
 
 #if PLATFORM(IOS_FAMILY)
     isStopping = NO;
-    _geolocationProvider = [WebGeolocationProviderIOS sharedGeolocationProvider];
 #endif
 
     shouldCloseWithWindow = false;

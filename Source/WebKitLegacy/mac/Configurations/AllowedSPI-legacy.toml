@@ -64,7 +64,6 @@ selectors = [
     { name = "webThreadWebView:resource:willSendRequest:redirectResponse:fromDataSource:", class = "?" },
     { name = "webThreadWebViewDidLayout:byScrolling:", class = "?" },
     { name = "webView:addMessageToConsole:", class = "?" },
-    { name = "webView:decidePolicyForGeolocationRequestFromOrigin:frame:listener:", class = "?" },
     { name = "webView:decidePolicyForNotificationRequestFromOrigin:listener:", class = "?" },
     { name = "webView:didClickNotification:", class = "?" },
     { name = "webView:didCloseNotifications:", class = "?" },
@@ -88,7 +87,6 @@ selectors = [
     { name = "webView:supportsFullScreenForElement:withKeyboard:", class = "?" },
     { name = "webView:updateHistoryTitle:forURL:", class = "?" },
     { name = "webView:updateHistoryTitle:forURL:inFrame:", class = "?" },
-    { name = "webViewCanCheckGeolocationAuthorizationStatus:", class = "?" },
     { name = "sharedMappings", class = "?" },
     { name = "valueWithRect:", class = "?" },
     ]

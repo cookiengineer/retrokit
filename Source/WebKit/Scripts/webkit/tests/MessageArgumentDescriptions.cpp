@@ -549,7 +549,6 @@ Vector<ASCIILiteral> serializedIdentifiers()
         "WebKit::DisplayLinkObserverID"_s,
         "WebKit::DownloadID"_s,
         "WebKit::DrawingAreaIdentifier"_s,
-        "WebKit::GeolocationIdentifier"_s,
         "WebKit::GPUProcessConnectionIdentifier"_s,
         "WebKit::ImageBufferSetIdentifier"_s,
         "WebKit::RemoteGraphicsContextGLIdentifier"_s,

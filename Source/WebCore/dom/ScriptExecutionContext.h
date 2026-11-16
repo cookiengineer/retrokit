@@ -370,7 +370,6 @@ public:
 
     enum class ResourceType : uint8_t {
         Cookies,
-        Geolocation,
         IndexedDB,
         LocalStorage,
         Plugin,

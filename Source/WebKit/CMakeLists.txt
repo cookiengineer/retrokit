@@ -90,7 +90,6 @@ set(WebKit_PRIVATE_INCLUDE_DIRECTORIES
     "${WEBKIT_DIR}/WebProcess/Extensions/Bindings"
     "${WEBKIT_DIR}/WebProcess/FileAPI"
     "${WEBKIT_DIR}/WebProcess/FullScreen"
-    "${WEBKIT_DIR}/WebProcess/Geolocation"
     "${WEBKIT_DIR}/WebProcess/GPU"
     "${WEBKIT_DIR}/WebProcess/GPU/ShapeDetection"
     "${WEBKIT_DIR}/WebProcess/GPU/graphics"
@@ -300,7 +299,6 @@ set(WebKit_MESSAGES_IN_FILES
     UIProcess/WebFrameProxy
     UIProcess/WebFrameProxyFromNetworkProcess
     UIProcess/WebFullScreenManagerProxy
-    UIProcess/WebGeolocationManagerProxy
     UIProcess/WebLockRegistryProxy
     UIProcess/WebPageProxy
     UIProcess/WebPasteboardProxy
@@ -363,7 +361,6 @@ set(WebKit_MESSAGES_IN_FILES
     WebProcess/GPU/webrtc/RemoteVideoFrameObjectHeapProxyProcessor
     WebProcess/GPU/webrtc/SampleBufferDisplayLayer
 
-    WebProcess/Geolocation/WebGeolocationManager
 
     WebProcess/Inspector/RemoteWebInspectorUI
     WebProcess/Inspector/WebInspectorBackend

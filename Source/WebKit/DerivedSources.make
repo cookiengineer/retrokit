@@ -54,7 +54,6 @@ VPATH = \
     $(WebKit2)/WebProcess/DigitalCredentials \
     $(WebKit2)/WebProcess/Extensions/Interfaces \
     $(WebKit2)/WebProcess/FullScreen \
-    $(WebKit2)/WebProcess/Geolocation \
     $(WebKit2)/WebProcess/GPU \
     $(WebKit2)/WebProcess/GPU/graphics \
     $(WebKit2)/WebProcess/GPU/media \
@@ -179,7 +178,6 @@ MESSAGE_RECEIVERS = \
 	UIProcess/VisitedLinkStore \
 	UIProcess/ios/SmartMagnificationController \
 	UIProcess/mac/SecItemShimProxy \
-	UIProcess/WebGeolocationManagerProxy \
 	UIProcess/WebLockRegistryProxy \
 	UIProcess/WebPermissionControllerProxy \
 	UIProcess/Cocoa/PlaybackSessionManagerProxy \
@@ -259,7 +257,6 @@ MESSAGE_RECEIVERS = \
 	WebProcess/cocoa/RemoteCaptureSampleManager \
 	WebProcess/cocoa/UserMediaCaptureManager \
 	WebProcess/cocoa/VideoPresentationManager \
-	WebProcess/Geolocation/WebGeolocationManager \
 	WebProcess/Automation/WebAutomationSessionProxy \
 	WebProcess/FullScreen/WebFullScreenManager \
 	WebProcess/ApplePay/WebPaymentCoordinator \

@@ -47,7 +47,6 @@ enum class WebCore::PermissionName : uint8_t {
     Bluetooth,
     Camera,
     DisplayCapture,
-    Geolocation,
     Microphone,
     Midi,
     Nfc,
@@ -3092,18 +3091,6 @@ enum class WebCore::MediaPlayerViewportVisibility : uint8_t {
     VisibleInViewport,
     VisibleInFullscreen,
     VisibleInPictureInPicture,
-};
-
-class WebCore::GeolocationPositionData {
-    double timestamp;
-    double latitude;
-    double longitude;
-    double accuracy;
-    std::optional<double> altitude;
-    std::optional<double> altitudeAccuracy;
-    std::optional<double> heading;
-    std::optional<double> speed;
-    std::optional<double> floorLevel;
 };
 
 #if ENABLE(APP_HIGHLIGHTS)
@@ -6695,7 +6682,6 @@ struct WebCore::OwnerPermissionsPolicyData {
     Microphone,
     SpeakerSelection,
     DisplayCapture,
-    Geolocation,
     Payment,
     ScreenWakeLock,
     SyncXHR,

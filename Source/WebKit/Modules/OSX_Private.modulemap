@@ -579,21 +579,6 @@ framework module WebKit_Private [system] {
     export *
   }
 
-  explicit module WKGeolocationManager {
-    header "WKGeolocationManager.h"
-    export *
-  }
-
-  explicit module WKGeolocationPermissionRequest {
-    header "WKGeolocationPermissionRequest.h"
-    export *
-  }
-
-  explicit module WKGeolocationPosition {
-    header "WKGeolocationPosition.h"
-    export *
-  }
-
   explicit module WKGeometry {
     header "WKGeometry.h"
     export *
@@ -1384,11 +1369,6 @@ framework module WebKit_Private [system] {
     export *
   }
 
-  explicit module WebGeolocationPosition {
-    header "WebGeolocationPosition.h"
-    export *
-  }
-
   explicit module WebHTMLRepresentation {
     header "WebHTMLRepresentation.h"
     export *
@@ -1776,16 +1756,6 @@ framework module WebKit_Private [system] {
 
   explicit module _WKFullscreenDelegate {
     header "_WKFullscreenDelegate.h"
-    export *
-  }
-
-  explicit module _WKGeolocationCoreLocationProvider {
-    header "_WKGeolocationCoreLocationProvider.h"
-    export *
-  }
-
-  explicit module _WKGeolocationPosition {
-    header "_WKGeolocationPosition.h"
     export *
   }
 

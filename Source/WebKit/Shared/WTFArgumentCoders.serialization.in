@@ -147,7 +147,6 @@ template: struct WebKit::DataTaskIdentifierType
 template: struct WebKit::DisplayLinkObserverIDType
 template: struct WebKit::DrawingAreaIdentifierType
 template: struct WebKit::DownloadIDType
-template: struct WebKit::GeolocationIdentifierType
 template: struct WebKit::ImageBufferSetIdentifierType
 template: struct WebKit::IPCConnectionTesterIdentifierType
 template: struct WebKit::IPCStreamTesterIdentifierType

@@ -816,7 +816,6 @@ void WebPageProxy::updateWebProcessSuspensionDelay()
 WebPageProxy::Internals::Internals(WebPageProxy& page, bool processInheritedFromOpener)
     : page(page)
     , audibleActivityTimer(RunLoop::mainSingleton(), "WebPageProxy::Internals::AudibleActivityTimer"_s, &page, &WebPageProxy::clearAudibleActivity)
-    , geolocationPermissionRequestManager(page)
     , updatePlayingMediaDidChangeTimer(RunLoop::mainSingleton(), "WebPageProxy::Internals::UpdatePlayingMediaDidChangeTimer"_s, &page, &WebPageProxy::updatePlayingMediaDidChangeTimerFired)
     , notificationManagerMessageHandler(page)
     , pageLoadState(page)
@@ -13819,9 +13818,6 @@ void WebPageProxy::resetState(ResetStateReason resetStateReason)
     internals().touchEventTracking.reset();
 #endif
 
-#if ENABLE(GEOLOCATION)
-    protect(internals().geolocationPermissionRequestManager)->invalidateRequests();
-#endif
 
     setToolTip({ });
 
@@ -14592,53 +14588,6 @@ void WebPageProxy::makeStorageSpaceRequest(FrameIdentifier frameID, const String
     m_uiClient->exceededDatabaseQuota(this, frame.get(), origin.ptr(), databaseName, displayName, currentQuota, currentOriginUsage, currentDatabaseUsage, expectedUsage, WTF::move(completionHandler));
 }
 
-void WebPageProxy::requestGeolocationPermissionForFrame(IPC::Connection& connection, GeolocationIdentifier geolocationID, FrameInfoData&& frameInfo)
-{
-    Ref process = WebProcessProxy::fromConnection(connection);
-
-    RefPtr frame = WebFrameProxy::webFrame(frameInfo.frameID);
-    MESSAGE_CHECK(process, frame);
-    MESSAGE_CHECK(process, frame->page() == this);
-    MESSAGE_CHECK(process, !frameInfo.webPageProxyID || *frameInfo.webPageProxyID == m_identifier);
-
-    if (!frame->url().host().isEmpty())
-        frameInfo.securityOrigin = frame->securityOrigin()->data();
-
-    // The registrable domain bound to the authorization token must likewise be derived UI-side
-    // when possible so that WebGeolocationManagerProxy::StartUpdating can validate the
-    // WebContent-supplied domain. An empty RegistrableDomain indicates the UI process could not
-    // authoritatively determine it; in that case StartUpdating skips the equality check and
-    // accepts the WebContent-supplied domain (pre-existing behavior for these edge cases).
-    WebCore::RegistrableDomain mainFrameDomain;
-    if (RefPtr mainFrame = m_mainFrame.get(); mainFrame && !mainFrame->url().host().isEmpty())
-        mainFrameDomain = WebCore::RegistrableDomain { mainFrame->url() };
-
-    auto request = protect(internals().geolocationPermissionRequestManager)->createRequest(geolocationID, protect(frame->process()), WTF::move(mainFrameDomain));
-    Function<void(bool)> completionHandler = [request = WTF::move(request)](bool allowed) {
-        if (allowed)
-            request->allow();
-        else
-            request->deny();
-    };
-
-    // FIXME: Once iOS migrates to the new WKUIDelegate SPI, clean this up
-    // and make it one UIClient call that calls the completionHandler with false
-    // if there is no delegate instead of returning the completionHandler
-    // for other code paths to try.
-    m_uiClient->decidePolicyForGeolocationPermissionRequest(*this, *frame, frameInfo, completionHandler);
-#if PLATFORM(IOS_FAMILY)
-    if (RefPtr pageClient = this->pageClient(); completionHandler && pageClient)
-        pageClient->decidePolicyForGeolocationPermissionRequest(*frame, frameInfo, completionHandler);
-#endif
-    if (completionHandler)
-        completionHandler(false);
-}
-
-void WebPageProxy::revokeGeolocationAuthorizationToken(const String& authorizationToken)
-{
-    protect(internals().geolocationPermissionRequestManager)->revokeAuthorizationToken(authorizationToken);
-}
-
 #if ENABLE(WEB_ARCHIVE)
 bool WebPageProxy::shouldAlwaysPromptForPermission(PermissionName permissionName) const
 {
@@ -14649,7 +14598,6 @@ bool WebPageProxy::shouldAlwaysPromptForPermission(PermissionName permissionName
     // All cached permissions that are supported by platforms that support
     // WEB_ARCHIVE should always prompt.
     case PermissionName::Camera:
-    case PermissionName::Geolocation:
     case PermissionName::Microphone:
         break;
 
@@ -14705,14 +14653,6 @@ void WebPageProxy::queryPermission(const ClientOrigin& clientOrigin, const Permi
         canAPISucceed = protectedUserMediaPermissionRequestManager->canAudioCaptureSucceed();
         shouldChangeDeniedToPrompt = protectedUserMediaPermissionRequestManager->shouldChangeDeniedToPromptForMicrophone(clientOrigin);
         shouldChangePromptToGrant = protectedUserMediaPermissionRequestManager->shouldChangePromptToGrantForMicrophone(clientOrigin);
-#endif
-    } else if (descriptor.name == PermissionName::Geolocation) {
-#if ENABLE(GEOLOCATION)
-        name = "geolocation"_s;
-
-        // The decision to change denied to prompt is made directly in the WebProcess.
-        // (See the Permissions API code).
-        shouldChangeDeniedToPrompt = false;
 #endif
     } else if (descriptor.name == PermissionName::Notifications || descriptor.name == PermissionName::Push) {
 #if ENABLE(NOTIFICATIONS)
@@ -18636,11 +18576,6 @@ PageLoadState& WebPageProxy::pageLoadState()
 void WebPageProxy::isLoadingChanged()
 {
     activityStateDidChange(ActivityState::IsLoading);
-}
-
-GeolocationPermissionRequestManagerProxy& WebPageProxy::geolocationPermissionRequestManager()
-{
-    return internals().geolocationPermissionRequestManager;
 }
 
 ScrollPinningBehavior WebPageProxy::scrollPinningBehavior() const

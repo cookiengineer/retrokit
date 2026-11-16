@@ -35,7 +35,6 @@
 
 @protocol _WKAutomationDelegate;
 @protocol _WKDownloadDelegate;
-@protocol _WKGeolocationCoreLocationProvider;
 
 #define HAVE_WK_PROCESS_STATE 1
 
@@ -103,7 +102,6 @@ WK_CLASS_AVAILABLE(macos(14.5), ios(17.5), visionos(1.2))
 @property (nonatomic, weak, setter=_setAutomationDelegate:) id <_WKAutomationDelegate> _automationDelegate WK_API_AVAILABLE(macos(10.12), ios(10.0));
 
 #if TARGET_OS_IPHONE
-@property (nonatomic, setter=_setCoreLocationProvider:) id <_WKGeolocationCoreLocationProvider> _coreLocationProvider WK_API_AVAILABLE(ios(11.0));
 #endif
 
 + (NSURL *)_websiteDataURLForContainerWithURL:(NSURL *)containerURL;

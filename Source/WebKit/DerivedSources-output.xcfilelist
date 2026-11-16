@@ -417,10 +417,6 @@ $(BUILT_PRODUCTS_DIR)/DerivedSources/WebKit/IPC/WebFullScreenManagerMessageRecei
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebKit/IPC/WebFullScreenManagerMessages.h
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebKit/IPC/WebFullScreenManagerProxyMessageReceiver.cpp
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebKit/IPC/WebFullScreenManagerProxyMessages.h
-$(BUILT_PRODUCTS_DIR)/DerivedSources/WebKit/IPC/WebGeolocationManagerMessageReceiver.cpp
-$(BUILT_PRODUCTS_DIR)/DerivedSources/WebKit/IPC/WebGeolocationManagerMessages.h
-$(BUILT_PRODUCTS_DIR)/DerivedSources/WebKit/IPC/WebGeolocationManagerProxyMessageReceiver.cpp
-$(BUILT_PRODUCTS_DIR)/DerivedSources/WebKit/IPC/WebGeolocationManagerProxyMessages.h
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebKit/IPC/WebIDBConnectionToServerMessageReceiver.cpp
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebKit/IPC/WebIDBConnectionToServerMessages.h
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebKit/IPC/WebInspectorBackendMessageReceiver.cpp

@@ -202,7 +202,6 @@ NSString *WebFrameMainDocumentError = @"WebFrameMainDocumentErrorKey";
 NSString *WebFrameHasPlugins = @"WebFrameHasPluginsKey";
 NSString *WebFrameHasUnloadListener = @"WebFrameHasUnloadListenerKey";
 NSString *WebFrameUsesDatabases = @"WebFrameUsesDatabasesKey";
-NSString *WebFrameUsesGeolocation = @"WebFrameUsesGeolocationKey";
 NSString *WebFrameCanSuspendActiveDOMObjects = @"WebFrameCanSuspendActiveDOMObjectsKey";
 
 // FIXME: Remove when this key becomes publicly defined

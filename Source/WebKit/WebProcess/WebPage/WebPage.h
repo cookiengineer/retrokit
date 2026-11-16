@@ -415,7 +415,6 @@ class FindController;
 class FrameState;
 class JavaScriptEvaluationResult;
 class GPUProcessConnection;
-class GeolocationPermissionRequestManager;
 class InjectedBundleScriptWorld;
 class LayerHostingContext;
 class MediaDeviceSandboxExtensions;
@@ -528,7 +527,6 @@ struct FrameTreeCreationParameters;
 struct FrameTreeNodeData;
 struct FocusedElementInformation;
 struct FrameTreeNodeData;
-struct GeolocationIdentifierType;
 struct GoToBackForwardItemParameters;
 #if PLATFORM(IOS_FAMILY)
 struct HardwareKeyboardState;
@@ -574,7 +572,6 @@ template<typename T> class MonotonicObjectIdentifier;
 
 using ActivityStateChangeID = uint64_t;
 using ContentWorldIdentifier = WebCore::ProcessQualified<ObjectIdentifier<ContentWorldIdentifierType>>;
-using GeolocationIdentifier = ObjectIdentifier<GeolocationIdentifierType>;
 using DragOperationResult = Variant<bool, DragEventForwardingData>;
 using ImageBufferBackendHandle = Variant<
     WebCore::ShareableBitmapHandle
@@ -1053,9 +1050,6 @@ public:
     FindController& findController() LIFETIME_BOUND { return m_findController.get(); }
     WebFoundTextRangeController& foundTextRangeController() LIFETIME_BOUND { return m_foundTextRangeController.get(); }
 
-#if ENABLE(GEOLOCATION)
-    GeolocationPermissionRequestManager& geolocationPermissionRequestManager() LIFETIME_BOUND { return m_geolocationPermissionRequestManager.get(); }
-#endif
 
 #if PLATFORM(IOS_FAMILY)
     void savePageState(WebCore::HistoryItem&);
@@ -2544,7 +2538,6 @@ private:
     void extendSandboxForFilesFromOpenPanel(Vector<SandboxExtensionHandle>&&);
 #endif
 
-    void didReceiveGeolocationPermissionDecision(GeolocationIdentifier, const String& authorizationToken);
 
 #if ENABLE(MEDIA_STREAM)
     void userMediaAccessWasGranted(WebCore::UserMediaRequestIdentifier, WebCore::CaptureDevice&& audioDeviceUID, WebCore::CaptureDevice&& videoDeviceUID, WebCore::MediaDeviceHashSalts&& mediaDeviceIdentifierHashSalt, Vector<SandboxExtensionHandle>&&, CompletionHandler<void()>&&);
@@ -2979,9 +2972,6 @@ private:
 
     const UniqueRef<WebScreenOrientationManager> m_screenOrientationManager;
 
-#if ENABLE(GEOLOCATION)
-    const UniqueRef<GeolocationPermissionRequestManager> m_geolocationPermissionRequestManager;
-#endif
 
 #if ENABLE(MEDIA_STREAM)
     const UniqueRef<UserMediaPermissionRequestManager> m_userMediaPermissionRequestManager;

@@ -32,8 +32,8 @@ typedef WebKitPermissionRequestIface WebKitPermissionRequestInterface;
  *
  * There are situations where an embedder would need to ask the user
  * for permission to do certain types of operations, such as switching
- * to fullscreen mode or reporting the user's location through the
- * standard Geolocation API. In those cases, WebKit will emit a
+ * to fullscreen mode or capturing from the camera. In those cases,
+ * WebKit will emit a
  * #WebKitWebView::permission-request signal with a
  * #WebKitPermissionRequest object attached to it.
  */

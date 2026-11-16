@@ -256,7 +256,6 @@ Shared/WebEventConversion.cpp
 Shared/WebEventModifier.cpp
 Shared/WebFindOptions.cpp
 Shared/WebFoundTextRange.cpp
-Shared/WebGeolocationPosition.cpp
 Shared/WebHitTestResultData.cpp
 Shared/WebImage.cpp
 Shared/WebKeyboardEvent.cpp
@@ -405,8 +404,6 @@ UIProcess/FindStringCallbackAggregator.cpp @cost:3
 UIProcess/FindTextMatchesCallbackAggregator.cpp
 UIProcess/FrameLoadState.cpp
 UIProcess/FrameProcess.cpp
-UIProcess/GeolocationPermissionRequestManagerProxy.cpp @cost:3
-UIProcess/GeolocationPermissionRequestProxy.cpp
 UIProcess/LegacyGlobalSettings.cpp
 UIProcess/MediaKeySystemPermissionRequestManagerProxy.cpp @cost:4
 UIProcess/MediaKeySystemPermissionRequestProxy.cpp
@@ -459,8 +456,6 @@ UIProcess/WebFormSubmissionListenerProxy.cpp
 UIProcess/WebFramePolicyListenerProxy.cpp
 UIProcess/WebFrameProxy.cpp @cost:6
 UIProcess/WebFullScreenManagerProxy.cpp
-UIProcess/WebGeolocationManagerProxy.cpp
-UIProcess/WebGeolocationProvider.cpp
 UIProcess/WebLockRegistryProxy.cpp
 UIProcess/WebNavigationState.cpp
 UIProcess/WebOpenPanelResultListenerProxy.cpp
@@ -535,9 +530,6 @@ UIProcess/API/C/WKFrame.cpp
 UIProcess/API/C/WKFrameHandleRef.cpp
 UIProcess/API/C/WKFrameInfoRef.cpp
 UIProcess/API/C/WKFramePolicyListener.cpp
-UIProcess/API/C/WKGeolocationManager.cpp
-UIProcess/API/C/WKGeolocationPermissionRequest.cpp
-UIProcess/API/C/WKGeolocationPosition.cpp
 UIProcess/API/C/WKHTTPCookieStoreRef.cpp
 UIProcess/API/C/WKHitTestResult.cpp
 UIProcess/API/C/WKIconDatabase.cpp
@@ -701,8 +693,6 @@ WebProcess/FileAPI/BlobRegistryProxy.cpp
 WebProcess/FullScreen/WebFullScreenManager.cpp @cost:8
 
 
-WebProcess/Geolocation/GeolocationPermissionRequestManager.cpp
-WebProcess/Geolocation/WebGeolocationManager.cpp
 
 WebProcess/InjectedBundle/InjectedBundle.cpp @cost:4
 WebProcess/InjectedBundle/InjectedBundleClient.cpp
@@ -898,7 +888,6 @@ WebProcess/WebCoreSupport/WebDragClient.cpp
 WebProcess/WebCoreSupport/WebEditorClient.cpp
 WebProcess/WebCoreSupport/WebFileSystemStorageConnection.cpp @cost:3
 WebProcess/WebCoreSupport/WebFrameLoaderClient.cpp
-WebProcess/WebCoreSupport/WebGeolocationClient.cpp
 WebProcess/WebCoreSupport/WebLocalFrameLoaderClient.cpp @cost:4
 WebProcess/WebCoreSupport/WebMediaKeySystemClient.cpp
 WebProcess/WebCoreSupport/WebMessagePortChannelProvider.cpp

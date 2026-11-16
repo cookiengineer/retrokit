@@ -59,7 +59,6 @@
 #include "AuthenticationDecisionListener.h"
 #include "ContentAsStringIncludesChildFrames.h"
 #include "DownloadProxy.h"
-#include "GeolocationPermissionRequestProxy.h"
 #include "JavaScriptEvaluationResult.h"
 #include "LegacySessionStateCoding.h"
 #include "Logging.h"
@@ -2034,15 +2033,6 @@ void WKPageSetPageUIClient(WKPageRef pageRef, const WKPageUIClientBase* wkClient
 
             m_client.runOpenPanel(toAPI(&page), toAPI(frame), toAPI(parameters), toAPI(listener), m_client.base.clientInfo);
             return true;
-        }
-
-        void decidePolicyForGeolocationPermissionRequest(WebPageProxy& page, WebFrameProxy& frame, const FrameInfoData& frameInfo, Function<void(bool)>& completionHandler) final
-        {
-            if (!m_client.decidePolicyForGeolocationPermissionRequest)
-                return;
-
-            auto origin = API::SecurityOrigin::create(frameInfo.securityOrigin);
-            m_client.decidePolicyForGeolocationPermissionRequest(toAPI(&page), toAPI(&frame), toAPI(origin.ptr()), toAPI(GeolocationPermissionRequest::create(std::exchange(completionHandler, nullptr)).ptr()), m_client.base.clientInfo);
         }
 
         void decidePolicyForUserMediaPermissionRequest(WebPageProxy& page, WebFrameProxy& frame, API::SecurityOrigin& userMediaDocumentOrigin, API::SecurityOrigin& topLevelDocumentOrigin, UserMediaPermissionRequestProxy& permissionRequest) final

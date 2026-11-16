@@ -30,7 +30,6 @@
 #import <wtf/AlignedStorage.h>
 
 #if TARGET_OS_IPHONE
-@class WKGeolocationProviderIOS;
 #endif
 
 namespace WebKit {
@@ -49,6 +48,5 @@ template<> struct WrapperTraits<WebProcessPool> {
 }
 
 #if TARGET_OS_IPHONE
-@property(readonly) WKGeolocationProviderIOS *_geolocationProvider;
 #endif
 @end

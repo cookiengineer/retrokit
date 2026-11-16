@@ -238,7 +238,6 @@ list(APPEND WebCore_SYSTEM_INCLUDE_DIRECTORIES
 )
 
 list(APPEND WebCore_SOURCES
-    Modules/geolocation/cocoa/GeolocationPositionDataCocoa.mm
 
     Modules/paymentrequest/MerchantValidationEvent.cpp
 
@@ -1066,7 +1065,6 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/cocoa/AppleVisualEffect.h
     platform/cocoa/CocoaView.h
     platform/cocoa/CocoaWritingToolsTypes.h
-    platform/cocoa/CoreLocationGeolocationProvider.h
     platform/cocoa/CoreVideoExtras.h
     platform/cocoa/CoreVideoSoftLink.h
     platform/cocoa/LocalCurrentGraphicsContext.h

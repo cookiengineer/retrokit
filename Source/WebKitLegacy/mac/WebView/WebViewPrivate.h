@@ -52,7 +52,6 @@
 @class UIImage;
 @class NSError;
 @class WebFrame;
-@class WebGeolocationPosition;
 @class WebInspector;
 @class WebNotification;
 @class WebPreferences;
@@ -934,26 +933,6 @@ typedef struct WebEdgeInsets {
 
 @end
 
-#if TARGET_OS_IPHONE
-@protocol WebGeolocationProvider;
-
-@protocol WebGeolocationProviderInitializationListener <NSObject>
-- (void)initializationAllowedWebView:(WebView *)webView;
-- (void)initializationDeniedWebView:(WebView *)webView;
-@end
-
-#endif
-
-@protocol WebGeolocationProvider <NSObject>
-- (void)registerWebView:(WebView *)webView;
-- (void)unregisterWebView:(WebView *)webView;
-- (WebGeolocationPosition *)lastPosition;
-#if TARGET_OS_IPHONE
-- (void)setEnableHighAccuracy:(BOOL)enableHighAccuracy;
-- (void)initializeGeolocationForWebView:(WebView *)webView listener:(id<WebGeolocationProviderInitializationListener>)listener;
-- (void)stopTrackingWebView:(WebView *)webView;
-#endif
-@end
 
 @protocol WebNotificationProvider
 - (void)registerWebView:(WebView *)webView;
@@ -968,17 +947,6 @@ typedef struct WebEdgeInsets {
 - (void)webView:(WebView *)webView didShowNotification:(NSString *)notificationID;
 - (void)webView:(WebView *)webView didClickNotification:(NSString *)notificationID;
 - (void)webView:(WebView *)webView didCloseNotifications:(NSArray *)notificationIDs;
-@end
-
-@interface WebView (WebViewGeolocation)
-- (void)_setGeolocationProvider:(id<WebGeolocationProvider>)locationProvider;
-- (id<WebGeolocationProvider>)_geolocationProvider;
-
-- (void)_geolocationDidChangePosition:(WebGeolocationPosition *)position;
-- (void)_geolocationDidFailWithMessage:(NSString *)errorMessage;
-#if TARGET_OS_IPHONE
-- (void)_resetAllGeolocationPermission;
-#endif
 @end
 
 @interface WebView (WebViewNotification)

@@ -109,8 +109,6 @@ public:
     void setUsedLegacyTLS(bool used) { m_usedLegacyTLS = used; }
     bool wasPrivateRelayed() const { return m_wasPrivateRelayed; }
     void setWasPrivateRelayed(bool privateRelayed) { m_wasPrivateRelayed = privateRelayed; }
-    bool geolocationAccessed() const { return m_geolocationAccessed; }
-    void setGeolocationAccessed() { m_geolocationAccessed = true; }
     bool secureCookiesAccessed() const { return m_secureCookiesAccessed; }
     void setSecureCookiesAccessed() { m_secureCookiesAccessed = true; }
 
@@ -146,7 +144,6 @@ private:
     ReferrerPolicy m_referrerPolicy { ReferrerPolicy::Default };
     IPAddressSpace m_ipAddressSpace { IPAddressSpace::Public };
     bool m_haveInitializedSecurityOrigin { false };
-    bool m_geolocationAccessed { false };
     bool m_secureCookiesAccessed { false };
     bool m_usedLegacyTLS { false };
     bool m_wasPrivateRelayed { false };

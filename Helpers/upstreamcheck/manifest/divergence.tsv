@@ -2155,6 +2155,10 @@ gamepad	flag	WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_GAMEPAD PRIVATE ON)	Source/
 gamepad	flag	WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_GAMEPAD PRIVATE OFF)	Source/cmake/OptionsPlayStation.cmake	removed	source	cbd7373a323420a6d5d865845eb9da823401bcf4	line=63; commit=cbd7373a3234
 gamepad	flag	WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_GAMEPAD PUBLIC OFF)	Source/cmake/OptionsWin.cmake	removed	source	cbd7373a323420a6d5d865845eb9da823401bcf4	line=34; commit=cbd7373a3234
 gamepad	flag	WEBKIT_OPTION_DEFINE(ENABLE_GAMEPAD "Toggle Gamepad support" PRIVATE OFF)	Source/cmake/WebKitFeatures.cmake	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	line=148; commit=a7047cfe057b
+geolocation	file	-	Source/WTF/Scripts/Preferences/UnifiedWebPreferences.yaml	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WTF/wtf/PlatformEnable.h	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WTF/wtf/PlatformEnableCocoa.h	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WTF/wtf/PlatformEnableWin.h	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
 geolocation	build_ref	"${WEBCORE_DIR}/Modules/geolocation"	Source/WebCore/CMakeLists.txt	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	line=34; commit=ba5ff6e41dbe
 geolocation	build_ref	Modules/geolocation	Source/WebCore/CMakeLists.txt	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	line=195; commit=ba5ff6e41dbe
 geolocation	build_ref	Modules/geolocation/Geolocation.idl	Source/WebCore/CMakeLists.txt	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	line=284; commit=ba5ff6e41dbe
@@ -2165,6 +2169,9 @@ geolocation	build_ref	Modules/geolocation/Navigator+Geolocation.idl	Source/WebCo
 geolocation	build_ref	Modules/geolocation/PositionCallback.idl	Source/WebCore/CMakeLists.txt	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	line=289; commit=ba5ff6e41dbe
 geolocation	build_ref	Modules/geolocation/PositionErrorCallback.idl	Source/WebCore/CMakeLists.txt	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	line=290; commit=ba5ff6e41dbe
 geolocation	build_ref	Modules/geolocation/PositionOptions.idl	Source/WebCore/CMakeLists.txt	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	line=291; commit=ba5ff6e41dbe
+geolocation	file	-	Source/WebCore/CMakeLists.txt	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebCore/DerivedSources-input.xcfilelist	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebCore/DerivedSources-output.xcfilelist	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
 geolocation	build_ref	$(WebCore)/Modules/geolocation/Geolocation.idl \	Source/WebCore/DerivedSources.make	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	line=155; commit=ba5ff6e41dbe
 geolocation	build_ref	$(WebCore)/Modules/geolocation/GeolocationCoordinates.idl \	Source/WebCore/DerivedSources.make	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	line=156; commit=ba5ff6e41dbe
 geolocation	build_ref	$(WebCore)/Modules/geolocation/GeolocationPosition.idl \	Source/WebCore/DerivedSources.make	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	line=157; commit=ba5ff6e41dbe
@@ -2173,6 +2180,7 @@ geolocation	build_ref	$(WebCore)/Modules/geolocation/Navigator+Geolocation.idl \
 geolocation	build_ref	$(WebCore)/Modules/geolocation/PositionCallback.idl \	Source/WebCore/DerivedSources.make	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	line=160; commit=ba5ff6e41dbe
 geolocation	build_ref	$(WebCore)/Modules/geolocation/PositionErrorCallback.idl \	Source/WebCore/DerivedSources.make	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	line=161; commit=ba5ff6e41dbe
 geolocation	build_ref	$(WebCore)/Modules/geolocation/PositionOptions.idl \	Source/WebCore/DerivedSources.make	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	line=162; commit=ba5ff6e41dbe
+geolocation	file	-	Source/WebCore/DerivedSources.make	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
 geolocation	build_ref	Modules/geolocation/Geolocation.h	Source/WebCore/Headers.cmake	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	line=40; commit=ba5ff6e41dbe
 geolocation	build_ref	Modules/geolocation/GeolocationClient.h	Source/WebCore/Headers.cmake	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	line=41; commit=ba5ff6e41dbe
 geolocation	build_ref	Modules/geolocation/GeolocationController.h	Source/WebCore/Headers.cmake	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	line=42; commit=ba5ff6e41dbe
@@ -2184,6 +2192,8 @@ geolocation	build_ref	Modules/geolocation/GeolocationPositionError.h	Source/WebC
 geolocation	build_ref	Modules/geolocation/PositionCallback.h	Source/WebCore/Headers.cmake	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	line=48; commit=ba5ff6e41dbe
 geolocation	build_ref	Modules/geolocation/PositionErrorCallback.h	Source/WebCore/Headers.cmake	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	line=49; commit=ba5ff6e41dbe
 geolocation	build_ref	Modules/geolocation/PositionOptions.h	Source/WebCore/Headers.cmake	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	line=50; commit=ba5ff6e41dbe
+geolocation	file	-	Source/WebCore/Headers.cmake	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	behavior	geolocation-api-and-geoclue-removed	Source/WebCore/Modules/geolocation	removed	source	manual:geolocation-2.54	Geolocation API, permission flow, Geoclue/GLib providers and WebKitLegacy providers removed
 geolocation	file	-	Source/WebCore/Modules/geolocation/GeoNotifier.cpp	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	origin=ba5ff6e41dbe314de89048801345d5e2a1c83b8e :unicorn: Geolocation API
 geolocation	file	-	Source/WebCore/Modules/geolocation/GeoNotifier.h	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	origin=ba5ff6e41dbe314de89048801345d5e2a1c83b8e :unicorn: Geolocation API
 geolocation	file	-	Source/WebCore/Modules/geolocation/Geolocation.cpp	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	origin=ba5ff6e41dbe314de89048801345d5e2a1c83b8e :unicorn: Geolocation API
@@ -2210,6 +2220,13 @@ geolocation	file	-	Source/WebCore/Modules/geolocation/PositionErrorCallback.h	re
 geolocation	file	-	Source/WebCore/Modules/geolocation/PositionErrorCallback.idl	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	origin=ba5ff6e41dbe314de89048801345d5e2a1c83b8e :unicorn: Geolocation API
 geolocation	file	-	Source/WebCore/Modules/geolocation/PositionOptions.h	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	origin=ba5ff6e41dbe314de89048801345d5e2a1c83b8e :unicorn: Geolocation API
 geolocation	file	-	Source/WebCore/Modules/geolocation/PositionOptions.idl	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	origin=ba5ff6e41dbe314de89048801345d5e2a1c83b8e :unicorn: Geolocation API
+geolocation	file	-	Source/WebCore/Modules/geolocation/cocoa/GeolocationPositionDataCocoa.mm	removed	source	manual:geolocation-2.54	Geolocation removal (2.54); deleted file
+geolocation	file	-	Source/WebCore/Modules/permissions/PermissionName.h	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	enum_value	PermissionName::geolocation	Source/WebCore/Modules/permissions/PermissionName.idl	removed	source	manual:geolocation-2.54	Geolocation removal (2.54)
+geolocation	file	-	Source/WebCore/Modules/permissions/PermissionName.idl	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebCore/Modules/permissions/Permissions.cpp	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebCore/PlatformCocoa.cmake	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebCore/PlatformHaiku.cmake	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
 geolocation	build_ref	JSGeolocation.cpp	Source/WebCore/Sources.txt	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	line=2972; commit=ba5ff6e41dbe
 geolocation	build_ref	JSGeolocationCoordinates.cpp	Source/WebCore/Sources.txt	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	line=2973; commit=ba5ff6e41dbe
 geolocation	build_ref	JSGeolocationPosition.cpp	Source/WebCore/Sources.txt	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	line=2974; commit=ba5ff6e41dbe
@@ -2220,31 +2237,82 @@ geolocation	build_ref	Modules/geolocation/GeolocationController.cpp	Source/WebCo
 geolocation	build_ref	Modules/geolocation/GeolocationCoordinates.cpp	Source/WebCore/Sources.txt	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	line=64; commit=ba5ff6e41dbe
 geolocation	build_ref	Modules/geolocation/NavigatorGeolocation.cpp	Source/WebCore/Sources.txt	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	line=65; commit=ba5ff6e41dbe
 geolocation	build_ref	platform/mock/GeolocationClientMock.cpp	Source/WebCore/Sources.txt	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	line=2035; commit=ba5ff6e41dbe
+geolocation	file	-	Source/WebCore/Sources.txt	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebCore/SourcesCMakeCocoa.txt	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebCore/SourcesCocoa.txt	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebCore/bindings/js/WebCoreBuiltinNames.h	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebCore/dom/Document.cpp	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebCore/dom/ScriptExecutionContext.cpp	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	enum_value	ScriptExecutionContext::ResourceType::Geolocation	Source/WebCore/dom/ScriptExecutionContext.h	removed	source	manual:geolocation-2.54	Geolocation removal (2.54)
+geolocation	file	-	Source/WebCore/dom/ScriptExecutionContext.h	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
 geolocation	field	WebCore::SecurityContext::m_geolocationAccessed	Source/WebCore/dom/SecurityContext.h	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	line=148
 geolocation	file	-	Source/WebCore/dom/SecurityContext.h	modified	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	origin=ba5ff6e41dbe314de89048801345d5e2a1c83b8e :unicorn: Geolocation API
 geolocation	method	WebCore::SecurityContext::geolocationAccessed	Source/WebCore/dom/SecurityContext.h	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	line=114
 geolocation	method	WebCore::SecurityContext::setGeolocationAccessed	Source/WebCore/dom/SecurityContext.h	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	line=115
 geolocation	enum_value	WebCore::TaskSource::Geolocation	Source/WebCore/dom/TaskSource.h	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	line=35; belongs to Geolocation, not WebXR
+geolocation	file	-	Source/WebCore/dom/TaskSource.h	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebCore/en.lproj/Localizable.strings	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
 geolocation	build_ref	"url": "https://www.w3.org/TR/geolocation-API/"	Source/WebCore/features.json	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	line=445; commit=ba5ff6e41dbe
 geolocation	config_line	"name": "Geolocation API",	Source/WebCore/features.json	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	line=440; commit=ba5ff6e41dbe
+geolocation	file	-	Source/WebCore/features.json	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebCore/html/PermissionsPolicy.cpp	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	enum_value	PermissionsPolicy::Feature::Geolocation	Source/WebCore/html/PermissionsPolicy.h	removed	source	manual:geolocation-2.54	Geolocation removal (2.54)
+geolocation	file	-	Source/WebCore/html/PermissionsPolicy.h	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
 geolocation	file	-	Source/WebCore/loader/MixedContentChecker.cpp	modified	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	origin=ba5ff6e41dbe314de89048801345d5e2a1c83b8e :unicorn: Geolocation API
+geolocation	file	-	Source/WebCore/page/Chrome.cpp	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebCore/page/Chrome.h	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebCore/page/ChromeClient.h	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebCore/page/LocalDOMWindow.cpp	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebCore/page/LocalDOMWindow.h	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	method	WebCore::LocalDOMWindow::resetAllGeolocationPermission	Source/WebCore/page/LocalDOMWindow.h	removed	source	manual:geolocation-2.54	Geolocation removal (2.54)
+geolocation	file	-	Source/WebCore/page/LocalFrame.h	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	method	WebCore::LocalFrame::resetAllGeolocationPermission	Source/WebCore/page/LocalFrame.h	removed	source	manual:geolocation-2.54	Geolocation removal (2.54)
+geolocation	file	-	Source/WebCore/page/Navigator.cpp	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebCore/page/Page.cpp	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebCore/page/Settings.yaml	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
 geolocation	pref	GeolocationFloorLevelEnabled:	Source/WebCore/page/Settings.yaml	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	line=232; commit=ba5ff6e41dbe
+geolocation	file	-	Source/WebCore/page/ios/FrameIOS.mm	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebCore/platform/Supplementable.h	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebCore/platform/cocoa/CoreLocationGeolocationProvider.h	removed	source	manual:geolocation-2.54	Geolocation removal (2.54); deleted file
+geolocation	file	-	Source/WebCore/platform/cocoa/CoreLocationGeolocationProvider.mm	removed	source	manual:geolocation-2.54	Geolocation removal (2.54); deleted file
 geolocation	build_ref	../../../WebKit/UIProcess/API/glib/WebKitGeolocationManager.cpp	Source/WebCore/platform/gtk/po/POTFILES.in	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	line=21; commit=ba5ff6e41dbe
 geolocation	build_ref	../../../WebKit/UIProcess/geoclue/GeoclueGeolocationProvider.cpp	Source/WebCore/platform/gtk/po/POTFILES.in	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	line=43; commit=ba5ff6e41dbe
+geolocation	file	-	Source/WebCore/platform/gtk/po/POTFILES.in	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
 geolocation	file	-	Source/WebCore/platform/mock/GeolocationClientMock.cpp	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	origin=ba5ff6e41dbe314de89048801345d5e2a1c83b8e :unicorn: Geolocation API
 geolocation	file	-	Source/WebCore/platform/mock/GeolocationClientMock.h	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	origin=ba5ff6e41dbe314de89048801345d5e2a1c83b8e :unicorn: Geolocation API
+geolocation	file	-	Source/WebInspectorUI/UserInterface/Models/NativeFunctionParameters.js	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
 geolocation	build_ref	UIProcess/WebGeolocationManagerProxy	Source/WebKit/CMakeLists.txt	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	line=198; commit=ba5ff6e41dbe
 geolocation	build_ref	WebProcess/Geolocation/WebGeolocationManager	Source/WebKit/CMakeLists.txt	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	line=249; commit=ba5ff6e41dbe
+geolocation	file	-	Source/WebKit/CMakeLists.txt	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
 geolocation	flag	"${WEBKIT_DIR}/WebProcess/Geolocation"	Source/WebKit/CMakeLists.txt	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	line=83; commit=ba5ff6e41dbe
+geolocation	file	-	Source/WebKit/Configurations/WebKit.xcconfig	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebKit/DerivedSources-input.xcfilelist	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebKit/DerivedSources-output.xcfilelist	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
 geolocation	build_ref	$(WebKit2)/WebProcess/Geolocation \	Source/WebKit/DerivedSources.make	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	line=57; commit=ba5ff6e41dbe
 geolocation	build_ref	UIProcess/WebGeolocationManagerProxy \	Source/WebKit/DerivedSources.make	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	line=165; commit=ba5ff6e41dbe
 geolocation	build_ref	WebProcess/Geolocation/WebGeolocationManager \	Source/WebKit/DerivedSources.make	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	line=229; commit=ba5ff6e41dbe
+geolocation	file	-	Source/WebKit/DerivedSources.make	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
 geolocation	build_ref	UIProcess/API/C/WKGeolocationManager.h	Source/WebKit/Headers.cmake	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	line=57; commit=ba5ff6e41dbe
 geolocation	build_ref	UIProcess/API/C/WKGeolocationPermissionRequest.h	Source/WebKit/Headers.cmake	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	line=58; commit=ba5ff6e41dbe
 geolocation	build_ref	UIProcess/API/C/WKGeolocationPosition.h	Source/WebKit/Headers.cmake	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	line=59; commit=ba5ff6e41dbe
+geolocation	file	-	Source/WebKit/Headers.cmake	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebKit/MigratedHeaders-input.xcfilelist	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebKit/MigratedHeaders-output.xcfilelist	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebKit/Modules/OSX_Private.modulemap	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebKit/Modules/iOS_Private.modulemap	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebKit/PlatformGTK.cmake	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
 geolocation	flag	"${WEBKIT_DIR}/UIProcess/geoclue"	Source/WebKit/PlatformGTK.cmake	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	line=436; commit=ba5ff6e41dbe
 geolocation	flag	${WEBKIT_DIR}/UIProcess/API/gtk/WebKitGeolocationManager.h	Source/WebKit/PlatformGTK.cmake	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	line=120; commit=ba5ff6e41dbe
 geolocation	flag	${WEBKIT_DIR}/UIProcess/API/gtk/WebKitGeolocationPermissionRequest.h	Source/WebKit/PlatformGTK.cmake	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	line=121; commit=ba5ff6e41dbe
+geolocation	file	-	Source/WebKit/PlatformIOS.cmake	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebKit/PlatformWPE.cmake	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebKit/Scripts/webkit/messages.py	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebKit/Scripts/webkit/tests/MessageArgumentDescriptions.cpp	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebKit/Shared/API/APIObject.h	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebKit/Shared/API/c/WKBase.h	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebKit/Shared/Cocoa/APIObject.mm	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebKit/Shared/WTFArgumentCoders.serialization.in	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebKit/Shared/WebCoreArgumentCoders.serialization.in	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
 geolocation	file	-	Source/WebKit/Shared/WebGeolocationPosition.cpp	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	origin=ba5ff6e41dbe314de89048801345d5e2a1c83b8e :unicorn: Geolocation API
 geolocation	file	-	Source/WebKit/Shared/WebGeolocationPosition.h	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	origin=ba5ff6e41dbe314de89048801345d5e2a1c83b8e :unicorn: Geolocation API
 geolocation	build_ref	Shared/WebGeolocationPosition.cpp	Source/WebKit/Sources.txt	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	line=216; commit=ba5ff6e41dbe
@@ -2258,44 +2326,96 @@ geolocation	build_ref	UIProcess/WebGeolocationProvider.cpp	Source/WebKit/Sources
 geolocation	build_ref	WebProcess/Geolocation/GeolocationPermissionRequestManager.cpp	Source/WebKit/Sources.txt	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	line=538; commit=ba5ff6e41dbe
 geolocation	build_ref	WebProcess/Geolocation/WebGeolocationManager.cpp	Source/WebKit/Sources.txt	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	line=539; commit=ba5ff6e41dbe
 geolocation	build_ref	WebProcess/WebCoreSupport/WebGeolocationClient.cpp	Source/WebKit/Sources.txt	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	line=689; commit=ba5ff6e41dbe
+geolocation	file	-	Source/WebKit/Sources.txt	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
 geolocation	build_ref	UIProcess/API/Cocoa/_WKGeolocationPosition.mm	Source/WebKit/SourcesCocoa.txt	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	line=279; commit=ba5ff6e41dbe
 geolocation	build_ref	UIProcess/ios/WKGeolocationProviderIOS.mm	Source/WebKit/SourcesCocoa.txt	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	line=486; commit=ba5ff6e41dbe
 geolocation	build_ref	UIProcess/ios/WKGeolocationProviderIOSObjCSecurityOrigin.mm	Source/WebKit/SourcesCocoa.txt	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	line=487; commit=ba5ff6e41dbe
+geolocation	file	-	Source/WebKit/SourcesCocoa.txt	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
 geolocation	build_ref	UIProcess/API/glib/WebKitGeolocationManager.cpp @no-unify	Source/WebKit/SourcesGTK.txt	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	line=142; commit=ba5ff6e41dbe
 geolocation	build_ref	UIProcess/API/glib/WebKitGeolocationPermissionRequest.cpp @no-unify	Source/WebKit/SourcesGTK.txt	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	line=143; commit=ba5ff6e41dbe
 geolocation	build_ref	UIProcess/geoclue/GeoclueGeolocationProvider.cpp	Source/WebKit/SourcesGTK.txt	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	line=221; commit=ba5ff6e41dbe
+geolocation	file	-	Source/WebKit/SourcesGTK.txt	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
 geolocation	build_ref	UIProcess/API/glib/WebKitGeolocationManager.cpp @no-unify	Source/WebKit/SourcesWPE.txt	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	line=134; commit=ba5ff6e41dbe
 geolocation	build_ref	UIProcess/API/glib/WebKitGeolocationPermissionRequest.cpp @no-unify	Source/WebKit/SourcesWPE.txt	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	line=135; commit=ba5ff6e41dbe
 geolocation	build_ref	UIProcess/geoclue/GeoclueGeolocationProvider.cpp	Source/WebKit/SourcesWPE.txt	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	line=200; commit=ba5ff6e41dbe
+geolocation	file	-	Source/WebKit/SourcesWPE.txt	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
 geolocation	file	-	Source/WebKit/UIProcess/API/APIGeolocationProvider.h	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	origin=ba5ff6e41dbe314de89048801345d5e2a1c83b8e :unicorn: Geolocation API
+geolocation	file	-	Source/WebKit/UIProcess/API/APIUIClient.h	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	method	WebKit::API::UIClient::decidePolicyForGeolocationPermissionRequest	Source/WebKit/UIProcess/API/APIUIClient.h	removed	source	manual:geolocation-2.54	Geolocation removal (2.54)
+geolocation	file	-	Source/WebKit/UIProcess/API/C/WKAPICast.h	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebKit/UIProcess/API/C/WKContext.cpp	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebKit/UIProcess/API/C/WKContext.h	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	function	WKContextGetGeolocationManager	Source/WebKit/UIProcess/API/C/WKContext.h	removed	source	manual:geolocation-2.54	Geolocation removal (2.54)
 geolocation	file	-	Source/WebKit/UIProcess/API/C/WKGeolocationManager.cpp	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	origin=ba5ff6e41dbe314de89048801345d5e2a1c83b8e :unicorn: Geolocation API
 geolocation	file	-	Source/WebKit/UIProcess/API/C/WKGeolocationManager.h	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	origin=ba5ff6e41dbe314de89048801345d5e2a1c83b8e :unicorn: Geolocation API
 geolocation	file	-	Source/WebKit/UIProcess/API/C/WKGeolocationPermissionRequest.cpp	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	origin=ba5ff6e41dbe314de89048801345d5e2a1c83b8e :unicorn: Geolocation API
 geolocation	file	-	Source/WebKit/UIProcess/API/C/WKGeolocationPermissionRequest.h	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	origin=ba5ff6e41dbe314de89048801345d5e2a1c83b8e :unicorn: Geolocation API
 geolocation	file	-	Source/WebKit/UIProcess/API/C/WKGeolocationPosition.cpp	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	origin=ba5ff6e41dbe314de89048801345d5e2a1c83b8e :unicorn: Geolocation API
 geolocation	file	-	Source/WebKit/UIProcess/API/C/WKGeolocationPosition.h	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	origin=ba5ff6e41dbe314de89048801345d5e2a1c83b8e :unicorn: Geolocation API
+geolocation	file	-	Source/WebKit/UIProcess/API/C/WKPage.cpp	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebKit/UIProcess/API/C/WKPageUIClient.h	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebKit/UIProcess/API/C/WebKit2_C.h	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebKit/UIProcess/API/Cocoa/WKProcessPool.mm	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebKit/UIProcess/API/Cocoa/WKProcessPoolInternal.h	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebKit/UIProcess/API/Cocoa/WKProcessPoolPrivate.h	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebKit/UIProcess/API/Cocoa/WKUIDelegate.h	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebKit/UIProcess/API/Cocoa/WKUIDelegatePrivate.h	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebKit/UIProcess/API/Cocoa/WKWebViewPrivateForTesting.h	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebKit/UIProcess/API/Cocoa/WKWebViewTesting.mm	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebKit/UIProcess/API/Cocoa/_WKGeolocationCoreLocationProvider.h	removed	source	manual:geolocation-2.54	Geolocation removal (2.54); deleted file
+geolocation	file	-	Source/WebKit/UIProcess/API/Cocoa/_WKGeolocationPosition.h	removed	source	manual:geolocation-2.54	Geolocation removal (2.54); deleted file
+geolocation	file	-	Source/WebKit/UIProcess/API/Cocoa/_WKGeolocationPosition.mm	removed	source	manual:geolocation-2.54	Geolocation removal (2.54); deleted file
+geolocation	file	-	Source/WebKit/UIProcess/API/Cocoa/_WKGeolocationPositionInternal.h	removed	source	manual:geolocation-2.54	Geolocation removal (2.54); deleted file
+geolocation	file	-	Source/WebKit/UIProcess/API/glib/WebKitAutocleanups.h.in	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
 geolocation	file	-	Source/WebKit/UIProcess/API/glib/WebKitGeolocationManager.cpp	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	origin=ba5ff6e41dbe314de89048801345d5e2a1c83b8e :unicorn: Geolocation API
+geolocation	file	-	Source/WebKit/UIProcess/API/glib/WebKitGeolocationManager.h.in	removed	source	manual:geolocation-2.54	Geolocation removal (2.54); deleted file
 geolocation	file	-	Source/WebKit/UIProcess/API/glib/WebKitGeolocationManagerPrivate.h	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	origin=ba5ff6e41dbe314de89048801345d5e2a1c83b8e :unicorn: Geolocation API
 geolocation	file	-	Source/WebKit/UIProcess/API/glib/WebKitGeolocationPermissionRequest.cpp	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	origin=ba5ff6e41dbe314de89048801345d5e2a1c83b8e :unicorn: Geolocation API
+geolocation	file	-	Source/WebKit/UIProcess/API/glib/WebKitGeolocationPermissionRequest.h.in	removed	source	manual:geolocation-2.54	Geolocation removal (2.54); deleted file
 geolocation	file	-	Source/WebKit/UIProcess/API/glib/WebKitGeolocationPermissionRequestPrivate.h	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	origin=ba5ff6e41dbe314de89048801345d5e2a1c83b8e :unicorn: Geolocation API
 geolocation	file	-	Source/WebKit/UIProcess/API/glib/WebKitPermissionRequest.cpp	modified	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	origin=ba5ff6e41dbe314de89048801345d5e2a1c83b8e :unicorn: Geolocation API
+geolocation	file	-	Source/WebKit/UIProcess/API/glib/WebKitUIClient.cpp	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebKit/UIProcess/API/glib/WebKitWebContext.cpp	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebKit/UIProcess/API/glib/WebKitWebContext.h.in	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	function	webkit_web_context_get_geolocation_manager	Source/WebKit/UIProcess/API/glib/WebKitWebContext.h.in	removed	source	manual:geolocation-2.54	Geolocation removal (2.54)
+geolocation	file	-	Source/WebKit/UIProcess/API/glib/webkit.h.in	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
 geolocation	file	-	Source/WebKit/UIProcess/API/gtk/WebKitGeolocationManager.h	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	origin=ba5ff6e41dbe314de89048801345d5e2a1c83b8e :unicorn: Geolocation API
 geolocation	file	-	Source/WebKit/UIProcess/API/gtk/WebKitGeolocationPermissionRequest.h	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	origin=ba5ff6e41dbe314de89048801345d5e2a1c83b8e :unicorn: Geolocation API
-geolocation	file	-	Source/WebKit/UIProcess/API/gtk/docs/webkit2gtk-4.0.types	modified	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	origin=ba5ff6e41dbe314de89048801345d5e2a1c83b8e :unicorn: Geolocation API
+geolocation	file	-	Source/WebKit/UIProcess/Cocoa/MediaPermissionUtilities.mm	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebKit/UIProcess/Cocoa/UIDelegate.h	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebKit/UIProcess/Cocoa/UIDelegate.mm	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebKit/UIProcess/Cocoa/WebGeolocationManagerProxyCocoa.cpp	removed	source	manual:geolocation-2.54	Geolocation removal (2.54); deleted file
 geolocation	file	-	Source/WebKit/UIProcess/GeolocationIdentifier.h	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	origin=ba5ff6e41dbe314de89048801345d5e2a1c83b8e :unicorn: Geolocation API
 geolocation	file	-	Source/WebKit/UIProcess/GeolocationPermissionRequestManagerProxy.cpp	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	origin=ba5ff6e41dbe314de89048801345d5e2a1c83b8e :unicorn: Geolocation API
 geolocation	file	-	Source/WebKit/UIProcess/GeolocationPermissionRequestManagerProxy.h	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	origin=ba5ff6e41dbe314de89048801345d5e2a1c83b8e :unicorn: Geolocation API
 geolocation	file	-	Source/WebKit/UIProcess/GeolocationPermissionRequestProxy.cpp	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	origin=ba5ff6e41dbe314de89048801345d5e2a1c83b8e :unicorn: Geolocation API
 geolocation	file	-	Source/WebKit/UIProcess/GeolocationPermissionRequestProxy.h	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	origin=ba5ff6e41dbe314de89048801345d5e2a1c83b8e :unicorn: Geolocation API
+geolocation	file	-	Source/WebKit/UIProcess/Inspector/gtk/WebInspectorUIProxyGtk.cpp	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebKit/UIProcess/MediaPermissionUtilities.h	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebKit/UIProcess/PageClient.h	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
 geolocation	file	-	Source/WebKit/UIProcess/WebGeolocationManagerProxy.cpp	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	origin=ba5ff6e41dbe314de89048801345d5e2a1c83b8e :unicorn: Geolocation API
 geolocation	file	-	Source/WebKit/UIProcess/WebGeolocationManagerProxy.h	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	origin=ba5ff6e41dbe314de89048801345d5e2a1c83b8e :unicorn: Geolocation API
 geolocation	file	-	Source/WebKit/UIProcess/WebGeolocationManagerProxy.messages.in	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	origin=ba5ff6e41dbe314de89048801345d5e2a1c83b8e :unicorn: Geolocation API
 geolocation	file	-	Source/WebKit/UIProcess/WebGeolocationProvider.cpp	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	origin=ba5ff6e41dbe314de89048801345d5e2a1c83b8e :unicorn: Geolocation API
 geolocation	file	-	Source/WebKit/UIProcess/WebGeolocationProvider.h	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	origin=ba5ff6e41dbe314de89048801345d5e2a1c83b8e :unicorn: Geolocation API
+geolocation	file	-	Source/WebKit/UIProcess/WebPageProxy.cpp	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebKit/UIProcess/WebPageProxy.h	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	method	WebKit::WebPageProxy::geolocationPermissionRequestManager	Source/WebKit/UIProcess/WebPageProxy.h	removed	source	manual:geolocation-2.54	Geolocation removal (2.54)
+geolocation	method	WebKit::WebPageProxy::requestGeolocationPermissionForFrame	Source/WebKit/UIProcess/WebPageProxy.h	removed	source	manual:geolocation-2.54	Geolocation removal (2.54)
+geolocation	method	WebKit::WebPageProxy::revokeGeolocationAuthorizationToken	Source/WebKit/UIProcess/WebPageProxy.h	removed	source	manual:geolocation-2.54	Geolocation removal (2.54)
 geolocation	config_line	RequestGeolocationPermissionForFrame(WebKit::GeolocationIdentifier geolocationID, struct WebKit::FrameInfoData frameInfo)	Source/WebKit/UIProcess/WebPageProxy.messages.in	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	line=267; commit=ba5ff6e41dbe
 geolocation	config_line	RevokeGeolocationAuthorizationToken(String authorizationToken);	Source/WebKit/UIProcess/WebPageProxy.messages.in	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	line=268; commit=ba5ff6e41dbe
+geolocation	file	-	Source/WebKit/UIProcess/WebPageProxy.messages.in	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebKit/UIProcess/WebPageProxyInternals.h	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebKit/UIProcess/WebProcessPool.cpp	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
 geolocation	file	-	Source/WebKit/UIProcess/geoclue/GeoclueGeolocationProvider.cpp	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	origin=ba5ff6e41dbe314de89048801345d5e2a1c83b8e :unicorn: Geolocation API
 geolocation	file	-	Source/WebKit/UIProcess/geoclue/GeoclueGeolocationProvider.h	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	origin=ba5ff6e41dbe314de89048801345d5e2a1c83b8e :unicorn: Geolocation API
+geolocation	file	-	Source/WebKit/UIProcess/ios/PageClientImplIOS.h	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebKit/UIProcess/ios/PageClientImplIOS.mm	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebKit/UIProcess/ios/WKGeolocationProviderIOS.h	removed	source	manual:geolocation-2.54	Geolocation removal (2.54); deleted file
+geolocation	file	-	Source/WebKit/UIProcess/ios/WKGeolocationProviderIOS.mm	removed	source	manual:geolocation-2.54	Geolocation removal (2.54); deleted file
+geolocation	file	-	Source/WebKit/UIProcess/ios/WKWebGeolocationPolicyDecider.h	removed	source	manual:geolocation-2.54	Geolocation removal (2.54); deleted file
+geolocation	file	-	Source/WebKit/UIProcess/ios/WKWebGeolocationPolicyDeciderIOS.mm	removed	source	manual:geolocation-2.54	Geolocation removal (2.54); deleted file
 geolocation	file	-	Source/WebKit/WebProcess/Geolocation/GeolocationPermissionRequestManager.cpp	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	origin=ba5ff6e41dbe314de89048801345d5e2a1c83b8e :unicorn: Geolocation API
 geolocation	file	-	Source/WebKit/WebProcess/Geolocation/GeolocationPermissionRequestManager.h	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	origin=ba5ff6e41dbe314de89048801345d5e2a1c83b8e :unicorn: Geolocation API
 geolocation	file	-	Source/WebKit/WebProcess/Geolocation/WebGeolocationManager.cpp	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	origin=ba5ff6e41dbe314de89048801345d5e2a1c83b8e :unicorn: Geolocation API
@@ -2304,11 +2424,59 @@ geolocation	file	-	Source/WebKit/WebProcess/Geolocation/WebGeolocationManager.me
 geolocation	file	-	Source/WebKit/WebProcess/InjectedBundle/InjectedBundle.cpp	modified	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	origin=ba5ff6e41dbe314de89048801345d5e2a1c83b8e :unicorn: Geolocation API
 geolocation	file	-	Source/WebKit/WebProcess/WebCoreSupport/WebGeolocationClient.cpp	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	origin=ba5ff6e41dbe314de89048801345d5e2a1c83b8e :unicorn: Geolocation API
 geolocation	file	-	Source/WebKit/WebProcess/WebCoreSupport/WebGeolocationClient.h	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	origin=ba5ff6e41dbe314de89048801345d5e2a1c83b8e :unicorn: Geolocation API
+geolocation	file	-	Source/WebKit/WebProcess/WebPage/WebPage.cpp	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebKit/WebProcess/WebPage/WebPage.h	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	method	WebKit::WebPage::didReceiveGeolocationPermissionDecision	Source/WebKit/WebProcess/WebPage/WebPage.h	removed	source	manual:geolocation-2.54	Geolocation removal (2.54)
 geolocation	config_line	DidReceiveGeolocationPermissionDecision(WebKit::GeolocationIdentifier geolocationID, String authorizationToken)	Source/WebKit/WebProcess/WebPage/WebPage.messages.in	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	line=375; commit=ba5ff6e41dbe
+geolocation	file	-	Source/WebKit/WebProcess/WebPage/WebPage.messages.in	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebKit/WebProcess/WebProcess.cpp	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebKit/WebProcess/WebProcess.h	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	method	WebKit::WebProcess::geolocationManager	Source/WebKit/WebProcess/WebProcess.h	removed	source	manual:geolocation-2.54	Geolocation removal (2.54)
+geolocation	file	-	Source/WebKitLegacy/PlatformIOS.cmake	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebKitLegacy/PlatformMac.cmake	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebKitLegacy/SaferCPPExpectations/NoUnretainedMemberCheckerExpectations	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebKitLegacy/SaferCPPExpectations/UncheckedCallArgsCheckerExpectations	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebKitLegacy/SaferCPPExpectations/UncountedCallArgsCheckerExpectations	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebKitLegacy/SaferCPPExpectations/UncountedLocalVarsCheckerExpectations	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebKitLegacy/SaferCPPExpectations/UnretainedCallArgsCheckerExpectations	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebKitLegacy/SourcesCMakeCocoa.txt	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebKitLegacy/WebKitLegacy-iOS.exp	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebKitLegacy/ios/Misc/WebGeolocationCoreLocationProvider.h	removed	source	manual:geolocation-2.54	Geolocation removal (2.54); deleted file
+geolocation	file	-	Source/WebKitLegacy/ios/Misc/WebGeolocationCoreLocationProvider.mm	removed	source	manual:geolocation-2.54	Geolocation removal (2.54); deleted file
+geolocation	file	-	Source/WebKitLegacy/ios/Misc/WebGeolocationProviderIOS.h	removed	source	manual:geolocation-2.54	Geolocation removal (2.54); deleted file
+geolocation	file	-	Source/WebKitLegacy/ios/Misc/WebGeolocationProviderIOS.mm	removed	source	manual:geolocation-2.54	Geolocation removal (2.54); deleted file
+geolocation	file	-	Source/WebKitLegacy/ios/WebCoreSupport/WebGeolocation.mm	removed	source	manual:geolocation-2.54	Geolocation removal (2.54); deleted file
+geolocation	file	-	Source/WebKitLegacy/ios/WebCoreSupport/WebGeolocationInternal.h	removed	source	manual:geolocation-2.54	Geolocation removal (2.54); deleted file
+geolocation	file	-	Source/WebKitLegacy/ios/WebCoreSupport/WebGeolocationPrivate.h	removed	source	manual:geolocation-2.54	Geolocation removal (2.54); deleted file
+geolocation	file	-	Source/WebKitLegacy/ios/WebKit.iOS.exp	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebKitLegacy/mac/Configurations/AllowedSPI-legacy.toml	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebKitLegacy/mac/Configurations/WebKitLegacy.xcconfig	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebKitLegacy/mac/Misc/WebKitErrors.m	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebKitLegacy/mac/Misc/WebKitErrorsPrivate.h	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebKitLegacy/mac/WebCoreSupport/WebChromeClient.mm	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebKitLegacy/mac/WebCoreSupport/WebGeolocationClient.h	removed	source	manual:geolocation-2.54	Geolocation removal (2.54); deleted file
+geolocation	file	-	Source/WebKitLegacy/mac/WebCoreSupport/WebGeolocationClient.mm	removed	source	manual:geolocation-2.54	Geolocation removal (2.54); deleted file
+geolocation	file	-	Source/WebKitLegacy/mac/WebKit.exp	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebKitLegacy/mac/WebView/WebFrame.mm	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebKitLegacy/mac/WebView/WebFramePrivate.h	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebKitLegacy/mac/WebView/WebGeolocationPosition.h	removed	source	manual:geolocation-2.54	Geolocation removal (2.54); deleted file
+geolocation	file	-	Source/WebKitLegacy/mac/WebView/WebGeolocationPosition.mm	removed	source	manual:geolocation-2.54	Geolocation removal (2.54); deleted file
+geolocation	file	-	Source/WebKitLegacy/mac/WebView/WebGeolocationPositionInternal.h	removed	source	manual:geolocation-2.54	Geolocation removal (2.54); deleted file
+geolocation	file	-	Source/WebKitLegacy/mac/WebView/WebPreferenceKeysPrivate.h	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebKitLegacy/mac/WebView/WebPreferences.mm	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebKitLegacy/mac/WebView/WebPreferencesPrivate.h	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebKitLegacy/mac/WebView/WebUIDelegatePrivate.h	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebKitLegacy/mac/WebView/WebView.mm	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebKitLegacy/mac/WebView/WebViewData.h	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebKitLegacy/mac/WebView/WebViewData.mm	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
+geolocation	file	-	Source/WebKitLegacy/mac/WebView/WebViewPrivate.h	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
 geolocation	flag	WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_GEOLOCATION PRIVATE ON)	Source/cmake/OptionsFTW.cmake	removed	source	594dffd780c4a42255712d6d2e086bc269fe127f	line=83; commit=594dffd780c4
 geolocation	flag	WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_GEOLOCATION PRIVATE ON)	Source/cmake/OptionsMac.cmake	removed	source	594dffd780c4a42255712d6d2e086bc269fe127f	line=47; commit=594dffd780c4
+geolocation	file	-	Source/cmake/OptionsPlayStation.cmake	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
 geolocation	flag	WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_GEOLOCATION PRIVATE OFF)	Source/cmake/OptionsPlayStation.cmake	removed	source	594dffd780c4a42255712d6d2e086bc269fe127f	line=76; commit=594dffd780c4
+geolocation	file	-	Source/cmake/OptionsWin.cmake	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
 geolocation	flag	WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_GEOLOCATION PUBLIC ON)	Source/cmake/OptionsWin.cmake	removed	source	594dffd780c4a42255712d6d2e086bc269fe127f	line=34; commit=594dffd780c4
+geolocation	file	-	Source/cmake/WebKitFeatures.cmake	modified	source	manual:geolocation-2.54	Geolocation removal (2.54); integration change
 geolocation	flag	WEBKIT_OPTION_DEFINE(ENABLE_GEOLOCATION "Toggle Geolocation support" PRIVATE ON)	Source/cmake/WebKitFeatures.cmake	removed	source	ba5ff6e41dbe314de89048801345d5e2a1c83b8e	line=148; commit=ba5ff6e41dbe
 geolocation	file	-	Tools/MiniBrowser/gtk/BrowserTab.c	modified	tools	198d109576b39c9f90c3f19ce5b590b96b27fe74	origin=198d109576b39c9f90c3f19ce5b590b96b27fe74 :bug: Fixes for GTK/GLib APIs
 incremental-pdf	pref	IncrementalPDFLoadingEnabled:	Source/WTF/Scripts/Preferences/WebPreferencesExperimental.yaml	removed	source	bd8d3cb4801a100beef71ad65419a9283438fa4a	line=512; commit=bd8d3cb4801a

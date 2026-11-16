@@ -329,7 +329,6 @@ public:
 #endif
 
 
-    void resetAllGeolocationPermission();
 
 #if ENABLE(IOS_TOUCH_EVENTS) || ENABLE(IOS_GESTURE_EVENTS)
     bool hasTouchOrGestureEventListeners() const { return m_touchAndGestureEventListenerCount > 0; }

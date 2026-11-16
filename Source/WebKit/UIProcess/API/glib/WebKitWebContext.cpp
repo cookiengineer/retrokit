@@ -32,7 +32,6 @@
 #include "WebAutomationSession.h"
 #include "WebKitAutomationSessionPrivate.h"
 #include "WebKitDownloadPrivate.h"
-#include "WebKitGeolocationManagerPrivate.h"
 #include "WebKitInitialize.h"
 #include "WebKitInjectedBundleClient.h"
 #include "WebKitMemoryPressureSettings.h"
@@ -259,7 +258,6 @@ struct _WebKitWebContextPrivate {
 #endif
     GRefPtr<WebKitSecurityManager> securityManager;
     URISchemeHandlerMap uriSchemeHandlers;
-    GRefPtr<WebKitGeolocationManager> geolocationManager;
     std::unique_ptr<WebKitNotificationProvider> notificationProvider;
 #if !ENABLE(2022_GLIB_API)
     GRefPtr<WebKitWebsiteDataManager> websiteDataManager;
@@ -476,7 +474,6 @@ static void webkitWebContextConstructed(GObject* object)
 
     attachInjectedBundleClientToContext(webContext);
 
-    priv->geolocationManager = adoptGRef(webkitGeolocationManagerCreate(priv->processPool->supplement<WebGeolocationManagerProxy>()));
     priv->notificationProvider = makeUnique<WebKitNotificationProvider>(priv->processPool->supplement<WebNotificationManagerProxy>(), webContext);
 #if PLATFORM(GTK) && ENABLE(REMOTE_INSPECTOR)
     priv->remoteInspectorProtocolHandler = makeUnique<RemoteInspectorProtocolHandler>(webContext);
@@ -1121,23 +1118,6 @@ WebKitCookieManager* webkit_web_context_get_cookie_manager(WebKitWebContext* con
     return webkit_website_data_manager_get_cookie_manager(context->priv->websiteDataManager.get());
 }
 #endif
-
-/**
- * webkit_web_context_get_geolocation_manager:
- * @context: a #WebKitWebContext
- *
- * Get the #WebKitGeolocationManager of @context.
- *
- * Returns: (transfer none): the #WebKitGeolocationManager of @context.
- *
- * Since: 2.26
- */
-WebKitGeolocationManager* webkit_web_context_get_geolocation_manager(WebKitWebContext* context)
-{
-    g_return_val_if_fail(WEBKIT_IS_WEB_CONTEXT(context), nullptr);
-
-    return context->priv->geolocationManager.get();
-}
 
 #if !ENABLE(2022_GLIB_API)
 static void ensureFaviconDatabase(WebKitWebContext* context)

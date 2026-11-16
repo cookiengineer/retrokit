@@ -587,7 +587,6 @@ $(PROJECT_DIR)/UIProcess/WebBackForwardList.messages.in
 $(PROJECT_DIR)/UIProcess/WebFrameProxy.messages.in
 $(PROJECT_DIR)/UIProcess/WebFrameProxyFromNetworkProcess.messages.in
 $(PROJECT_DIR)/UIProcess/WebFullScreenManagerProxy.messages.in
-$(PROJECT_DIR)/UIProcess/WebGeolocationManagerProxy.messages.in
 $(PROJECT_DIR)/UIProcess/WebLockRegistryProxy.messages.in
 $(PROJECT_DIR)/UIProcess/WebPageProxy.messages.in
 $(PROJECT_DIR)/UIProcess/WebPasteboardProxy.messages.in
@@ -685,7 +684,6 @@ $(PROJECT_DIR)/WebProcess/GPU/webrtc/RemoteVideoFrameObjectHeapProxy.messages.in
 $(PROJECT_DIR)/WebProcess/GPU/webrtc/RemoteVideoFrameObjectHeapProxyProcessor.messages.in
 $(PROJECT_DIR)/WebProcess/GPU/webrtc/SampleBufferDisplayLayer.messages.in
 $(PROJECT_DIR)/WebProcess/GPU/webrtc/SharedVideoFrame.serialization.in
-$(PROJECT_DIR)/WebProcess/Geolocation/WebGeolocationManager.messages.in
 $(PROJECT_DIR)/WebProcess/Inspector/RemoteWebInspectorUI.messages.in
 $(PROJECT_DIR)/WebProcess/Inspector/WasmDebuggerDispatcher.messages.in
 $(PROJECT_DIR)/WebProcess/Inspector/WebInspectorBackend.messages.in

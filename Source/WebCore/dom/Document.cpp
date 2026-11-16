@@ -412,8 +412,6 @@
 #endif
 
 #if PLATFORM(IOS_FAMILY)
-#include "Geolocation.h"
-#include "NavigatorGeolocation.h"
 #endif
 
 #if ENABLE(IOS_GESTURE_EVENTS)

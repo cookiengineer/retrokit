@@ -31,7 +31,6 @@ mac/Plugins/WebPluginContainerCheck.mm
 [ Mac ] mac/WebCoreSupport/WebContextMenuClient.mm
 mac/WebCoreSupport/WebEditorClient.mm
 mac/WebCoreSupport/WebFrameLoaderClient.mm
-mac/WebCoreSupport/WebGeolocationClient.mm
 [ Mac ] mac/WebCoreSupport/WebInspectorClient.mm
 mac/WebCoreSupport/WebPluginInfoProvider.mm
 [ Mac ] mac/WebCoreSupport/WebSelectionServiceController.mm

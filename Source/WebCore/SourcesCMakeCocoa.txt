@@ -50,7 +50,6 @@ Modules/encryptedmedia/legacy/WebKitMediaKeySession.cpp
 Modules/encryptedmedia/legacy/WebKitMediaKeys.cpp
 
 
-Modules/geolocation/cocoa/GeolocationPositionDataCocoa.mm @nonARC
 
 Modules/webaudio/MediaStreamAudioSourceCocoa.cpp
 

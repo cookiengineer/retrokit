@@ -21,7 +21,6 @@ list(APPEND WebCore_SOURCES
   platform/graphics/PlatformDisplay.cpp
   platform/graphics/WOFFFileFormat.cpp
 
-  platform/mock/GeolocationClientMock.cpp
 
   platform/text/Hyphenation.cpp
   platform/text/LocaleICU.cpp

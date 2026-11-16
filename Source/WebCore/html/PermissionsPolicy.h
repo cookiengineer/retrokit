@@ -50,7 +50,6 @@ public:
         Microphone,
         SpeakerSelection,
         DisplayCapture,
-        Geolocation,
         Payment,
         ScreenWakeLock,
         SyncXHR,

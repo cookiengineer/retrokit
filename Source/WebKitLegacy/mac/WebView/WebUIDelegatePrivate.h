@@ -251,16 +251,6 @@ extern NSString *WebConsoleMessageErrorMessageLevel;
 
 - (WebView *)webView:(WebView *)sender createWebViewWithRequest:(NSURLRequest *)request windowFeatures:(NSDictionary *)features;
 
-/*!
-    @method webView:decidePolicyForGeolocationRequestFromOrigin:frame:listener:
-    @param webView The WebView sending the delegate method.
-    @param origin The security origin that would like to use Geolocation.
-    @param frame The WebFrame whose JavaScript initiated this call.
-    @param listener The object to call when the decision is made
-*/
-- (void)webView:(WebView *)webView decidePolicyForGeolocationRequestFromOrigin:(WebSecurityOrigin *)origin
-                                                                         frame:(WebFrame *)frame
-                                                                      listener:(id<WebAllowDenyPolicyListener>)listener;
 - (void)webView:(WebView *)webView decidePolicyForNotificationRequestFromOrigin:(WebSecurityOrigin *)origin listener:(id<WebAllowDenyPolicyListener>)listener;
 
 - (void)webView:(WebView *)webView decidePolicyForUserMediaRequestFromOrigin:(WebSecurityOrigin *)origin listener:(id<WebAllowDenyPolicyListener>)listener;
@@ -300,7 +290,6 @@ extern NSString *WebConsoleMessageErrorMessageLevel;
  */
 - (void)webViewSupportedOrientationsUpdated:(WebView *)sender;
 
-- (BOOL)webViewCanCheckGeolocationAuthorizationStatus:(WebView *)sender;
 #endif
 
 #if TARGET_OS_IOS || (defined(TARGET_OS_VISION) && TARGET_OS_VISION)

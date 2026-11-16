@@ -102,7 +102,6 @@ class FloatRect;
 class Frame;
 class FrameDamageHistory;
 class FrameSelection;
-class Geolocation;
 class GraphicsLayer;
 class GraphicsLayerFactory;
 class HTMLAttachmentElement;

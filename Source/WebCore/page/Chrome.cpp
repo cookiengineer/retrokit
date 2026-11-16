@@ -44,7 +44,6 @@
 #include "FocusOptions.h"
 #include "FrameLoader.h"
 #include "FrameTree.h"
-#include "Geolocation.h"
 #include "HTMLFormElement.h"
 #include "HTMLInputElement.h"
 #include "HTMLNames.h"

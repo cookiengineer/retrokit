@@ -119,7 +119,6 @@ typedef WKRect (*WKPageGetWindowFrameCallback)(WKPageRef page, const void *clien
 typedef void (*WKPageSetWindowFrameCallback)(WKPageRef page, WKRect frame, const void *clientInfo);
 typedef unsigned long long (*WKPageExceededDatabaseQuotaCallback)(WKPageRef page, WKFrameRef frame, WKSecurityOriginRef origin, WKStringRef databaseName, WKStringRef displayName, unsigned long long currentQuota, unsigned long long currentOriginUsage, unsigned long long currentDatabaseUsage, unsigned long long expectedUsage, const void *clientInfo);
 typedef void (*WKPageRunOpenPanelCallback)(WKPageRef page, WKFrameRef frame, WKOpenPanelParametersRef parameters, WKOpenPanelResultListenerRef listener, const void *clientInfo);
-typedef void (*WKPageDecidePolicyForGeolocationPermissionRequestCallback)(WKPageRef page, WKFrameRef frame, WKSecurityOriginRef origin, WKGeolocationPermissionRequestRef permissionRequest, const void* clientInfo);
 typedef float (*WKPageHeaderHeightCallback)(WKPageRef page, WKFrameRef frame, const void* clientInfo);
 typedef float (*WKPageFooterHeightCallback)(WKPageRef page, WKFrameRef frame, const void* clientInfo);
 typedef void (*WKPageDrawHeaderCallback)(WKPageRef page, WKFrameRef frame, WKRect rect, const void* clientInfo);
@@ -201,7 +200,6 @@ typedef struct WKPageUIClientV0 {
     WKPageUIClientCallback                                              pageDidScroll;
     WKPageExceededDatabaseQuotaCallback                                 exceededDatabaseQuota;
     WKPageRunOpenPanelCallback                                          runOpenPanel;
-    WKPageDecidePolicyForGeolocationPermissionRequestCallback           decidePolicyForGeolocationPermissionRequest;
     WKPageHeaderHeightCallback                                          headerHeight;
     WKPageFooterHeightCallback                                          footerHeight;
     WKPageDrawHeaderCallback                                            drawHeader;
@@ -246,7 +244,6 @@ typedef struct WKPageUIClientV1 {
     WKPageUIClientCallback                                              pageDidScroll;
     WKPageExceededDatabaseQuotaCallback                                 exceededDatabaseQuota;
     WKPageRunOpenPanelCallback                                          runOpenPanel;
-    WKPageDecidePolicyForGeolocationPermissionRequestCallback           decidePolicyForGeolocationPermissionRequest;
     WKPageHeaderHeightCallback                                          headerHeight;
     WKPageFooterHeightCallback                                          footerHeight;
     WKPageDrawHeaderCallback                                            drawHeader;
@@ -297,7 +294,6 @@ typedef struct WKPageUIClientV2 {
     WKPageUIClientCallback                                              pageDidScroll;
     WKPageExceededDatabaseQuotaCallback                                 exceededDatabaseQuota;
     WKPageRunOpenPanelCallback                                          runOpenPanel;
-    WKPageDecidePolicyForGeolocationPermissionRequestCallback           decidePolicyForGeolocationPermissionRequest;
     WKPageHeaderHeightCallback                                          headerHeight;
     WKPageFooterHeightCallback                                          footerHeight;
     WKPageDrawHeaderCallback                                            drawHeader;
@@ -353,7 +349,6 @@ typedef struct WKPageUIClientV3 {
     WKPageUIClientCallback                                              pageDidScroll;
     WKPageExceededDatabaseQuotaCallback                                 exceededDatabaseQuota;
     WKPageRunOpenPanelCallback                                          runOpenPanel;
-    WKPageDecidePolicyForGeolocationPermissionRequestCallback           decidePolicyForGeolocationPermissionRequest;
     WKPageHeaderHeightCallback                                          headerHeight;
     WKPageFooterHeightCallback                                          footerHeight;
     WKPageDrawHeaderCallback                                            drawHeader;
@@ -412,7 +407,6 @@ typedef struct WKPageUIClientV4 {
     WKPageUIClientCallback                                              pageDidScroll;
     WKPageExceededDatabaseQuotaCallback                                 exceededDatabaseQuota;
     WKPageRunOpenPanelCallback                                          runOpenPanel;
-    WKPageDecidePolicyForGeolocationPermissionRequestCallback           decidePolicyForGeolocationPermissionRequest;
     WKPageHeaderHeightCallback                                          headerHeight;
     WKPageFooterHeightCallback                                          footerHeight;
     WKPageDrawHeaderCallback                                            drawHeader;
@@ -477,7 +471,6 @@ typedef struct WKPageUIClientV5 {
     WKPageUIClientCallback                                              pageDidScroll;
     WKPageExceededDatabaseQuotaCallback                                 exceededDatabaseQuota;
     WKPageRunOpenPanelCallback                                          runOpenPanel;
-    WKPageDecidePolicyForGeolocationPermissionRequestCallback           decidePolicyForGeolocationPermissionRequest;
     WKPageHeaderHeightCallback                                          headerHeight;
     WKPageFooterHeightCallback                                          footerHeight;
     WKPageDrawHeaderCallback                                            drawHeader;
@@ -550,7 +543,6 @@ typedef struct WKPageUIClientV6 {
     WKPageUIClientCallback                                              pageDidScroll;
     WKPageExceededDatabaseQuotaCallback                                 exceededDatabaseQuota;
     WKPageRunOpenPanelCallback                                          runOpenPanel;
-    WKPageDecidePolicyForGeolocationPermissionRequestCallback           decidePolicyForGeolocationPermissionRequest;
     WKPageHeaderHeightCallback                                          headerHeight;
     WKPageFooterHeightCallback                                          footerHeight;
     WKPageDrawHeaderCallback                                            drawHeader;
@@ -630,7 +622,6 @@ typedef struct WKPageUIClientV7 {
     WKPageUIClientCallback                                              pageDidScroll;
     WKPageExceededDatabaseQuotaCallback                                 exceededDatabaseQuota;
     WKPageRunOpenPanelCallback                                          runOpenPanel;
-    WKPageDecidePolicyForGeolocationPermissionRequestCallback           decidePolicyForGeolocationPermissionRequest;
     WKPageHeaderHeightCallback                                          headerHeight;
     WKPageFooterHeightCallback                                          footerHeight;
     WKPageDrawHeaderCallback                                            drawHeader;
@@ -714,7 +705,6 @@ typedef struct WKPageUIClientV8 {
     WKPageUIClientCallback                                              pageDidScroll;
     WKPageExceededDatabaseQuotaCallback                                 exceededDatabaseQuota;
     WKPageRunOpenPanelCallback                                          runOpenPanel;
-    WKPageDecidePolicyForGeolocationPermissionRequestCallback           decidePolicyForGeolocationPermissionRequest;
     WKPageHeaderHeightCallback                                          headerHeight;
     WKPageFooterHeightCallback                                          footerHeight;
     WKPageDrawHeaderCallback                                            drawHeader;
@@ -802,7 +792,6 @@ typedef struct WKPageUIClientV9 {
     WKPageUIClientCallback                                              pageDidScroll;
     WKPageExceededDatabaseQuotaCallback                                 exceededDatabaseQuota;
     WKPageRunOpenPanelCallback                                          runOpenPanel;
-    WKPageDecidePolicyForGeolocationPermissionRequestCallback           decidePolicyForGeolocationPermissionRequest;
     WKPageHeaderHeightCallback                                          headerHeight;
     WKPageFooterHeightCallback                                          footerHeight;
     WKPageDrawHeaderCallback                                            drawHeader;
@@ -893,7 +882,6 @@ typedef struct WKPageUIClientV10 {
     WKPageUIClientCallback                                              pageDidScroll;
     WKPageExceededDatabaseQuotaCallback                                 exceededDatabaseQuota;
     WKPageRunOpenPanelCallback                                          runOpenPanel;
-    WKPageDecidePolicyForGeolocationPermissionRequestCallback           decidePolicyForGeolocationPermissionRequest;
     WKPageHeaderHeightCallback                                          headerHeight;
     WKPageFooterHeightCallback                                          footerHeight;
     WKPageDrawHeaderCallback                                            drawHeader;
@@ -988,7 +976,6 @@ typedef struct WKPageUIClientV11 {
     WKPageUIClientCallback                                              pageDidScroll;
     WKPageExceededDatabaseQuotaCallback                                 exceededDatabaseQuota;
     WKPageRunOpenPanelCallback                                          runOpenPanel;
-    WKPageDecidePolicyForGeolocationPermissionRequestCallback           decidePolicyForGeolocationPermissionRequest;
     WKPageHeaderHeightCallback                                          headerHeight;
     WKPageFooterHeightCallback                                          footerHeight;
     WKPageDrawHeaderCallback                                            drawHeader;
@@ -1086,7 +1073,6 @@ typedef struct WKPageUIClientV12 {
     WKPageUIClientCallback                                              pageDidScroll;
     WKPageExceededDatabaseQuotaCallback                                 exceededDatabaseQuota;
     WKPageRunOpenPanelCallback                                          runOpenPanel;
-    WKPageDecidePolicyForGeolocationPermissionRequestCallback           decidePolicyForGeolocationPermissionRequest;
     WKPageHeaderHeightCallback                                          headerHeight;
     WKPageFooterHeightCallback                                          footerHeight;
     WKPageDrawHeaderCallback                                            drawHeader;
@@ -1187,7 +1173,6 @@ typedef struct WKPageUIClientV13 {
     WKPageUIClientCallback                                              pageDidScroll;
     WKPageExceededDatabaseQuotaCallback                                 exceededDatabaseQuota;
     WKPageRunOpenPanelCallback                                          runOpenPanel;
-    WKPageDecidePolicyForGeolocationPermissionRequestCallback           decidePolicyForGeolocationPermissionRequest;
     WKPageHeaderHeightCallback                                          headerHeight;
     WKPageFooterHeightCallback                                          footerHeight;
     WKPageDrawHeaderCallback                                            drawHeader;
@@ -1290,7 +1275,6 @@ typedef struct WKPageUIClientV14 {
     WKPageUIClientCallback                                              pageDidScroll;
     WKPageExceededDatabaseQuotaCallback                                 exceededDatabaseQuota;
     WKPageRunOpenPanelCallback                                          runOpenPanel;
-    WKPageDecidePolicyForGeolocationPermissionRequestCallback           decidePolicyForGeolocationPermissionRequest;
     WKPageHeaderHeightCallback                                          headerHeight;
     WKPageFooterHeightCallback                                          footerHeight;
     WKPageDrawHeaderCallback                                            drawHeader;
@@ -1396,7 +1380,6 @@ typedef struct WKPageUIClientV15 {
     WKPageUIClientCallback                                              pageDidScroll;
     WKPageExceededDatabaseQuotaCallback                                 exceededDatabaseQuota;
     WKPageRunOpenPanelCallback                                          runOpenPanel;
-    WKPageDecidePolicyForGeolocationPermissionRequestCallback           decidePolicyForGeolocationPermissionRequest;
     WKPageHeaderHeightCallback                                          headerHeight;
     WKPageFooterHeightCallback                                          footerHeight;
     WKPageDrawHeaderCallback                                            drawHeader;
@@ -1506,7 +1489,6 @@ typedef struct WKPageUIClientV16 {
     WKPageUIClientCallback                                              pageDidScroll;
     WKPageExceededDatabaseQuotaCallback                                 exceededDatabaseQuota;
     WKPageRunOpenPanelCallback                                          runOpenPanel;
-    WKPageDecidePolicyForGeolocationPermissionRequestCallback           decidePolicyForGeolocationPermissionRequest;
     WKPageHeaderHeightCallback                                          headerHeight;
     WKPageFooterHeightCallback                                          footerHeight;
     WKPageDrawHeaderCallback                                            drawHeader;
@@ -1619,7 +1601,6 @@ typedef struct WKPageUIClientV17 {
     WKPageUIClientCallback                                              pageDidScroll;
     WKPageExceededDatabaseQuotaCallback                                 exceededDatabaseQuota;
     WKPageRunOpenPanelCallback                                          runOpenPanel;
-    WKPageDecidePolicyForGeolocationPermissionRequestCallback           decidePolicyForGeolocationPermissionRequest;
     WKPageHeaderHeightCallback                                          headerHeight;
     WKPageFooterHeightCallback                                          footerHeight;
     WKPageDrawHeaderCallback                                            drawHeader;
@@ -1732,7 +1713,6 @@ typedef struct WKPageUIClientV18 {
     WKPageUIClientCallback                                              pageDidScroll;
     WKPageExceededDatabaseQuotaCallback                                 exceededDatabaseQuota;
     WKPageRunOpenPanelCallback                                          runOpenPanel;
-    WKPageDecidePolicyForGeolocationPermissionRequestCallback           decidePolicyForGeolocationPermissionRequest;
     WKPageHeaderHeightCallback                                          headerHeight;
     WKPageFooterHeightCallback                                          footerHeight;
     WKPageDrawHeaderCallback                                            drawHeader;
@@ -1847,7 +1827,6 @@ typedef struct WKPageUIClientV19 {
     WKPageUIClientCallback                                              pageDidScroll;
     WKPageExceededDatabaseQuotaCallback                                 exceededDatabaseQuota;
     WKPageRunOpenPanelCallback                                          runOpenPanel;
-    WKPageDecidePolicyForGeolocationPermissionRequestCallback           decidePolicyForGeolocationPermissionRequest;
     WKPageHeaderHeightCallback                                          headerHeight;
     WKPageFooterHeightCallback                                          footerHeight;
     WKPageDrawHeaderCallback                                            drawHeader;

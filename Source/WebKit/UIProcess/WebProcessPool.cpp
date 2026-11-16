@@ -75,7 +75,6 @@
 #include "WebCompiledContentRuleList.h"
 #include "WebContextSupplement.h"
 #include "WebFrameProxy.h"
-#include "WebGeolocationManagerProxy.h"
 #include "WebInspectorUtilities.h"
 #include "WebKit2Initialize.h"
 #include "WebKitServiceNames.h"
@@ -297,7 +296,6 @@ WebProcessPool::WebProcessPool(API::ProcessPoolConfiguration& configuration)
 
     addSupplement<WebNotificationManagerProxy>();
     // NOTE: These sub-objects must be initialized after m_messageReceiverMap..
-    addSupplement<WebGeolocationManagerProxy>();
 
     processPools().append(*this);
 
@@ -1232,7 +1230,6 @@ void WebProcessPool::disconnectProcess(WebProcessProxy& process)
         process.disableRemoteWorkers({ RemoteWorkerType::ServiceWorker, RemoteWorkerType::SharedWorker });
     ASSERT(!remoteWorkerProcesses().contains(process));
 
-    protect(supplement<WebGeolocationManagerProxy>())->webProcessIsGoingAway(process);
 
     m_processes.removeFirstMatching([&](auto& item) { return item.ptr() == &process; });
 

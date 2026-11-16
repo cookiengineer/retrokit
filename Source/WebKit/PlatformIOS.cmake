@@ -835,8 +835,6 @@ list(APPEND WebKit_PRIVATE_FRAMEWORK_HEADERS
     UIProcess/API/Cocoa/_WKFormInputSession.h
     UIProcess/API/Cocoa/_WKFrameTreeNode.h
     UIProcess/API/Cocoa/_WKFullscreenDelegate.h
-    UIProcess/API/Cocoa/_WKGeolocationCoreLocationProvider.h
-    UIProcess/API/Cocoa/_WKGeolocationPosition.h
     UIProcess/API/Cocoa/_WKIconLoadingDelegate.h
     UIProcess/API/Cocoa/_WKInputDelegate.h
     UIProcess/API/Cocoa/_WKInspector.h

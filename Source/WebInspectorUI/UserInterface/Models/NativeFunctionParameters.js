@@ -824,7 +824,6 @@ WI.NativePrototypeFunctionParameters = {
         __proto__: null,
     },
 
-    Geolocation: {
         clearWatch: "watchID",
         getCurrentPosition: "successCallback, [errorCallback], [options]",
         watchPosition: "successCallback, [errorCallback], [options]",

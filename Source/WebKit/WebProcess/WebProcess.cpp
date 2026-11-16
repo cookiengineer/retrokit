@@ -61,7 +61,6 @@
 #include "WebFileSystemStorageConnection.h"
 #include "WebFrame.h"
 #include "WebFrameMessages.h"
-#include "WebGeolocationManager.h"
 #include "WebIDBConnectionToServer.h"
 #include "WebLoaderStrategy.h"
 #include "WebMediaKeyStorageManager.h"
@@ -327,11 +326,6 @@ WebNotificationManager& WebProcess::notificationManager()
     return *supplement<WebNotificationManager>();
 }
 
-WebGeolocationManager& WebProcess::geolocationManager()
-{
-    return *supplement<WebGeolocationManager>();
-}
-
 #if ENABLE(MEDIA_STREAM)
 UserMediaCaptureManager& WebProcess::userMediaCaptureManager()
 {
@@ -376,7 +370,6 @@ WebProcess::WebProcess()
     // FIXME: This should moved to where WebProcess::initialize is called,
     // so that ports have a chance to customize, and ifdefs in this file are
     // limited.
-    addSupplementWithoutRefCountedCheck<WebGeolocationManager>();
 
 #if ENABLE(NOTIFICATIONS)
     addSupplementWithoutRefCountedCheck<WebNotificationManager>();

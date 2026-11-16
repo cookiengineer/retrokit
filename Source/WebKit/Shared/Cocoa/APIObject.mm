@@ -83,7 +83,6 @@
 #import "_WKFeatureInternal.h"
 #import "_WKFrameHandleInternal.h"
 #import "_WKFrameTreeNodeInternal.h"
-#import "_WKGeolocationPositionInternal.h"
 #import "_WKHitTestResultInternal.h"
 #import "_WKInspectorConfigurationInternal.h"
 #import "_WKInspectorDebuggableInfoInternal.h"
@@ -271,8 +270,6 @@ ALLOW_DEPRECATED_DECLARATIONS_END
         SUPPRESS_RETAINPTR_CTOR_ADOPT wrapper = [_WKFrameTreeNode alloc];
         break;
 #if PLATFORM(IOS_FAMILY)
-    case Type::GeolocationPosition:
-        SUPPRESS_RETAINPTR_CTOR_ADOPT wrapper = [_WKGeolocationPosition alloc];
         break;
 #endif
 

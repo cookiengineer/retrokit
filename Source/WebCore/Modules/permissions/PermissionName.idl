@@ -31,7 +31,6 @@ enum PermissionName {
     "bluetooth",
     "camera",
     "display-capture",
-    "geolocation",
     "microphone",
     "midi",
     "nfc",

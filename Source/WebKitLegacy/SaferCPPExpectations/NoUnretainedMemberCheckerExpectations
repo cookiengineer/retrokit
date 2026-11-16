@@ -1,7 +1,5 @@
 WebCoreSupport/SocketStreamHandleImplCFNet.cpp
-[ iOS ] ios/Misc/WebGeolocationProviderIOS.mm
 [ iOS ] ios/WebCoreSupport/WebFixedPositionContent.mm
-[ iOS ] ios/WebCoreSupport/WebGeolocationPrivate.h
 [ iOS ] ios/WebView/WebPDFViewIOS.mm
 [ iOS ] ios/WebView/WebPDFViewPlaceholder.h
 mac/History/BackForwardList.h
@@ -24,7 +22,6 @@ mac/Storage/WebDatabaseQuotaManager.h
 mac/WebCoreSupport/WebAlternativeTextClient.h
 mac/WebCoreSupport/WebDragClient.h
 mac/WebCoreSupport/WebEditorClient.h
-mac/WebCoreSupport/WebGeolocationClient.h
 [ Mac ] mac/WebCoreSupport/WebJavaScriptTextInputPanel.m
 mac/WebCoreSupport/WebNotificationClient.h
 mac/WebCoreSupport/WebProgressTrackerClient.h
@@ -40,7 +37,6 @@ mac/WebView/WebFrame.h
 mac/WebView/WebFrameView.h
 mac/WebView/WebFrameView.mm
 [ Mac ] mac/WebView/WebFullScreenController.h
-mac/WebView/WebGeolocationPosition.h
 mac/WebView/WebHTMLRepresentation.h
 mac/WebView/WebHTMLRepresentation.mm
 mac/WebView/WebHTMLView.h

@@ -32,7 +32,6 @@ enum class PermissionName : uint8_t {
     Bluetooth,
     Camera,
     DisplayCapture,
-    Geolocation,
     Microphone,
     Midi,
     Nfc,

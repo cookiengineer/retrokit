@@ -381,10 +381,6 @@
 #define ENABLE_FULLSCREEN_DISMISSAL_GESTURES 1
 #endif
 
-#if !defined(ENABLE_GEOLOCATION)
-#define ENABLE_GEOLOCATION 1
-#endif
-
 #if !defined(ENABLE_GPU_PROCESS)
 #define ENABLE_GPU_PROCESS 1
 #endif

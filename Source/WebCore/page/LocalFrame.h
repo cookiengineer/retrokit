@@ -268,7 +268,6 @@ public:
 
     WEBCORE_EXPORT void overflowScrollPositionChangedForNode(const IntPoint&, Node*, bool isUserScroll);
 
-    WEBCORE_EXPORT void resetAllGeolocationPermission();
 #endif
 
 

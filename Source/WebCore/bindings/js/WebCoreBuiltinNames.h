@@ -255,10 +255,6 @@ namespace WebCore {
     macro(GPUTextureView) \
     macro(GPUUncapturedErrorEvent) \
     macro(GPUValidationError) \
-    macro(Geolocation) \
-    macro(GeolocationCoordinates) \
-    macro(GeolocationPosition) \
-    macro(GeolocationPositionError) \
     macro(HighlightRegistry) \
     macro(Highlight) \
     macro(HTMLAttachmentElement) \

@@ -69,8 +69,6 @@ list(APPEND WebKitLegacy_SOURCES
     ios/DefaultDelegates/WebDefaultResourceLoadDelegate.m
     ios/DefaultDelegates/WebDefaultUIKitDelegate.m
 
-    ios/Misc/WebGeolocationCoreLocationProvider.mm
-    ios/Misc/WebGeolocationProviderIOS.mm
     ios/Misc/WebNSStringExtrasIOS.m
     ios/Misc/WebUIKitSupport.mm
 
@@ -79,7 +77,6 @@ list(APPEND WebKitLegacy_SOURCES
     ios/WebCoreSupport/WebChromeClientIOS.mm
     ios/WebCoreSupport/WebFixedPositionContent.mm
     ios/WebCoreSupport/WebFrameIOS.mm
-    ios/WebCoreSupport/WebGeolocation.mm
     ios/WebCoreSupport/WebInspectorClientIOS.mm
     ios/WebCoreSupport/WebMIMETypeRegistry.mm
     ios/WebCoreSupport/WebSelectionRect.m
@@ -147,7 +144,6 @@ list(APPEND WebKitLegacy_SOURCES
     mac/WebCoreSupport/WebDragClient.mm
     mac/WebCoreSupport/WebEditorClient.mm
     mac/WebCoreSupport/WebFrameNetworkingContext.mm
-    mac/WebCoreSupport/WebGeolocationClient.mm
     mac/WebCoreSupport/WebKitFullScreenListener.mm
     mac/WebCoreSupport/WebMediaKeySystemClient.mm
     mac/WebCoreSupport/WebNotificationClient.mm
@@ -171,7 +167,6 @@ list(APPEND WebKitLegacy_SOURCES
     mac/WebView/WebDocumentLoaderMac.mm
     mac/WebView/WebFeature.m
     mac/WebView/WebFormDelegate.m
-    mac/WebView/WebGeolocationPosition.mm
     mac/WebView/WebHTMLRepresentation.mm
     mac/WebView/WebIndicateLayer.mm
     mac/WebView/WebJSPDFDoc.mm
@@ -510,7 +505,6 @@ set(WebKitLegacy_LEGACY_FORWARDING_HEADERS_FILES
     mac/WebCoreSupport/WebEditorClient.h
     mac/WebCoreSupport/WebFrameLoaderClient.h
     mac/WebCoreSupport/WebFrameNetworkingContext.h
-    mac/WebCoreSupport/WebGeolocationClient.h
     mac/WebCoreSupport/WebInspectorClient.h
     mac/WebCoreSupport/WebJavaScriptTextInputPanel.h
     mac/WebCoreSupport/WebKitFullScreenListener.h
@@ -561,8 +555,6 @@ set(WebKitLegacy_LEGACY_FORWARDING_HEADERS_FILES
     mac/WebView/WebFrameViewInternal.h
     mac/WebView/WebFrameViewPrivate.h
     mac/WebView/WebFullScreenController.h
-    mac/WebView/WebGeolocationPosition.h
-    mac/WebView/WebGeolocationPositionInternal.h
     mac/WebView/WebHTMLRepresentation.h
     mac/WebView/WebHTMLRepresentationPrivate.h
     mac/WebView/WebHTMLView.h
@@ -629,8 +621,6 @@ list(APPEND WebKitLegacy_PUBLIC_FRAMEWORK_HEADERS
     ${WEBCORE_DIR}/platform/ios/wak/WebCoreThreadMessage.h
     ${WEBCORE_DIR}/platform/ios/wak/WebCoreThreadRun.h
 
-    ios/Misc/WebGeolocationCoreLocationProvider.h
-    ios/Misc/WebGeolocationProviderIOS.h
     ios/Misc/WebNSStringExtrasIOS.h
     ios/Misc/WebNSStringExtrasIPhone.h
     ios/Misc/WebUIKitSupport.h
@@ -639,7 +629,6 @@ list(APPEND WebKitLegacy_PUBLIC_FRAMEWORK_HEADERS
     ios/WebCoreSupport/WebFixedPositionContent.h
     ios/WebCoreSupport/WebFrameIOS.h
     ios/WebCoreSupport/WebFrameIPhone.h
-    ios/WebCoreSupport/WebGeolocationPrivate.h
     ios/WebCoreSupport/WebMIMETypeRegistry.h
     ios/WebCoreSupport/WebSelectionRect.h
     ios/WebCoreSupport/WebVisiblePosition.h
@@ -754,8 +743,6 @@ list(APPEND WebKitLegacy_PUBLIC_FRAMEWORK_HEADERS
     mac/WebView/WebFrameView.h
     mac/WebView/WebFrameViewInternal.h
     mac/WebView/WebFrameViewPrivate.h
-    mac/WebView/WebGeolocationPosition.h
-    mac/WebView/WebGeolocationPositionInternal.h
     mac/WebView/WebHTMLRepresentation.h
     mac/WebView/WebHTMLRepresentationPrivate.h
     mac/WebView/WebHistoryDelegate.h
@@ -899,8 +886,6 @@ set(_wkl_excluded_for_ios
     WebFrameNetworkingContext.h
     WebFrameViewInternal.h
     WebFullScreenController.h
-    WebGeolocationClient.h
-    WebGeolocationPositionInternal.h
     WebHTMLViewInternal.h
     WebHistoryDelegate.h
     WebHistoryInternal.h

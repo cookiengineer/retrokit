@@ -37,7 +37,6 @@ set(WebCore_PRIVATE_INCLUDE_DIRECTORIES
     "${WEBCORE_DIR}/Modules/entriesapi"
     "${WEBCORE_DIR}/Modules/fetch"
     "${WEBCORE_DIR}/Modules/filesystem"
-    "${WEBCORE_DIR}/Modules/geolocation"
     "${WEBCORE_DIR}/Modules/highlight"
     "${WEBCORE_DIR}/Modules/identity"
     "${WEBCORE_DIR}/Modules/identity/dummy"
@@ -310,7 +309,6 @@ set(WebCore_IDL_INCLUDES
     Modules/entriesapi
     Modules/fetch
     Modules/filesystem
-    Modules/geolocation
     Modules/highlight
     Modules/identity
     Modules/indexeddb
@@ -434,13 +432,6 @@ set(WebCore_NON_SVG_IDL_FILES
     Modules/filesystem/FileSystemSyncAccessHandle.idl
     Modules/filesystem/FileSystemWritableFileStream.idl
 
-    Modules/geolocation/Geolocation.idl
-    Modules/geolocation/GeolocationCoordinates.idl
-    Modules/geolocation/GeolocationPosition.idl
-    Modules/geolocation/GeolocationPositionError.idl
-    Modules/geolocation/PositionCallback.idl
-    Modules/geolocation/PositionErrorCallback.idl
-    Modules/geolocation/PositionOptions.idl
 
     Modules/highlight/Highlight.idl
     Modules/highlight/HighlightRegistry.idl
@@ -1854,7 +1845,6 @@ set(WebCore_SUPPLEMENTAL_IDL_FILES
 
     Modules/filesystem/StorageManager+FileSystem.idl
 
-    Modules/geolocation/Navigator+Geolocation.idl
 
     Modules/indexeddb/WindowOrWorkerGlobalScope+IndexedDatabase.idl
 

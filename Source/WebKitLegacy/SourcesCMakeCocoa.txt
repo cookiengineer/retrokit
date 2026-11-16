@@ -103,7 +103,6 @@ mac/WebCoreSupport/WebContextMenuClient.mm @nonARC
 mac/WebCoreSupport/WebDragClient.mm @nonARC
 mac/WebCoreSupport/WebEditorClient.mm @nonARC
 mac/WebCoreSupport/WebFrameNetworkingContext.mm @nonARC
-mac/WebCoreSupport/WebGeolocationClient.mm @nonARC
 mac/WebCoreSupport/WebInspectorClient.mm @nonARC
 mac/WebCoreSupport/WebKitFullScreenListener.mm @nonARC
 mac/WebCoreSupport/WebMediaKeySystemClient.mm @nonARC
@@ -127,7 +126,6 @@ mac/WebView/WebArchive.mm @nonARC
 mac/WebView/WebDelegateImplementationCaching.mm @nonARC
 mac/WebView/WebDocumentLoaderMac.mm @nonARC
 mac/WebView/WebDynamicScrollBarsView.mm @nonARC
-mac/WebView/WebGeolocationPosition.mm @nonARC
 mac/WebView/WebHTMLRepresentation.mm @nonARC
 mac/WebView/WebIndicateLayer.mm @nonARC
 mac/WebView/WebJSPDFDoc.mm @nonARC

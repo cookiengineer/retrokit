@@ -120,9 +120,6 @@
 #import <WebCore/TextDetectorImplementation.h>
 #endif
 
-#if PLATFORM(IOS_FAMILY) && ENABLE(GEOLOCATION)
-#import <WebCore/Geolocation.h>
-#endif
 
 #if ENABLE(POINTER_LOCK)
 #import <WebCore/PointerLockController.h>

@@ -1451,14 +1451,6 @@ $(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSGainOptions.cpp
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSGainOptions.h
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSGenericTransformStream.cpp
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSGenericTransformStream.h
-$(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSGeolocation.cpp
-$(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSGeolocation.h
-$(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSGeolocationCoordinates.cpp
-$(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSGeolocationCoordinates.h
-$(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSGeolocationPosition.cpp
-$(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSGeolocationPosition.h
-$(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSGeolocationPositionError.cpp
-$(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSGeolocationPositionError.h
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSGetAnimationsOptions.cpp
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSGetAnimationsOptions.h
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSGetComposedRangesOptions.cpp
@@ -2052,8 +2044,6 @@ $(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSNavigator+Credentials.cpp
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSNavigator+Credentials.h
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSNavigator+EME.cpp
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSNavigator+EME.h
-$(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSNavigator+Geolocation.cpp
-$(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSNavigator+Geolocation.h
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSNavigator+LoginStatus.cpp
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSNavigator+LoginStatus.h
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSNavigator+MediaCapabilities.cpp
@@ -2335,12 +2325,6 @@ $(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSPopStateEvent.cpp
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSPopStateEvent.h
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSPopoverInvokerElement.cpp
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSPopoverInvokerElement.h
-$(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSPositionCallback.cpp
-$(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSPositionCallback.h
-$(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSPositionErrorCallback.cpp
-$(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSPositionErrorCallback.h
-$(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSPositionOptions.cpp
-$(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSPositionOptions.h
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSPredefinedColorSpace.cpp
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSPredefinedColorSpace.h
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSPredicateCallback.cpp

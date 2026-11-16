@@ -298,7 +298,6 @@ UIProcess/API/Cocoa/_WKErrorRecoveryAttempting.mm @nonARC
 UIProcess/API/Cocoa/_WKExperimentalFeature.mm @nonARC
 UIProcess/API/Cocoa/_WKFeature.mm @nonARC
 UIProcess/API/Cocoa/_WKFrameTreeNode.mm @nonARC
-UIProcess/API/Cocoa/_WKGeolocationPosition.mm @nonARC
 UIProcess/API/Cocoa/_WKInspector.mm @nonARC
 UIProcess/API/Cocoa/_WKInspectorConfiguration.mm @nonARC
 UIProcess/API/Cocoa/_WKInspectorDebuggableInfo.mm @nonARC
@@ -476,7 +475,6 @@ UIProcess/Cocoa/UserMediaPermissionRequestManagerProxy.mm @nonARC
 UIProcess/Cocoa/UserMediaPermissionRequestProxyCocoa.mm @nonARC
 UIProcess/Cocoa/VideoPresentationManagerProxy.mm @nonARC
 UIProcess/Cocoa/ViewSnapshotStoreCocoa.mm @nonARC
-UIProcess/Cocoa/WebGeolocationManagerProxyCocoa.cpp
 UIProcess/Cocoa/WebKitSwiftSoftLink.mm @nonARC @no-unify // SOFT_LINK_*_FOR_SOURCE defines non-inline symbols.
 UIProcess/Cocoa/WebPagePreferencesLockdownModeObserver.mm @nonARC
 UIProcess/Cocoa/WebPageProxyCocoa.mm @nonARC @cost:12
@@ -600,7 +598,6 @@ UIProcess/ios/WKContentView.mm @nonARC @no-unify
 UIProcess/ios/WKContentViewInteraction.mm @nonARC @no-unify
 UIProcess/ios/WKExtendedTextInputTraits.mm @nonARC
 UIProcess/ios/WKExtrinsicButton.mm @nonARC
-UIProcess/ios/WKGeolocationProviderIOS.mm @nonARC
 UIProcess/ios/WKHighlightLongPressGestureRecognizer.mm @nonARC
 UIProcess/ios/WKImageAnalysisGestureRecognizer.mm @nonARC
 UIProcess/ios/WKKeyboardScrollingAnimator.mm @nonARC
@@ -621,7 +618,6 @@ UIProcess/ios/WKUIScrollEdgeEffect.mm @nonARC
 UIProcess/ios/WKUSDPreviewView.mm @nonARC
 UIProcess/ios/WKVideoView.mm @nonARC
 UIProcess/ios/WKVisibilityPropagationView.mm @nonARC
-UIProcess/ios/WKWebGeolocationPolicyDeciderIOS.mm @nonARC
 
 UIProcess/Launcher/cocoa/ProcessLauncherCocoa.mm @nonARC
 
@@ -1023,8 +1019,6 @@ WebExtensionControllerProxyMessageReceiver.cpp @cost:6
 WebFileSystemStorageConnectionMessageReceiver.cpp
 WebFullScreenManagerMessageReceiver.cpp @cost:3
 WebFullScreenManagerProxyMessageReceiver.cpp @cost:10
-WebGeolocationManagerMessageReceiver.cpp
-WebGeolocationManagerProxyMessageReceiver.cpp @cost:10
 WebIDBConnectionToServerMessageReceiver.cpp @cost:3
 WasmDebuggerDispatcherMessageReceiver.cpp
 WebInspectorInterruptDispatcherMessageReceiver.cpp

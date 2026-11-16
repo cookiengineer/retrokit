@@ -142,10 +142,6 @@ _OBJC_CLASS_$_WebFixedPositionContent
 _OBJC_CLASS_$_WebFormDelegate
 _OBJC_CLASS_$_WebFrame
 _OBJC_CLASS_$_WebFrameView
-_OBJC_CLASS_$_WebGeolocation
-_OBJC_CLASS_$_WebGeolocationCoreLocationProvider
-_OBJC_CLASS_$_WebGeolocationPosition
-_OBJC_CLASS_$_WebGeolocationProviderIOS
 _OBJC_CLASS_$_WebHistory
 _OBJC_CLASS_$_WebHistoryItem
 _OBJC_CLASS_$_WebHTMLRepresentation
@@ -332,10 +328,6 @@ _OBJC_METACLASS_$_WebFixedPositionContent
 _OBJC_METACLASS_$_WebFormDelegate
 _OBJC_METACLASS_$_WebFrame
 _OBJC_METACLASS_$_WebFrameView
-_OBJC_METACLASS_$_WebGeolocation
-_OBJC_METACLASS_$_WebGeolocationCoreLocationProvider
-_OBJC_METACLASS_$_WebGeolocationPosition
-_OBJC_METACLASS_$_WebGeolocationProviderIOS
 _OBJC_METACLASS_$_WebHistory
 _OBJC_METACLASS_$_WebHistoryItem
 _OBJC_METACLASS_$_WebHTMLRepresentation
@@ -423,7 +415,6 @@ _WebFrameHasPlugins
 _WebFrameHasUnloadListener
 _WebFrameMainDocumentError
 _WebFrameUsesDatabases
-_WebFrameUsesGeolocation
 _WebHistoryAllItemsRemovedNotification
 _WebHistoryItemChangedNotification
 _WebHistoryItemsAddedNotification

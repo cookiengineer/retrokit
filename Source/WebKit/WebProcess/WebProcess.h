@@ -154,7 +154,6 @@ class WebCompiledContentRuleListData;
 class WebCookieJar;
 class WebFileSystemStorageConnection;
 class WebFrame;
-class WebGeolocationManager;
 class WebLoaderStrategy;
 class WebNotificationManager;
 class WebPage;
@@ -231,7 +230,6 @@ public:
     }
 
     WebNotificationManager& notificationManager();
-    WebGeolocationManager& geolocationManager();
 #if ENABLE(MEDIA_STREAM)
     UserMediaCaptureManager& userMediaCaptureManager();
 #endif

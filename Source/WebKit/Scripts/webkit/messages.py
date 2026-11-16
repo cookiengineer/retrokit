@@ -508,7 +508,6 @@ def serialized_identifiers():
         'WebKit::DisplayLinkObserverID',
         'WebKit::DownloadID',
         'WebKit::DrawingAreaIdentifier',
-        'WebKit::GeolocationIdentifier',
         'WebKit::GPUProcessConnectionIdentifier',
         'WebKit::ImageBufferSetIdentifier',
         'WebKit::RemoteGraphicsContextGLIdentifier',

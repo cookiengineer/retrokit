@@ -72,7 +72,6 @@ class FileIconLoader;
 class FloatRect;
 class Frame;
 class Element;
-class Geolocation;
 class HitTestResult;
 class IntPoint;
 class IntRect;

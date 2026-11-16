@@ -31,7 +31,6 @@
 #include "DocumentPage.h"
 #include "DocumentQuirks.h"
 #include "Exception.h"
-#include "Geolocation.h"
 #include "JSDOMConvertInterface.h"
 #include "JSDOMPromiseDeferred.h"
 #include "JSPermissionDescriptor.h"
@@ -39,7 +38,6 @@
 #include "LocalFrame.h"
 #include "Navigator.h"
 #include "NavigatorBase.h"
-#include "NavigatorGeolocation.h"
 #include "Page.h"
 #include "PermissionController.h"
 #include "PermissionDescriptor.h"
@@ -64,33 +62,6 @@ namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(Permissions);
 
-#if ENABLE(GEOLOCATION)
-
-static std::optional<PermissionState> determineGeolocationPermissionState(PermissionState permissionState, const Document& document)
-{
-    RefPtr window = document.window();
-    if (!window)
-        return std::nullopt;
-
-    RefPtr geolocation = NavigatorGeolocation::optionalGeolocation(protect(window->navigator()));
-
-    switch (permissionState) {
-    case PermissionState::Granted:
-        return PermissionState::Granted;
-    case PermissionState::Denied:
-        if (!geolocation || !geolocation->hasBeenRequested())
-            return PermissionState::Prompt;
-        return PermissionState::Denied;
-    case PermissionState::Prompt:
-        if (!geolocation || !geolocation->hasBeenRequested())
-            return PermissionState::Prompt;
-        return geolocation->isAllowed() ? PermissionState::Granted : PermissionState::Denied;
-    };
-
-    return std::nullopt;
-}
-
-#endif // ENABLE(GEOLOCATION)
 
 Ref<Permissions> Permissions::create(NavigatorBase& navigator)
 {
@@ -119,8 +90,6 @@ static bool isAllowedByPermissionsPolicy(const Document& document, PermissionNam
     switch (name) {
     case PermissionName::Camera:
         return PermissionsPolicy::isFeatureEnabled(PermissionsPolicy::Feature::Camera, document, PermissionsPolicy::ShouldReportViolation::No);
-    case PermissionName::Geolocation:
-        return PermissionsPolicy::isFeatureEnabled(PermissionsPolicy::Feature::Geolocation, document, PermissionsPolicy::ShouldReportViolation::No);
     case PermissionName::Microphone:
         return PermissionsPolicy::isFeatureEnabled(PermissionsPolicy::Feature::Microphone, document, PermissionsPolicy::ShouldReportViolation::No);
     case PermissionName::StorageAccess:
@@ -148,8 +117,6 @@ std::optional<PermissionName> Permissions::toPermissionName(const String& name)
 {
     if (name == "camera"_s)
         return PermissionName::Camera;
-    if (name == "geolocation"_s)
-        return PermissionName::Geolocation;
     if (name == "microphone"_s)
         return PermissionName::Microphone;
     if (name == "notifications"_s)
@@ -166,19 +133,7 @@ static Expected<PermissionState, Exception> processPermissionQueryResult(std::op
     if (!permissionState)
         return makeUnexpected(Exception { ExceptionCode::NotSupportedError, "Permissions::query does not support this API"_s });
 
-#if !ENABLE(GEOLOCATION) && !ENABLE(MEDIA_STREAM)
-    UNUSED_PARAM(permissionDescriptor);
-    UNUSED_PARAM(document);
-#endif
 
-#if ENABLE(GEOLOCATION)
-    if (permissionDescriptor.name == PermissionName::Geolocation) {
-        if (auto geolocationPermissionState = determineGeolocationPermissionState(*permissionState, document))
-            permissionState = geolocationPermissionState;
-        else
-            return makeUnexpected(Exception { ExceptionCode::InvalidStateError, "The Document does not have a Geolocation object"_s });
-    }
-#endif
 
 #if ENABLE(MEDIA_STREAM)
     if (document.quirks().shouldEnableCameraAndMicrophonePermissionStateQuirk() && (permissionDescriptor.name == PermissionName::Camera || permissionDescriptor.name == PermissionName::Microphone) && *permissionState == PermissionState::Prompt)

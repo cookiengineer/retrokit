@@ -35,7 +35,6 @@
 #include "FrameInlines.h"
 #include "FrameLoader.h"
 #include "GPU.h"
-#include "Geolocation.h"
 #include "JSDOMPromiseDeferred.h"
 #include "LoaderStrategy.h"
 #include "LocalFrameInlines.h"

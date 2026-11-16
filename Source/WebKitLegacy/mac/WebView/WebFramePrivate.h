@@ -55,7 +55,6 @@ extern NSString *WebFrameMainDocumentError;
 extern NSString *WebFrameHasPlugins;
 extern NSString *WebFrameHasUnloadListener;
 extern NSString *WebFrameUsesDatabases;
-extern NSString *WebFrameUsesGeolocation;
 extern NSString *WebFrameCanSuspendActiveDOMObjects;
 
 typedef enum {

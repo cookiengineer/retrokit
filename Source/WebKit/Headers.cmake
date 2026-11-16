@@ -52,9 +52,6 @@ set(_webkit_c_api_headers
     UIProcess/API/C/WKFrameHandleRef.h
     UIProcess/API/C/WKFrameInfoRef.h
     UIProcess/API/C/WKFramePolicyListener.h
-    UIProcess/API/C/WKGeolocationManager.h
-    UIProcess/API/C/WKGeolocationPermissionRequest.h
-    UIProcess/API/C/WKGeolocationPosition.h
     UIProcess/API/C/WKHTTPCookieStoreRef.h
     UIProcess/API/C/WKHitTestResult.h
     UIProcess/API/C/WKIconDatabase.h
@@ -384,8 +381,6 @@ list(APPEND WebKit_PRIVATE_FRAMEWORK_HEADERS
     UIProcess/API/Cocoa/_WKFormInputSession.h
     UIProcess/API/Cocoa/_WKFrameTreeNode.h
     UIProcess/API/Cocoa/_WKFullscreenDelegate.h
-    UIProcess/API/Cocoa/_WKGeolocationCoreLocationProvider.h
-    UIProcess/API/Cocoa/_WKGeolocationPosition.h
     UIProcess/API/Cocoa/_WKIconLoadingDelegate.h
     UIProcess/API/Cocoa/_WKInputDelegate.h
     UIProcess/API/Cocoa/_WKInspector.h

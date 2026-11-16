@@ -359,14 +359,6 @@ JS_BINDING_IDLS := \
     $(WebCore)/Modules/filesystem/FileSystemSyncAccessHandle.idl \
 	$(WebCore)/Modules/filesystem/FileSystemWritableFileStream.idl \
     $(WebCore)/Modules/filesystem/StorageManager+FileSystem.idl \
-    $(WebCore)/Modules/geolocation/Geolocation.idl \
-    $(WebCore)/Modules/geolocation/GeolocationCoordinates.idl \
-    $(WebCore)/Modules/geolocation/GeolocationPosition.idl \
-    $(WebCore)/Modules/geolocation/GeolocationPositionError.idl \
-    $(WebCore)/Modules/geolocation/Navigator+Geolocation.idl \
-    $(WebCore)/Modules/geolocation/PositionCallback.idl \
-    $(WebCore)/Modules/geolocation/PositionErrorCallback.idl \
-    $(WebCore)/Modules/geolocation/PositionOptions.idl \
     $(WebCore)/Modules/highlight/HighlightRegistry.idl \
     $(WebCore)/Modules/highlight/Highlight.idl \
     $(WebCore)/Modules/identity/DigitalCredential.idl \

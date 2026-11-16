@@ -57,7 +57,6 @@
 #import "WKContentViewInteraction.h"
 #import "WKEditCommand.h"
 #import "WKFullScreenViewController.h"
-#import "WKGeolocationProviderIOS.h"
 #import "WKPasswordView.h"
 #import "WKProcessPoolInternal.h"
 #import "WKVisibilityPropagationView.h"
@@ -353,11 +352,8 @@ void PageClientImpl::toolTipChanged(const String&, const String& newToolTip)
 #endif
 }
 
-void PageClientImpl::decidePolicyForGeolocationPermissionRequest(WebFrameProxy& frame, const FrameInfoData& frameInfo, Function<void(bool)>& completionHandler)
 {
     if (auto webView = this->webView()) {
-        RetainPtr geolocationProvider = [protect(wrapper(webView->_page->configuration().processPool())) _geolocationProvider];
-        [geolocationProvider decidePolicyForGeolocationRequestFromOrigin:FrameInfoData { frameInfo } completionHandler:std::exchange(completionHandler, nullptr) view:webView.get()];
     }
 }
 

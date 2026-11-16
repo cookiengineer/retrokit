@@ -36,7 +36,6 @@ mac/WebCoreSupport/WebChromeClient.mm
 mac/WebCoreSupport/WebDragClient.mm
 mac/WebCoreSupport/WebEditorClient.mm
 mac/WebCoreSupport/WebFrameLoaderClient.mm
-mac/WebCoreSupport/WebGeolocationClient.mm
 [ Mac ] mac/WebCoreSupport/WebInspectorClient.mm
 [ Mac ] mac/WebCoreSupport/WebJavaScriptTextInputPanel.m
 mac/WebCoreSupport/WebNotificationClient.mm
@@ -55,7 +54,6 @@ mac/WebView/WebFeature.m
 mac/WebView/WebFrame.mm
 mac/WebView/WebFrameView.mm
 [ Mac ] mac/WebView/WebFullScreenController.mm
-mac/WebView/WebGeolocationPosition.mm
 mac/WebView/WebHTMLRepresentation.mm
 mac/WebView/WebHTMLView.mm
 [ Mac ] mac/WebView/WebImmediateActionController.mm
@@ -77,8 +75,6 @@ mac/WebView/WebView.mm
 [ Mac ] mac/WebView/WebViewData.mm
 mac/WebView/WebViewRenderingUpdateScheduler.mm
 [ Mac ] mac/WebView/WebWindowAnimation.mm
-[ iOS ] ios/Misc/WebGeolocationCoreLocationProvider.mm
-[ iOS ] ios/Misc/WebGeolocationProviderIOS.mm
 [ iOS ] ios/Misc/WebUIKitSupport.mm
 [ iOS ] ios/WebCoreSupport/WebChromeClientIOS.mm
 [ iOS ] ios/WebCoreSupport/WebFixedPositionContent.mm

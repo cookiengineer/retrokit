@@ -64,7 +64,6 @@ class PlaybackSessionModelMediaElement;
 @class WebPreferences;
 @class WebTextCompletionController;
 @protocol WebFormDelegate;
-@protocol WebGeolocationProvider;
 @protocol WebNotificationProvider;
 #if ENABLE(VIDEO)
 @class WebVideoFullscreenController;
@@ -272,7 +271,6 @@ class WebSelectionServiceController;
 #endif
 #endif
 
-    id<WebGeolocationProvider> _geolocationProvider;
     id<WebNotificationProvider> _notificationProvider;
 
 #if ENABLE(SERVICE_CONTROLS)

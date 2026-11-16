@@ -950,7 +950,6 @@ ScriptExecutionContext::HasResourceAccess ScriptExecutionContext::canAccessResou
 
     switch (type) {
     case ResourceType::Cookies:
-    case ResourceType::Geolocation:
         return HasResourceAccess::Yes;
     case ResourceType::Plugin:
     case ResourceType::WebSQL:

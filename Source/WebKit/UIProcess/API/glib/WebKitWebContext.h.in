@@ -30,7 +30,6 @@
 #if !ENABLE(2022_GLIB_API)
 #include <@API_INCLUDE_PREFIX@/WebKitFaviconDatabase.h>
 #endif
-#include <@API_INCLUDE_PREFIX@/WebKitGeolocationManager.h>
 #include <@API_INCLUDE_PREFIX@/WebKitNetworkProxySettings.h>
 #if ENABLE(2022_GLIB_API)
 #include <@API_INCLUDE_PREFIX@/WebKitNetworkSession.h>
@@ -195,8 +194,6 @@ WEBKIT_API WebKitCookieManager *
 webkit_web_context_get_cookie_manager               (WebKitWebContext              *context);
 #endif
 
-WEBKIT_API WebKitGeolocationManager *
-webkit_web_context_get_geolocation_manager          (WebKitWebContext              *context);
 
 #if !ENABLE(2022_GLIB_API)
 WEBKIT_API WebKitFaviconDatabase *

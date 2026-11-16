@@ -93,7 +93,6 @@ mac/WebCoreSupport/WebChromeClient.mm
 [ Mac ] mac/WebCoreSupport/WebContextMenuClient.mm
 [ Mac ] mac/WebCoreSupport/WebEditorClient.mm
 mac/WebCoreSupport/WebFrameLoaderClient.mm
-mac/WebCoreSupport/WebGeolocationClient.mm
 [ Mac ] mac/WebCoreSupport/WebInspectorClient.mm
 mac/WebCoreSupport/WebKitFullScreenListener.mm
 mac/WebCoreSupport/WebValidationMessageClient.mm

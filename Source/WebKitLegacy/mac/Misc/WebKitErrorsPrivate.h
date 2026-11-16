@@ -46,11 +46,8 @@ enum {
 
 /*!
     @enum
-    @abstract Geolocation errors
-    @constant WebKitErrorGeolocationLocationUnknown
 */
 enum {
-    WebKitErrorGeolocationLocationUnknown  =                    300,
 };
 
 @interface NSError (WebKitExtras)

@@ -72,8 +72,6 @@
 #import "WebFrameLoaderClient.h"
 #import "WebFrameNetworkingContext.h"
 #import "WebFrameViewInternal.h"
-#import "WebGeolocationClient.h"
-#import "WebGeolocationPositionInternal.h"
 #import "WebHTMLRepresentation.h"
 #import "WebHTMLViewInternal.h"
 #import "WebHistoryDelegate.h"
@@ -176,8 +174,6 @@
 #import <WebCore/FrameSelection.h>
 #import <WebCore/FrameTree.h>
 #import <WebCore/GarbageCollectionController.h>
-#import <WebCore/GeolocationController.h>
-#import <WebCore/GeolocationError.h>
 #import <WebCore/HTMLNames.h>
 #import <WebCore/HTMLOListElement.h>
 #import <WebCore/HTMLUListElement.h>
@@ -1235,9 +1231,6 @@ static bool didOneTimeInitialization = false;
 
     _private->page->setGroupName(groupName);
 
-#if ENABLE(GEOLOCATION)
-    WebCore::provideGeolocationTo(_private->page.get(), WebGeolocationClient::create(self));
-#endif
 #if ENABLE(NOTIFICATIONS)
     WebCore::provideNotification(_private->page.get(), new WebNotificationClient(self));
 #endif
@@ -5080,10 +5073,6 @@ static bool needsWebViewInitThreadWorkaround()
     // carried out before we are dealloc'd.
     @autoreleasepool {
 
-#if PLATFORM(IOS_FAMILY)
-        if (_private)
-            [_private->_geolocationProvider stopTrackingWebView:self];
-#endif
 
         [[NSNotificationCenter defaultCenter] removeObserver:self];
 
@@ -8844,52 +8833,6 @@ FORWARD(toggleUnderline)
 {
     return _private->inspectorController.get();
 }
-
-@end
-
-@implementation WebView (WebViewGeolocation)
-
-- (void)_setGeolocationProvider:(id<WebGeolocationProvider>)geolocationProvider
-{
-    if (_private)
-        _private->_geolocationProvider = geolocationProvider;
-}
-
-- (id<WebGeolocationProvider>)_geolocationProvider
-{
-    if (_private)
-        return _private->_geolocationProvider;
-    return nil;
-}
-
-- (void)_geolocationDidChangePosition:(WebGeolocationPosition *)position
-{
-#if ENABLE(GEOLOCATION)
-    if (_private && _private->page)
-        WebCore::GeolocationController::from(_private->page.get())->positionChanged(core(position));
-#endif // ENABLE(GEOLOCATION)
-}
-
-- (void)_geolocationDidFailWithMessage:(NSString *)errorMessage
-{
-#if ENABLE(GEOLOCATION)
-    if (_private && _private->page) {
-        auto geolocatioError = WebCore::GeolocationError::create(WebCore::GeolocationError::PositionUnavailable, errorMessage);
-        WebCore::GeolocationController::from(_private->page.get())->errorOccurred(geolocatioError.get());
-    }
-#endif // ENABLE(GEOLOCATION)
-}
-
-#if PLATFORM(IOS_FAMILY)
-- (void)_resetAllGeolocationPermission
-{
-#if ENABLE(GEOLOCATION)
-    auto* frame = [self _mainCoreFrame];
-    if (frame)
-        frame->resetAllGeolocationPermission();
-#endif
-}
-#endif
 
 @end
 

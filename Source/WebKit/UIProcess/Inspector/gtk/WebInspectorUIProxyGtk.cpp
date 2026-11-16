@@ -239,7 +239,6 @@ RefPtr<WebPageProxy> WebInspectorUIProxy::platformCreateFrontendPage()
         nullptr, // pageDidScroll
         exceededDatabaseQuota,
         runOpenPanel,
-        nullptr, // decidePolicyForGeolocationPermissionRequest
         nullptr, // headerHeight
         nullptr, // footerHeight
         nullptr, // drawHeader

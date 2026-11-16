@@ -475,10 +475,6 @@ messages -> WebPage WantsAsyncDispatchMessage {
     SetSmartInsertDeleteEnabled(bool isSmartInsertDeleteEnabled)
 #endif
 
-#if ENABLE(GEOLOCATION)
-    # Geolocation
-    DidReceiveGeolocationPermissionDecision(WebKit::GeolocationIdentifier geolocationID, String authorizationToken)
-#endif
 
 #if ENABLE(MEDIA_STREAM)
     # MediaSteam

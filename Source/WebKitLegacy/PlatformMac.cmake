@@ -270,7 +270,6 @@ set(WebKitLegacy_FORWARDED_PRIVATE_HEADERS
     mac/WebView/WebFrameLoadDelegatePrivate.h
     mac/WebView/WebFramePrivate.h
     mac/WebView/WebFrameViewPrivate.h
-    mac/WebView/WebGeolocationPosition.h
     mac/WebView/WebHTMLRepresentation.h
     mac/WebView/WebHTMLRepresentationPrivate.h
     mac/WebView/WebHTMLView.h
@@ -440,7 +439,6 @@ set(WebKitLegacy_PROJECT_HEADERS
     mac/WebCoreSupport/WebEditorClient.h
     mac/WebCoreSupport/WebFrameLoaderClient.h
     mac/WebCoreSupport/WebFrameNetworkingContext.h
-    mac/WebCoreSupport/WebGeolocationClient.h
     mac/WebCoreSupport/WebInspectorClient.h
     mac/WebCoreSupport/WebKitFullScreenListener.h
     mac/WebCoreSupport/WebMediaKeySystemClient.h
@@ -471,7 +469,6 @@ set(WebKitLegacy_PROJECT_HEADERS
     mac/WebView/WebFrameInternal.h
     mac/WebView/WebFrameViewInternal.h
     mac/WebView/WebFullScreenController.h
-    mac/WebView/WebGeolocationPositionInternal.h
     mac/WebView/WebHTMLViewForTestingMac.h
     mac/WebView/WebHTMLViewInternal.h
     mac/WebView/WebHistoryDelegate.h

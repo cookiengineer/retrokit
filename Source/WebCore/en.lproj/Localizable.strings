@@ -175,8 +175,6 @@
 /* Button title in Device Orientation Permission API prompt */
 "Allow (device motion and orientation access)" = "Allow";
 
-/* Allow button title in geolocation prompt */
-"Allow (geolocation)" = "Allow";
 
 /* Allow button title in screen sharing prompt */
 "Allow (screensharing)" = "Allow";
@@ -217,7 +215,6 @@
 /* Message for user camera access prompt */
 "Allow “%@” to use your camera?" = "Allow “%@” to use your camera?";
 
-/* Message for geolocation prompt */
 "Allow “%@” to use your current location?" = "Allow “%@” to use your current location?";
 
 /* Message for user microphone access prompt */
@@ -475,8 +472,6 @@
 /* Button title in Storage Access API prompt */
 "Don’t Allow (cross-site cookie and website data access)" = "Don’t Allow";
 
-/* Disallow button title in geolocation prompt */
-"Don’t Allow (geolocation)" = "Don’t Allow";
 
 /* Disallow button title in screen sharing prompt */
 "Don’t Allow (screensharing)" = "Don’t Allow";
@@ -1528,7 +1523,6 @@
 /* WKWebExtensionContextErrorBackgroundContentFailedToLoad description */
 "The background content failed to load due to an error." = "The background content failed to load due to an error.";
 
-/* WebKitErrorGeolocationLocationUnknown description */
 "The current location cannot be found." = "The current location cannot be found.";
 
 /* document password failure alert message */

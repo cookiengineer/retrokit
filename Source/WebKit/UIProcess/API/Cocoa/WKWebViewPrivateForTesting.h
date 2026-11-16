@@ -103,7 +103,6 @@ typedef NSVisualEffectView _WKPlatformVisualEffectView;
 
 - (void)_resetInteraction;
 
-- (BOOL)_shouldBypassGeolocationPromptForTesting;
 
 - (void)_didPresentContactPicker;
 - (void)_didDismissContactPicker;

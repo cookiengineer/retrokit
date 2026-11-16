@@ -86,7 +86,6 @@ public:
     virtual bool isDocumentMediaElement() const { return false; }
     virtual bool isDocumentPictureInPicture() const { return false; }
     virtual bool isDocumentStorageAccess() const { return false; }
-    virtual bool isGeolocationController() const { return false; }
     virtual bool isHTMLVideoElementPictureInPicture() const { return false; }
     virtual bool isInternalSettingsWrapper() const { return false; }
     virtual bool isLocalDOMWindowMediaControls() const { return false; }
@@ -97,7 +96,6 @@ public:
     virtual bool isNavigatorClipboard() const { return false; }
     virtual bool isNavigatorContacts() const { return false; }
     virtual bool isNavigatorCredentials() const { return false; }
-    virtual bool isNavigatorGeolocation() const { return false; }
     virtual bool isNavigatorLoginStatus() const { return false; }
     virtual bool isNavigatorMediaCapabilities() const { return false; }
     virtual bool isNavigatorMediaDevices() const { return false; }

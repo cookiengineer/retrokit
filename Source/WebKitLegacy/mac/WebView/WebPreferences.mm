@@ -344,7 +344,6 @@ public:
 #if PLATFORM(IOS_FAMILY)
         @NO, WebKitStorageTrackerEnabledPreferenceKey,
         @(static_cast<unsigned>(WebCore::AudioSession::CategoryType::None)), WebKitAudioSessionCategoryOverride,
-        @NO, WebKitAlwaysRequestGeolocationPermissionPreferenceKey,
         @(static_cast<int>(WebCore::InterpolationQuality::Low)), WebKitInterpolationQualityPreferenceKey,
         @"", WebKitNetworkInterfaceNamePreferenceKey,
 #endif
@@ -1281,16 +1280,6 @@ public:
 - (BOOL)_allowMultiElementImplicitFormSubmission
 {
     return [self _boolValueForKey:WebKitAllowMultiElementImplicitFormSubmissionPreferenceKey];
-}
-
-- (void)_setAlwaysRequestGeolocationPermission:(BOOL)flag
-{
-    [self _setBoolValue:flag forKey:WebKitAlwaysRequestGeolocationPermissionPreferenceKey];
-}
-
-- (BOOL)_alwaysRequestGeolocationPermission
-{
-    return [self _boolValueForKey:WebKitAlwaysRequestGeolocationPermissionPreferenceKey];
 }
 
 - (void)_setInterpolationQuality:(int)quality
