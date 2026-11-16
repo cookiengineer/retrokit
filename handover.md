@@ -42,6 +42,9 @@ media controls, inspector resources and the GLib dependency-file workaround.
 Recent commits on `migrate/2.54`:
 
 ```text
+dc4278995 Add end-to-end migration runbook
+93a306c15 Note ccache validation on both containers
+8087fcb85 Record successful Debian and Arch container builds
 e2b68191b Share persistent per-distro ccache across container runs
 f62961975 Add glib2-devel to Arch build container
 0d47081ff Add ruby-erb to Arch build container
