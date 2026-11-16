@@ -48,6 +48,7 @@ Current branch layout:
 ```text
 main / legacy/2.34   old 2.34.1 fork + current tooling
 migrate/2.54         active migration branch (based on vendor/2.54.2)
+origin/migrate/2.54  pushed tracking branch of migrate/2.54
 ```
 
 Vendor refs:

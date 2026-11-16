@@ -12,6 +12,7 @@ feature.
 Current development branch:
 
 - `migrate/2.54` — active migration branch, based on `vendor/2.54.2`.
+  It is pushed and tracks `origin/migrate/2.54`.
 
 Legacy / maintenance branch:
 
@@ -42,6 +43,8 @@ media controls, inspector resources and the GLib dependency-file workaround.
 Recent commits on `migrate/2.54`:
 
 ```text
+71a370ce6 Document Media Usage removal and next steps
+f248d555c Document Geolocation removal and next steps
 419076354 Remove Media Usage API
 72124f557 Document libsecret cleanup and next steps
 a547af7ce Remove libsecret Integration
@@ -75,6 +78,16 @@ c75033746 Make manifest generation deterministic
 a9161448f Import downstream RetroKit files and upstreamcheck
 53c2ab0d8 Vendor import: WebKitGTK 2.54.2
 ```
+
+Completed removal features on `migrate/2.54`:
+
+```text
+WebXR · SystemD/journald · Touch Bar · FTP · Gamepad
+Device Motion/Orientation · Geolocation · libsecret · Media Usage
+```
+
+`libnotify` was already absent upstream; its stale documentation references and
+the misattributed manifest rows were cleaned up during the libsecret work.
 
 ## 2. The maintenance tool
 
@@ -146,7 +159,7 @@ feature  kind  symbol  path  disposition  scope  origin  notes
 
 It currently contains **10,114 rows across 39 features**. The manifest covers
 the original 2.34.1 fork diff plus the new upstream WebXR/WebGPU-XR files and
-the migration edits for completed features.
+the migration edits for all completed features through Media Usage.
 
 `needs-review.tsv` currently contains 19 ambiguous legacy `:bug:` commits.
 These should be assigned to a feature or recorded as explicit maintenance
@@ -381,6 +394,17 @@ libnotify:
   legacy libsoup migration were dropped; the features now describe only the
   actual removal.
 
+Verification:
+
+```text
+equivalence --feature libsecret:  8 entries, 0 errors, 0 warnings
+equivalence --feature libnotify:  1 entry,   0 errors, 0 warnings
+leaks       --feature libsecret:  0 residual occurrences
+leaks       --feature libnotify:  0 residual occurrences
+make build DISTRO=debian:         success (WebKit + MiniBrowser)
+make smoke DISTRO=debian:         success
+```
+
 ### Media Usage
 
 Commit: `419076354 Remove Media Usage API`
@@ -429,20 +453,6 @@ Suggested order:
 4. Remaining build/behaviour fixes.
 5. WebGL (largest, last).
 
-Use the target-relative report to choose the next feature, and always verify
-with `equivalence --fork HEAD --feature <id>` and `leaks --feature <id>`.
-
-Suggested order:
-
-1. Remaining platform and dependency removals (libsecret, libnotify).
-2. Media stack (capture, streams, recorder, EME, PiP/fullscreen).
-3. Automation, WebDriver, quirks and user-agent quirks.
-4. Remaining build/behaviour fixes.
-5. WebGL (largest, last).
-
-If you want a smaller next step, `media-usage` (8 pending) and
-`custom-protocol` (22 pending) are self-contained candidates.
-
 ### Curation
 
 Resolve `needs-review.tsv`. The 19 entries are mostly legacy `:bug:` commits
@@ -471,17 +481,25 @@ cmake -DPORT=GTK -DCMAKE_BUILD_TYPE=Release \
   -GNinja
 ```
 
-Both build containers now build the full tree and run MiniBrowser:
+The Debian container has been rebuilt and smoke-tested after every completed
+feature through Media Usage:
 
 ```text
 make build DISTRO=debian     -> success (WebKit + MiniBrowser)
 make smoke DISTRO=debian     -> success (MiniBrowser --help under Xvfb)
-make build DISTRO=archlinux  -> success (WebKit + MiniBrowser)
-make smoke DISTRO=archlinux  -> success (MiniBrowser --help under Xvfb)
+```
+
+The Arch Linux container was fully validated before the Geolocation/Device
+Motion changes. Re-run both gates at cutover, and on both distros for changes
+that touch shared platform or build code:
+
+```text
+make build DISTRO=archlinux  -> last full validation before Geolocation
+make smoke DISTRO=archlinux
 ```
 
 The host itself does not need Ruby because the build runs inside the
-containers. Both images are also validated by a full end-to-end compile.
+containers. Both images have been validated by a full end-to-end compile.
 
 Build caveats:
 

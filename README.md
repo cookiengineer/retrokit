@@ -24,8 +24,22 @@ statistical content verification infrastructure.
 ## Security Improvements
 
 For an overview of the differences to upstream WebKit, take a look at the
-[SECURITY.md](./SECURITY.md) file which documents the current progress of
-removals and changed behaviours of Web APIs.
+[SECURITY.md](./SECURITY.md) file which documents the removal policy of Web
+APIs and dependencies.
+
+## Migration Status
+
+RetroKit is migrating from WebKitGTK 2.34.1 to 2.54.2 on the `migrate/2.54`
+branch. `main` still points at the old 2.34.1 fork until cutover. Completed
+removals on the migration branch:
+
+```text
+WebXR · SystemD/journald · Touch Bar · FTP · Gamepad
+Device Motion/Orientation · Geolocation · libsecret · Media Usage
+```
+
+See [handover.md](./handover.md) for current state, remaining work and branch
+details. The removal backlog is [TODO.md](./TODO.md).
 
 
 # Building
@@ -68,7 +82,16 @@ runbook, verification gates and build/debug workflow.
 cd Helpers/upstreamcheck;
 go build -o upstreamcheck ./cmd/upstreamcheck;
 ./upstreamcheck status;
-./upstreamcheck lint;
+./upstreamcheck equivalence --fork HEAD;
+./upstreamcheck leaks --fork HEAD;
+```
+
+The reproducible build environments use rootless Podman:
+
+```bash
+make image DISTRO=debian;
+make build DISTRO=debian;
+make smoke DISTRO=debian;
 ```
 
 

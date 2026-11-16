@@ -19,6 +19,13 @@ are going to be removed in the future as well. If a checklist item has been mark
 as completed, it is no longer contained in the codebase; and/or doesn't represent
 an Attack Surface for malicious parties anymore.
 
+> **Migration status:** this file is the removal policy. A checked item means
+> the feature belongs to RetroKit's target removal layer. The actual state of
+> the `migrate/2.54` branch is tracked in [handover.md](./handover.md) and
+> [Helpers/upstreamcheck/MIGRATION.md](./Helpers/upstreamcheck/MIGRATION.md).
+> Some checked items still exist in the 2.54.2 source and remain in the
+> migration backlog (for example WebGL, WebRTC, media capture and payment).
+
 ## Polyfills
 
 As some APIs are expected to be there in a Web Browser, they will probably be

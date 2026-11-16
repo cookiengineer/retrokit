@@ -8,11 +8,14 @@
 - Target vendor snapshot: `vendor/2.54.2`.
 - Migration branch: `migrate/2.54` (starts at `vendor/2.54.2`, followed by one
   commit that imports RetroKit's downstream files and `upstreamcheck`).
+  It is pushed and tracks `origin/migrate/2.54`.
 - `main` and `legacy/2.34` still point at the 2.34.1 fork; promote
   `migrate/2.54` during cutover.
-- Generated manifest: `manifest/divergence.tsv` (10,114 rows, 39 features).
-- The manifest now also records the new upstream WebXR/WebGPU-XR files and
-  the WebXR/systemd/touch-bar migration edits.
+- Completed on `migrate/2.54`: WebXR, SystemD/journald, Touch Bar, FTP,
+  Gamepad, Device Motion/Orientation, Geolocation, libsecret and Media Usage.
+- Generated manifest: `manifest/divergence.tsv` (10,114 rows across 39 features).
+- The manifest records the legacy fork diff plus every migrated feature through
+  Media Usage, including the new upstream WebXR/WebGPU-XR files.
 
 The vendor snapshots contain only `CMakeLists.txt`, `Source`, and the minimal
 `Tools` closure needed for the build and MiniBrowser:
@@ -92,12 +95,12 @@ go build -o upstreamcheck ./cmd/upstreamcheck
 ./upstreamcheck report --target vendor/2.54.2 --out manifest/migration-plan.md
 
 # For each feature: generate, review, apply, compile, lint.
-./upstreamcheck migrate --feature geolocation --target vendor/2.54.2 --out manifest/candidates
+./upstreamcheck migrate --feature custom-protocol --target vendor/2.54.2 --out manifest/candidates
 git apply --check manifest/candidates/geolocation.patch
 git apply manifest/candidates/geolocation.patch
-./upstreamcheck refs --feature geolocation
+./upstreamcheck refs --feature custom-protocol
 ./upstreamcheck lint --base vendor-base/2.34.1
-./upstreamcheck equivalence --fork HEAD --feature geolocation
+./upstreamcheck equivalence --fork HEAD --feature custom-protocol
 ```
 
 `migrate` never edits the worktree. It writes a patch and a Markdown report

@@ -11,8 +11,12 @@ removal layer: whole features, individual declarations, build flags and
 behaviour fixes. A naive three-way merge cannot reapply that layer reliably
 because upstream keeps changing the code around the removals.
 
-The tool therefore tracks the removal policy in a TSV manifest and compares
-three trees:
+The active migration branch is `migrate/2.54` (pushed as
+`origin/migrate/2.54`); `main` still points at the old 2.34.1 fork until
+cutover. On the migration branch, use `equivalence` and `leaks` for the real
+feature state; `lint` is meaningful on the legacy branch.
+
+The tool tracks the removal policy in a TSV manifest and compares three trees:
 
 - the upstream baseline (`vendor-base/2.34.1`),
 - the fork (`HEAD`),
@@ -76,10 +80,10 @@ used by leak scans.
 ./upstreamcheck plan --feature webgl
 
 # Find remaining references to removed files/symbols.
-./upstreamcheck refs --feature webrtc
+./upstreamcheck refs --feature custom-protocol
 
 # Scan for residual feature tokens in non-comment source lines.
-./upstreamcheck leaks --feature webgl
+./upstreamcheck leaks --feature custom-protocol
 
 # Check a new fork tree against the removal manifest.
 ./upstreamcheck equivalence --fork <new-branch>
