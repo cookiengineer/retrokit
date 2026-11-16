@@ -870,19 +870,35 @@ What happened:
   bootstrap. It was moved to `webrtc`.
 - No source commit was needed.
 
+### FTP
+
+What happened:
+
+- 2.54.2 had already removed the FTP directory documents; what remained was the
+  `FTP` scheme, protection-space types and the newer `ftpEnabled` network
+  plumbing.
+- The manifest still used 2.34.1 symbol names
+  (`ProtectionSpaceServerFTP`), so `equivalence` reported the protection-space
+  entries as "done" while the enum values were still present. Renaming the rows
+  to `ProtectionSpaceBaseServerType::FTP` made the check honest.
+- Removing the enum values renumbers the C API protection-space constants.
+  Record that in the manifest and docs; it is intentional.
+- 82 removal entries, 0 errors, 0 warnings, 0 leaks.
+- `URL.h` changed, so this feature triggers a near-full WebCore rebuild even
+  though the diff is small.
+
 ---
 
 ## 11. Next features
 
 Recommended order:
 
-1. **FTP** — upstream still has FTP scheme, network-process state,
-   protection-space types and API casting. The old fork removed it fully; use
-   commit `bb8adb1d` as reference.
-2. Platform and dependency removals (libsecret, libnotify, geoclue, etc.).
-3. Media stack (capture, streams, recorder, EME, PiP/fullscreen).
-4. Fingerprinting APIs (Gamepad, Geolocation, DeviceMotion/Orientation, WebGL,
-   Payment/ApplePay).
+1. **Gamepad** — enabled by default on GTK, exposes hardware identifiers and is
+   independent of the media stack. Curate the candidate first; it currently
+   contains unrelated `CMakeLists.txt` rows.
+2. Geolocation and DeviceMotion/Orientation.
+3. Remaining platform and dependency removals (libsecret, libnotify, geoclue).
+4. Media stack (capture, streams, recorder, EME, PiP/fullscreen).
 5. Automation, WebDriver, quirks and user-agent quirks.
 6. Remaining build/behaviour fixes.
 
@@ -938,16 +954,16 @@ cd Helpers/upstreamcheck && go build -o upstreamcheck ./cmd/upstreamcheck
 ./upstreamcheck report --target vendor/2.54.2 --out manifest/migration-plan.md
 
 # Migrate
-./upstreamcheck migrate --feature ftp --target vendor/2.54.2 \
+./upstreamcheck migrate --feature gamepad --target vendor/2.54.2 \
   --out manifest/candidates
-git apply --check manifest/candidates/ftp.patch
-git apply manifest/candidates/ftp.patch
+git apply --check manifest/candidates/gamepad.patch
+git apply manifest/candidates/gamepad.patch
 # or, if context moved:
-patch -p1 --no-backup-if-mismatch < manifest/candidates/ftp.patch
+patch -p1 --no-backup-if-mismatch < manifest/candidates/gamepad.patch
 
 # Inspect fallout
-./upstreamcheck refs --feature ftp --limit 100
-./upstreamcheck leaks --fork HEAD --feature ftp
+./upstreamcheck refs --feature gamepad --limit 100
+./upstreamcheck leaks --fork HEAD --feature gamepad
 
 # Build
 make image DISTRO=debian
@@ -961,9 +977,9 @@ make ccache-stats DISTRO=debian
 make ccache-clean DISTRO=debian
 
 # Verify and commit
-./upstreamcheck equivalence --fork HEAD --feature ftp
+./upstreamcheck equivalence --fork HEAD --feature gamepad
 git add -A Source Tools Helpers/upstreamcheck/manifest
-git commit -m ':unicorn: Remove FTP Support'
+git commit -m ':unicorn: Remove Gamepad API'
 ```
 
 ---

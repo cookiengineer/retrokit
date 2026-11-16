@@ -42,6 +42,8 @@ media controls, inspector resources and the GLib dependency-file workaround.
 Recent commits on `migrate/2.54`:
 
 ```text
+aad3b2584 Remove FTP Support
+5965e68b9 Update handover commit list
 dc4278995 Add end-to-end migration runbook
 93a306c15 Note ccache validation on both containers
 8087fcb85 Record successful Debian and Arch container builds
@@ -133,7 +135,7 @@ The source of truth for intentional divergence is:
 feature  kind  symbol  path  disposition  scope  origin  notes
 ```
 
-It currently contains **9,599 rows across 39 features**. The manifest covers
+It currently contains **9,657 rows across 39 features**. The manifest covers
 the original 2.34.1 fork diff plus the new upstream WebXR/WebGPU-XR files and
 the migration edits for completed features.
 
@@ -208,21 +210,59 @@ libnotify is already absent upstream. The only pending entry was a WebRTC
 symbol (`createRTCProvider`) misattributed to libnotify by the net-diff
 bootstrap; it was moved to the `webrtc` feature in the manifest.
 
+### FTP
+
+Commit: `aad3b2584 Remove FTP Support`
+
+Removed:
+
+- The `FTP` URL scheme from `URLParser` (including `defaultPortForProtocol`).
+- `URL::protocolIsInFTPFamily()`, the FTP/FTPS entries in `hasSpecialScheme()`
+  and the port 21/22 exception in `portAllowed()`.
+- `ProtectionSpace::ServerType::FTP/FTPS/ProxyFTP` and all platform mappings
+  (soup, curl, cocoa, serialization, C API cast).
+- The 2.54-only `ftpEnabled` plumbing: creation parameters, `NetworkProcess`
+  state, `NetworkDataTask`/`NetworkLoad`/`BackgroundFetchLoad`/`PingLoad`/
+  `NetworkCORSPreflightChecker` blocking paths, `ftpDisabledError()` and the
+  `wasBlockedByDisabledFTP()` client hook.
+- `FTPEnabled`, the deprecated `WKPreferences*FTP*` stubs and the FTP
+  protection-space C API constants.
+- Dead FTP directory-list leftovers (`unknownFileSizeText()`, logging channel).
+
+Verification:
+
+```text
+equivalence --feature ftp: 82 entries, 0 errors, 0 warnings
+leaks --feature ftp:       0 residual occurrences
+make build DISTRO=debian:  success (WebKit + MiniBrowser)
+make smoke DISTRO=debian:  success
+```
+
+Notes:
+
+- The manifest used stale 2.34.1 symbol names
+  (`ProtectionSpaceServerFTP`); it now names the 2.54.2 enum
+  (`ProtectionSpaceBaseServerType::FTP`), so `equivalence` actually checks it.
+- Removing the C API constants renumbers `kWKProtectionSpaceProxyType*` and
+  the other `kWKProtectionSpace*` values; this is an intentional fork-level API
+  break.
+- `ftp://` and `ftps://` are now non-special schemes and fail as unsupported
+  loads.
+
 ## 5. Next steps
 
-### Immediate: FTP
+### Immediate: Gamepad
 
-FTP is the next larger cleanup. The 2.54.2 tree still contains:
+Gamepad is the next feature. `ENABLE_GAMEPAD` is enabled by default on GTK, it
+exposes hardware identifiers, and it is independent of the media stack.
 
-- FTP scheme parsing in `Source/WTF/wtf/URLParser.cpp`.
-- FTP handling in `URL.cpp`/`URL.h`.
-- `ProtectionSpace` FTP/FTPS server types and API casting.
-- `ftpEnabled` state in the network process.
-- FTP support preference and logging channel.
-
-Use the old fork's FTP commit (`bb8adb1d Remove FTP Support`) as the semantic
-reference. The generic candidate only removes the `FTP` enumerator, so this
-feature needs a dedicated review and commit.
+- Remove `Source/WebCore/Modules/gamepad` and `platform/gamepad`, including the
+  GTK/Manette provider.
+- Remove the Gamepad IPC layer, preferences, testing hooks and the
+  `libmanette` build dependency.
+- Curate the `gamepad` candidate before applying it: it currently contains
+  unrelated `CMakeLists.txt` rows (`add_subdirectory(PerformanceTests)`,
+  `if (DEVELOPER_MODE)`).
 
 ### Then: remaining features
 
@@ -231,10 +271,9 @@ with `equivalence --fork HEAD --feature <id>` and `leaks --feature <id>`.
 
 Suggested order:
 
-1. Platform and dependency removals (libsecret, libnotify, geoclue, etc.).
-2. Media stack (capture, streams, recorder, EME, PiP/fullscreen).
-3. Fingerprinting APIs (Gamepad, Geolocation, DeviceMotion/Orientation, WebGL,
-   Payment/ApplePay).
+1. Fingerprinting APIs (Gamepad, Geolocation, DeviceMotion/Orientation).
+2. Remaining platform and dependency removals (libsecret, libnotify, geoclue).
+3. Media stack (capture, streams, recorder, EME, PiP/fullscreen).
 4. Automation, WebDriver, quirks and user-agent quirks.
 5. Remaining build/behaviour fixes.
 
@@ -397,7 +436,7 @@ podman info --format '{{.Host.Security.Rootless}}'
 2. `cd Helpers/upstreamcheck && go build -o upstreamcheck ./cmd/upstreamcheck`
 3. `make build DISTRO=debian` (or `archlinux`) to establish a full baseline
    build of the migrated tree.
-4. `./upstreamcheck plan --feature ftp --target vendor/2.54.2`
-5. Use `./upstreamcheck migrate --feature ftp ...` plus the legacy FTP commit
-   `bb8adb1d` as the reference, then verify with `equivalence` and `leaks`.
+4. `./upstreamcheck plan --feature gamepad --target vendor/2.54.2`
+5. Curate the `gamepad` candidate, then use `./upstreamcheck migrate --feature
+   gamepad ...` and verify with `equivalence` and `leaks`.
 6. Curate `needs-review.tsv` while build iterations run.

@@ -229,7 +229,7 @@ list of Web APIs that are removed.
 
 - [x] Remove Apple Pay API (`APPLE_PAY`, `ApplePay`)
 - [x] Remove Bluetooth API
-- [x] Remove FTP Directory Support (`FTPDIR`, `FTPDirectory`, `unknownFileSizeText`)
+- [x] Remove FTP Support (`FTPDIR`, `FTPDirectory`, `FTPEnabled`, `ftpEnabled`, `protocolIsInFTPFamily`, `ProtectionSpaceServerFTP`, `ProtectionSpaceServerFTPS`, `ProtectionSpaceProxyFTP`, `unknownFileSizeText`)
 - [x] Remove Gamepad API
 - [x] Remove Geolocation API (`ENABLE_GEOLOCATION`, `Geolocation`, `Geoposition`)
 - [x] Remove Payment Request API (`PAYMENT_REQUEST`, `Merchant`, `Payer`, `Payment`, `Coupon`)

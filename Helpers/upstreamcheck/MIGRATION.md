@@ -10,7 +10,7 @@
   commit that imports RetroKit's downstream files and `upstreamcheck`).
 - `main` and `legacy/2.34` still point at the 2.34.1 fork; promote
   `migrate/2.54` during cutover.
-- Generated manifest: `manifest/divergence.tsv` (9,599 rows, 39 features).
+- Generated manifest: `manifest/divergence.tsv` (9,657 rows, 39 features).
 - The manifest now also records the new upstream WebXR/WebGPU-XR files and
   the WebXR/systemd/touch-bar migration edits.
 
@@ -51,10 +51,15 @@ Completed feature commits on `migrate/2.54`:
   `equivalence --feature touch-bar` passes with 0 errors.
 - **libnotify** — already absent upstream; the only pending symbol was a
   WebRTC misattribution, now corrected in the manifest.
+- **FTP** — removed the FTP scheme, protection-space types, `ftpEnabled`
+  network-process plumbing, deprecated C API stubs and dead directory-list
+  leftovers. `equivalence --feature ftp` passes with 0 errors and 0 warnings
+  over 82 entries; the leak scan is clean. The Debian container build and
+  MiniBrowser smoke test pass.
 
-FTP is the next larger cleanup: upstream 2.54.2 still has FTP scheme,
-network-process and protection-space code. The old fork removed it fully, so
-this needs a dedicated feature commit rather than the generic candidate.
+Gamepad is the next feature: it is enabled by default on GTK and is
+independent of the media stack. The `gamepad` candidate needs curation first
+because it contains unrelated `CMakeLists.txt` rows.
 
 ## Workflow
 
