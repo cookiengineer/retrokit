@@ -945,18 +945,29 @@ What happened:
   it, and the misattributed legacy manifest rows for both libraries were
   dropped.
 
+### Media Usage
+
+What happened:
+
+- Removed the WebCore `MediaUsageInfo` computation from `MediaElementSession`,
+  the `PlatformMediaSessionInterface` hook and the media-session-manager calls.
+- Removed the WebKit UI-process `MediaUsageManager` and Cocoa implementation,
+  the UsageTracking soft-link, the WebPage/WebPageProxy/WebChromeClient
+  plumbing and the IPC messages.
+- Removed the `Internals.mediaUsageState()` testing API.
+- 46 removal entries, 0 errors, 0 warnings, 0 leaks.
+
 ---
 
 ## 11. Next features
 
 Recommended order:
 
-1. **`media-usage`** — small, self-contained WebKit UIProcess removal.
-2. `custom-protocol` — self-contained legacy protocol manager removal.
-3. Media stack (capture, streams, recorder, EME, PiP/fullscreen).
-4. Automation, WebDriver, quirks and user-agent quirks.
-5. Remaining build/behaviour fixes.
-6. WebGL (largest, last).
+1. **`custom-protocol`** — self-contained legacy protocol manager removal.
+2. Media stack (capture, streams, recorder, EME, PiP/fullscreen).
+3. Automation, WebDriver, quirks and user-agent quirks.
+4. Remaining build/behaviour fixes.
+5. WebGL (largest, last).
 
 Also curate `needs-review.tsv`:
 
@@ -1010,16 +1021,16 @@ cd Helpers/upstreamcheck && go build -o upstreamcheck ./cmd/upstreamcheck
 ./upstreamcheck report --target vendor/2.54.2 --out manifest/migration-plan.md
 
 # Migrate
-./upstreamcheck migrate --feature media-usage --target vendor/2.54.2 \
+./upstreamcheck migrate --feature custom-protocol --target vendor/2.54.2 \
   --out manifest/candidates
-git apply --check manifest/candidates/media-usage.patch
-git apply manifest/candidates/media-usage.patch
+git apply --check manifest/candidates/custom-protocol.patch
+git apply manifest/candidates/custom-protocol.patch
 # or, if context moved:
-patch -p1 --no-backup-if-mismatch < manifest/candidates/media-usage.patch
+patch -p1 --no-backup-if-mismatch < manifest/candidates/custom-protocol.patch
 
 # Inspect fallout
-./upstreamcheck refs --feature media-usage --limit 100
-./upstreamcheck leaks --fork HEAD --feature media-usage
+./upstreamcheck refs --feature custom-protocol --limit 100
+./upstreamcheck leaks --fork HEAD --feature custom-protocol
 
 # Build
 make image DISTRO=debian
@@ -1033,9 +1044,9 @@ make ccache-stats DISTRO=debian
 make ccache-clean DISTRO=debian
 
 # Verify and commit
-./upstreamcheck equivalence --fork HEAD --feature media-usage
+./upstreamcheck equivalence --fork HEAD --feature custom-protocol
 git add -A Source Tools Helpers/upstreamcheck/manifest
-git commit -m ':unicorn: Remove Media Usage API'
+git commit -m ':unicorn: Remove Legacy Custom Protocol Support'
 ```
 
 ---

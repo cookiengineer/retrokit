@@ -42,6 +42,8 @@ media controls, inspector resources and the GLib dependency-file workaround.
 Recent commits on `migrate/2.54`:
 
 ```text
+419076354 Remove Media Usage API
+72124f557 Document libsecret cleanup and next steps
 a547af7ce Remove libsecret Integration
 3a6f708b3 Ignore translation catalogs in leak scans
 5aed758bd Remove Geolocation API
@@ -142,7 +144,7 @@ The source of truth for intentional divergence is:
 feature  kind  symbol  path  disposition  scope  origin  notes
 ```
 
-It currently contains **10,079 rows across 39 features**. The manifest covers
+It currently contains **10,114 rows across 39 features**. The manifest covers
 the original 2.34.1 fork diff plus the new upstream WebXR/WebGPU-XR files and
 the migration edits for completed features.
 
@@ -379,18 +381,53 @@ libnotify:
   legacy libsoup migration were dropped; the features now describe only the
   actual removal.
 
+### Media Usage
+
+Commit: `419076354 Remove Media Usage API`
+
+Removed:
+
+- WebCore `MediaUsageInfo`, `MediaElementSession` usage tracking and the
+  `PlatformMediaSessionInterface` hook.
+- WebKit `MediaUsageManager` and its Cocoa implementation, the UsageTracking
+  soft-link, the WebPage/WebPageProxy/WebChromeClient plumbing and IPC
+  messages.
+- The `ENABLE_MEDIA_USAGE` and `HAVE_MEDIA_USAGE_FRAMEWORK` feature macros.
+- Media session managers no longer call `updateMediaUsageIfChanged()`, and the
+  `Internals.mediaUsageState()` testing API is gone.
+
+Verification:
+
+```text
+equivalence --feature media-usage: 46 entries, 0 errors, 0 warnings
+leaks       --feature media-usage: 0 residual occurrences
+make build DISTRO=debian:         success (WebKit + MiniBrowser)
+make smoke DISTRO=debian:         success
+```
+
 ## 5. Next steps
 
-### Next: Remaining platform and dependency removals
+### Next: custom-protocol, then the media stack
 
-Geolocation is done. The next cleanup is the remaining dependency surface
-(libsecret, libnotify if anything reappeared) and then the media stack.
+Media Usage is done. The next smallest self-contained removal is the legacy
+custom protocol manager (`custom-protocol`, 22 pending), followed by the
+remaining media stack (capture, streams, recorder, EME, PiP/fullscreen).
 
-- Geolocation and Geoclue are gone; do not resurrect permission wiring for
-  them when removing other APIs.
-- Media capture/streams/recorder/EME/PiP/fullscreen remain the largest
-  pending group after WebGL.
+- Do not resurrect geolocation/media-usage permission or reporting plumbing
+  when removing other APIs.
+- WebGL remains the largest pending feature and should stay last.
 - Continue curating `needs-review.tsv`.
+
+Use the target-relative report to choose the next feature, and always verify
+with `equivalence --fork HEAD --feature <id>` and `leaks --feature <id>`.
+
+Suggested order:
+
+1. `custom-protocol`.
+2. Media stack (capture, streams, recorder, EME, PiP/fullscreen).
+3. Automation, WebDriver, quirks and user-agent quirks.
+4. Remaining build/behaviour fixes.
+5. WebGL (largest, last).
 
 Use the target-relative report to choose the next feature, and always verify
 with `equivalence --fork HEAD --feature <id>` and `leaks --feature <id>`.
@@ -565,7 +602,7 @@ podman info --format '{{.Host.Security.Rootless}}'
 2. `cd Helpers/upstreamcheck && go build -o upstreamcheck ./cmd/upstreamcheck`
 3. `make build DISTRO=debian` (or `archlinux`) to establish a full baseline
    build of the migrated tree.
-4. `./upstreamcheck plan --feature media-usage --target vendor/2.54.2`
-5. Use `./upstreamcheck migrate --feature media-usage ...` and verify with
+4. `./upstreamcheck plan --feature custom-protocol --target vendor/2.54.2`
+5. Use `./upstreamcheck migrate --feature custom-protocol ...` and verify with
    `equivalence` and `leaks`.
 6. Curate `needs-review.tsv` while build iterations run.

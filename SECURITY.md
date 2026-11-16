@@ -249,7 +249,7 @@ list of Web APIs that are removed.
 - [x] Remove Media Recorder API (`MediaRecorder`)
 - [x] Remove Media Statistics API (`MEDIA_STATISTICS`, `webkitAudioDecodedByteCount`, `webkitVideoDecodedByteCount`, `webkitDecodedFrameCount`, `webkitDroppedFrameCount`)
 - [x] Remove Media Stream API (`MEDIA_STREAM`, `getUserMedia`, `MediaDevices`, `MediaStream`, `MediaStreamTrack`, `UserMediaPermissionRequest`)
-- [x] Remove Media Usage API (`MEDIA_USAGE`, `MediaUsageManager`)
+- [x] Remove Media Usage API (`MEDIA_USAGE`, `MediaUsageInfo`, `MediaUsageManager`, `MediaUsageManagerCocoa`, `updateMediaUsageIfChanged`, `mediaUsageInfo`)
 - [x] Remove Speech Recognition API (`SPEECHRECOGNIZER`, `SpeechRecognizer`, `SpeechRecognition`, `SpeechSynthesizer`)
 - [x] Remove Speech Synthesis API (`SPEECH_SYNTHESIS`, `SpeechSynthesis`)
 - [x] Remove WebGL API (`WEBGL`, `WebGL`, `GraphicsContextGL`)

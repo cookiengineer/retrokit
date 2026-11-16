@@ -10,7 +10,7 @@
   commit that imports RetroKit's downstream files and `upstreamcheck`).
 - `main` and `legacy/2.34` still point at the 2.34.1 fork; promote
   `migrate/2.54` during cutover.
-- Generated manifest: `manifest/divergence.tsv` (10,079 rows, 39 features).
+- Generated manifest: `manifest/divergence.tsv` (10,114 rows, 39 features).
 - The manifest now also records the new upstream WebXR/WebGPU-XR files and
   the WebXR/systemd/touch-bar migration edits.
 
@@ -74,9 +74,12 @@ Completed feature commits on `migrate/2.54`:
   container packages and persistent credential storage; stale libnotify API
   documentation was removed and the misattributed legacy manifest rows were
   dropped. Credentials are session-only now.
+- **Media Usage** — removed `MediaUsageInfo`, the WebCore media-element usage
+  tracking and the WebKit `MediaUsageManager`/Cocoa implementation, its IPC
+  messages and the `Internals.mediaUsageState()` testing API.
 
-`media-usage` is the next small, self-contained removal, followed by
-`custom-protocol` and the media stack.
+`custom-protocol` is the next small, self-contained removal, followed by the
+media stack.
 
 ## Workflow
 
