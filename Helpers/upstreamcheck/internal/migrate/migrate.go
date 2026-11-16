@@ -348,22 +348,44 @@ func findNewTargets(repo *gitx.Repo, cfg *config.Config, targetRef, feature stri
 			break
 		}
 	}
-	if len(tokens) == 0 {
-		return nil
-	}
+
 	known := make(map[string]bool)
+	featureDirs := make(map[string]bool)
 	for _, entry := range entries {
-		if entry.Kind == "file" {
-			known[entry.Path] = true
+		if entry.Kind != "file" {
+			continue
+		}
+		known[entry.Path] = true
+		if entry.Feature != feature || entry.Disposition != "removed" {
+			continue
+		}
+		dir := filepath.Dir(entry.Path)
+		if override, _, ok := pathFeatureOverrideForMigrate(dir + "/"); ok && override == feature {
+			featureDirs[dir] = true
 		}
 	}
+	if len(tokens) == 0 && len(featureDirs) == 0 {
+		return nil
+	}
+
 	targetPaths, err := repo.TreePaths(targetRef, cfg.Vendor.Paths)
 	if err != nil {
 		return nil
 	}
+	seen := make(map[string]bool)
 	var result []string
 	for path := range targetPaths {
-		if known[path] {
+		if known[path] || seen[path] {
+			continue
+		}
+		for dir := range featureDirs {
+			if strings.HasPrefix(path, dir+"/") {
+				result = append(result, path)
+				seen[path] = true
+				break
+			}
+		}
+		if seen[path] {
 			continue
 		}
 		base := strings.ToLower(filepath.Base(path))
@@ -374,9 +396,46 @@ func findNewTargets(repo *gitx.Repo, cfg *config.Config, targetRef, feature stri
 			}
 			if strings.Contains(base, token) {
 				result = append(result, path)
+				seen[path] = true
 				break
 			}
 		}
 	}
 	return result
+}
+
+// pathFeatureOverrideForMigrate mirrors the path-based attribution used by the
+// manifest generator. Directories are passed with a trailing slash so paths
+// such as platform/xr/ are recognised.
+func pathFeatureOverrideForMigrate(path string) (string, string, bool) {
+	p := strings.ToLower(strings.ReplaceAll(path, "\\", "/"))
+	switch {
+	case strings.Contains(p, "webxr") || strings.Contains(p, "/xr/") || strings.Contains(p, "openxr") || strings.Contains(p, "fakexr") || strings.Contains(p, "webgpuxr"):
+		return "webxr", "WebXR API", true
+	case strings.Contains(p, "gamepad"):
+		return "gamepad", "Gamepad API", true
+	case strings.Contains(p, "geolocation"):
+		return "geolocation", "Geolocation API", true
+	case strings.Contains(p, "mediastream") || strings.Contains(p, "getusermedia") || strings.Contains(p, "mediadevices"):
+		return "media-capture", "Media Capture and Streams API", true
+	case strings.Contains(p, "encryptedmedia"):
+		return "encrypted-media", "Encrypted Media API", true
+	case strings.Contains(p, "paymentrequest") || strings.Contains(p, "applepay"):
+		return "payment", "Payment and Apple Pay APIs", true
+	case strings.Contains(p, "graphicscontextgl") || strings.Contains(p, "/canvas/webgl") || strings.Contains(p, "thirdparty/angle") || strings.Contains(p, "opengl"):
+		return "webgl", "WebGL API", true
+	case strings.Contains(p, "webrtc"):
+		return "webrtc", "WebRTC API", true
+	case strings.Contains(p, "webdriver") || strings.Contains(p, "automation"):
+		return "automation", "Web Automation and WebDriver", true
+	case strings.Contains(p, "fullscreen") || strings.Contains(p, "pictureinpicture") || strings.Contains(p, "picture-in-picture"):
+		return "fullscreen-pip", "Fullscreen and Picture-in-Picture", true
+	case strings.Contains(p, "devicemotion") || strings.Contains(p, "deviceorientation"):
+		return "device-sensors", "Device Motion and Orientation APIs", true
+	case strings.Contains(p, "wirelessplayback") || strings.Contains(p, "remoteplayback"):
+		return "wireless-playback", "Wireless Playback Target API", true
+	case strings.Contains(p, "plugin"):
+		return "plugins", "Legacy Plugin APIs", true
+	}
+	return "", "", false
 }
