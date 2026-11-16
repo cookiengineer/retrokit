@@ -5830,6 +5830,43 @@ web-api-statistics	file	-	Source/WebCore/loader/ResourceLoadStatistics.cpp	modif
 web-api-statistics	file	-	Source/WebKit/WebProcess/WebCoreSupport/WebResourceLoadObserver.cpp	modified	source	e1c978c737167f54a5538a638414fa221f07111f	origin=e1c978c737167f54a5538a638414fa221f07111f :bug: Fixes for WebProcess
 web-api-statistics	flag	WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_WEB_API_STATISTICS PRIVATE ON)	Source/cmake/OptionsGTK.cmake	removed	source	0ba87cf9727e6cda40f7dd2b8bd082ee73b766bd	line=168; commit=0ba87cf9727e
 web-api-statistics	flag	WEBKIT_OPTION_DEFINE(ENABLE_WEB_API_STATISTICS "Toggle Web API statistics support" PRIVATE OFF)	Source/cmake/WebKitFeatures.cmake	removed	source	0ba87cf9727e6cda40f7dd2b8bd082ee73b766bd	line=221; commit=0ba87cf9727e
+web-api-statistics	file	-	Source/WTF/Scripts/Preferences/UnifiedWebPreferences.yaml	modified	source	manual:web-api-statistics-2.54	Web API statistics removal (2.54); preference removed
+web-api-statistics	pref	WebAPIStatisticsEnabled:	Source/WTF/Scripts/Preferences/UnifiedWebPreferences.yaml	removed	source	manual:web-api-statistics-2.54	Web API statistics preference removed
+web-api-statistics	pref	humanReadableName: "Web API Statistics"	Source/WTF/Scripts/Preferences/UnifiedWebPreferences.yaml	removed	source	manual:web-api-statistics-2.54	Web API statistics preference removed
+web-api-statistics	file	-	Source/WTF/wtf/PlatformEnableCocoa.h	modified	source	manual:web-api-statistics-2.54	Web API statistics removal (2.54); integration change
+web-api-statistics	flag	#define ENABLE_WEB_API_STATISTICS 1	Source/WTF/wtf/PlatformEnableCocoa.h	removed	source	manual:web-api-statistics-2.54	Cocoa port no longer enables Web API statistics
+web-api-statistics	file	-	Source/WebCore/Headers.cmake	modified	source	manual:web-api-statistics-2.54	CanvasActivityRecord removed from the build
+web-api-statistics	file	-	Source/WebCore/Sources.txt	modified	source	manual:web-api-statistics-2.54	CanvasActivityRecord removed from the build
+web-api-statistics	file	-	Source/WebCore/css/CSSFontFaceSource.cpp	modified	source	manual:web-api-statistics-2.54	Font loading is no longer recorded
+web-api-statistics	file	-	Source/WebCore/css/CSSFontSelector.cpp	modified	source	manual:web-api-statistics-2.54	Font loading is no longer recorded
+web-api-statistics	file	-	Source/WebCore/html/HTMLCanvasElement.cpp	modified	source	manual:web-api-statistics-2.54	Canvas read activity is no longer recorded
+web-api-statistics	file	-	Source/WebCore/html/canvas/CanvasRenderingContext2D.cpp	modified	source	manual:web-api-statistics-2.54	Canvas text activity is no longer recorded
+web-api-statistics	file	-	Source/WebCore/loader/CanvasActivityRecord.cpp	removed	source	manual:web-api-statistics-2.54	Deleted file
+web-api-statistics	file	-	Source/WebCore/loader/CanvasActivityRecord.h	removed	source	manual:web-api-statistics-2.54	Deleted file
+web-api-statistics	struct	WebCore::CanvasActivityRecord	Source/WebCore/loader/CanvasActivityRecord.h	removed	source	manual:web-api-statistics-2.54	Canvas activity statistics removed
+web-api-statistics	file	-	Source/WebCore/loader/ResourceLoadObserver.h	modified	source	manual:web-api-statistics-2.54	Font/canvas/navigator/screen logging hooks removed
+web-api-statistics	method	WebCore::ResourceLoadObserver::logFontLoad	Source/WebCore/loader/ResourceLoadObserver.h	removed	source	manual:web-api-statistics-2.54	Web API statistics removal (2.54)
+web-api-statistics	method	WebCore::ResourceLoadObserver::logCanvasRead	Source/WebCore/loader/ResourceLoadObserver.h	removed	source	manual:web-api-statistics-2.54	Web API statistics removal (2.54)
+web-api-statistics	method	WebCore::ResourceLoadObserver::logCanvasWriteOrMeasure	Source/WebCore/loader/ResourceLoadObserver.h	removed	source	manual:web-api-statistics-2.54	Web API statistics removal (2.54)
+web-api-statistics	method	WebCore::ResourceLoadObserver::logNavigatorAPIAccessed	Source/WebCore/loader/ResourceLoadObserver.h	removed	source	manual:web-api-statistics-2.54	Web API statistics removal (2.54)
+web-api-statistics	method	WebCore::ResourceLoadObserver::logScreenAPIAccessed	Source/WebCore/loader/ResourceLoadObserver.h	removed	source	manual:web-api-statistics-2.54	Web API statistics removal (2.54)
+web-api-statistics	file	-	Source/WebCore/loader/ResourceLoadStatistics.h	modified	source	manual:web-api-statistics-2.54	Statistics fields and API enums removed
+web-api-statistics	enum	WebCore::NavigatorAPIsAccessed	Source/WebCore/loader/ResourceLoadStatistics.h	removed	source	manual:web-api-statistics-2.54	Web API statistics removal (2.54)
+web-api-statistics	enum	WebCore::ScreenAPIsAccessed	Source/WebCore/loader/ResourceLoadStatistics.h	removed	source	manual:web-api-statistics-2.54	Web API statistics removal (2.54)
+web-api-statistics	field	WebCore::ResourceLoadStatistics::topFrameRegistrableDomainsWhichAccessedWebAPIs	Source/WebCore/loader/ResourceLoadStatistics.h	removed	source	manual:web-api-statistics-2.54	Web API statistics removal (2.54)
+web-api-statistics	field	WebCore::ResourceLoadStatistics::fontsFailedToLoad	Source/WebCore/loader/ResourceLoadStatistics.h	removed	source	manual:web-api-statistics-2.54	Web API statistics removal (2.54)
+web-api-statistics	field	WebCore::ResourceLoadStatistics::fontsSuccessfullyLoaded	Source/WebCore/loader/ResourceLoadStatistics.h	removed	source	manual:web-api-statistics-2.54	Web API statistics removal (2.54)
+web-api-statistics	field	WebCore::ResourceLoadStatistics::canvasActivityRecord	Source/WebCore/loader/ResourceLoadStatistics.h	removed	source	manual:web-api-statistics-2.54	Web API statistics removal (2.54)
+web-api-statistics	field	WebCore::ResourceLoadStatistics::navigatorFunctionsAccessed	Source/WebCore/loader/ResourceLoadStatistics.h	removed	source	manual:web-api-statistics-2.54	Web API statistics removal (2.54)
+web-api-statistics	field	WebCore::ResourceLoadStatistics::screenFunctionsAccessed	Source/WebCore/loader/ResourceLoadStatistics.h	removed	source	manual:web-api-statistics-2.54	Web API statistics removal (2.54)
+web-api-statistics	file	-	Source/WebCore/page/Navigator.cpp	modified	source	manual:web-api-statistics-2.54	Navigator API access is no longer recorded
+web-api-statistics	file	-	Source/WebCore/page/Screen.cpp	modified	source	manual:web-api-statistics-2.54	Screen API access is no longer recorded
+web-api-statistics	file	-	Source/WebKit/Shared/WebCoreArgumentCoders.serialization.in	modified	source	manual:web-api-statistics-2.54	Web API statistics coders removed
+web-api-statistics	file	-	Source/WebKit/Shared/WebCoreArgumentCodersNetwork.serialization.in	modified	source	manual:web-api-statistics-2.54	Web API statistics fields removed from ResourceLoadStatistics IPC
+web-api-statistics	file	-	Source/WebKit/WebProcess/WebCoreSupport/WebResourceLoadObserver.h	modified	source	manual:web-api-statistics-2.54	Web API statistics overrides removed
+web-api-statistics	file	-	Source/cmake/OptionsIOS.cmake	modified	source	manual:web-api-statistics-2.54	Web API statistics option removed
+web-api-statistics	file	-	Source/cmake/OptionsMac.cmake	modified	source	manual:web-api-statistics-2.54	Web API statistics option removed
+web-api-statistics	behavior	web-api-statistics-removed	Source/WebCore/loader/ResourceLoadStatistics.cpp	modified	source	manual:web-api-statistics-2.54	Font, canvas, navigator and screen API statistics collection removed; ITP resource load statistics remain
 webgl	build_ref	add_subdirectory(ThirdParty/ANGLE)	Source/CMakeLists.txt	removed	source	1deec88444e0107dcfde6cfd5757b5217e2da5c2	line=17; line=17; commit=1deec88444e0
 webgl	build_ref	add_subdirectory(ThirdParty/libwebrtc)	Source/CMakeLists.txt	removed	source	1deec88444e0107dcfde6cfd5757b5217e2da5c2	line=29
 webgl	build_ref	include_directories(${CMAKE_CURRENT_BINARY_DIR}/ThirdParty/libwebrtc)	Source/CMakeLists.txt	removed	source	1deec88444e0107dcfde6cfd5757b5217e2da5c2	line=30

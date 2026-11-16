@@ -43,14 +43,6 @@
     unsigned dataRecordsRemoved;
     unsigned timesAccessedAsFirstPartyDueToUserInteraction;
     unsigned timesAccessedAsFirstPartyDueToStorageAccessAPI;
-#if ENABLE(WEB_API_STATISTICS)
-    HashSet<WebCore::RegistrableDomain> topFrameRegistrableDomainsWhichAccessedWebAPIs;
-    HashSet<String> fontsFailedToLoad;
-    HashSet<String> fontsSuccessfullyLoaded;
-    WebCore::CanvasActivityRecord canvasActivityRecord;
-    OptionSet<WebCore::NavigatorAPIsAccessed> navigatorFunctionsAccessed;
-    OptionSet<WebCore::ScreenAPIsAccessed> screenFunctionsAccessed;
-#endif
 };
 
 [Nested] enum class WebCore::Cookie::SameSitePolicy : uint8_t {

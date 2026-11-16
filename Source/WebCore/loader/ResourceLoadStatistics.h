@@ -25,12 +25,10 @@
 
 #pragma once
 
-#include <WebCore/CanvasActivityRecord.h>
 #include <WebCore/RegistrableDomain.h>
 #include <wtf/ArgumentCoder.h>
 #include <wtf/HashCountedSet.h>
 #include <wtf/HashSet.h>
-#include <wtf/OptionSet.h>
 #include <wtf/URL.h>
 #include <wtf/WallTime.h>
 #include <wtf/text/StringHash.h>
@@ -40,24 +38,6 @@ namespace WebCore {
 
 class KeyedDecoder;
 class KeyedEncoder;
-
-enum class NavigatorAPIsAccessed : uint64_t {
-    AppVersion = 1 << 0,
-    UserAgent = 1 << 1,
-    Plugins = 1 << 2,
-    MimeTypes = 1 << 3,
-    CookieEnabled = 1 << 4,
-};
-
-enum class ScreenAPIsAccessed : uint64_t {
-    Height = 1 << 0,
-    Width = 1 << 1,
-    ColorDepth = 1 << 2,
-    AvailLeft = 1 << 3,
-    AvailTop = 1 << 4,
-    AvailHeight = 1 << 5,
-    AvailWidth = 1 << 6,
-};
 
 struct ResourceLoadStatistics {
     WTF_DEPRECATED_MAKE_STRUCT_FAST_ALLOCATED(ResourceLoadStatistics);
@@ -122,16 +102,6 @@ struct ResourceLoadStatistics {
 
     enum class IsEphemeral : bool { No, Yes };
 
-#if ENABLE(WEB_API_STATISTICS)
-    // This set represents the registrable domain of the top frame where web API
-    // were used in the top frame or one of its subframes.
-    HashSet<RegistrableDomain> topFrameRegistrableDomainsWhichAccessedWebAPIs;
-    HashSet<String> fontsFailedToLoad;
-    HashSet<String> fontsSuccessfullyLoaded;
-    CanvasActivityRecord canvasActivityRecord;
-    OptionSet<NavigatorAPIsAccessed> navigatorFunctionsAccessed;
-    OptionSet<ScreenAPIsAccessed> screenFunctionsAccessed;
-#endif
     friend struct IPC::ArgumentCoder<ResourceLoadStatistics>;
 };
 

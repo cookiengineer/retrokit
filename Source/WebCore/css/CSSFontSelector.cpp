@@ -48,7 +48,6 @@
 #include "FrameLoader.h"
 #include "LocalFrame.h"
 #include "Logging.h"
-#include "ResourceLoadObserver.h"
 #include "StyleProperties.h"
 #include "StyleResolver.h"
 #include "StyleRule.h"
@@ -483,19 +482,13 @@ FontRanges CSSFontSelector::fontRangesForFamily(const FontDescription& fontDescr
 
     if (resolveGenericFamilyFirst)
         resolveAndAssignGenericFamily();
-    RefPtr document = dynamicDowncast<Document>(m_context.get());
-    if (RefPtr face = m_cssFontFaceSet->fontFace(fontDescriptionForLookup->fontSelectionRequest(), familyForLookup)) {
-        if (document && document->settings().webAPIStatisticsEnabled())
-            ResourceLoadObserver::singleton().logFontLoad(*document, familyForLookup.string(), true);
+    if (RefPtr face = m_cssFontFaceSet->fontFace(fontDescriptionForLookup->fontSelectionRequest(), familyForLookup))
         return { face->fontRanges(*fontDescriptionForLookup, fontPaletteValues, fontFeatureValues), isGenericFontFamily };
-    }
 
     if (!resolveGenericFamilyFirst)
         resolveAndAssignGenericFamily();
 
     auto font = protect(FontCache::forCurrentThread())->fontForFamily(*fontDescriptionForLookup, familyForLookup, { { }, { }, fontPaletteValues, fontFeatureValues, 1.0 });
-    if (document && document->settings().webAPIStatisticsEnabled())
-        ResourceLoadObserver::singleton().logFontLoad(*document, familyForLookup.string(), !!font);
     return { FontRanges { WTF::move(font) }, isGenericFontFamily };
 }
 
@@ -526,8 +519,6 @@ RefPtr<Font> CSSFontSelector::fallbackFontAt(const FontDescription& fontDescript
         return nullptr;
     auto& pictographFontFamily = context->settingsValues().fontGenericFamilies.pictographFontFamily();
     RefPtr font = protect(FontCache::forCurrentThread())->fontForFamily(fontDescription, pictographFontFamily);
-    if (RefPtr document = dynamicDowncast<Document>(context.get()); document && document->settingsValues().webAPIStatisticsEnabled)
-        ResourceLoadObserver::singleton().logFontLoad(*document, pictographFontFamily, !!font);
 
     return font;
 }

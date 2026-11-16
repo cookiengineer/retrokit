@@ -392,24 +392,6 @@ enum class WebCore::IndexedDB::RequestType : uint8_t {
     double initialVelocity()
 };
 
-[OptionSet] enum class WebCore::NavigatorAPIsAccessed : uint64_t {
-    AppVersion,
-    UserAgent,
-    Plugins,
-    MimeTypes,
-    CookieEnabled
-};
-
-[OptionSet] enum class WebCore::ScreenAPIsAccessed : uint64_t {
-    Height,
-    Width,
-    ColorDepth,
-    AvailLeft,
-    AvailTop,
-    AvailHeight,
-    AvailWidth
-};
-
 [OptionSet] enum class WebCore::SandboxFlag : uint16_t {
     Navigation,
     Plugins,
@@ -3403,11 +3385,6 @@ header: <WebCore/ImageTypes.h>
 [AdditionalEncoder=StreamConnectionEncoder] struct WebCore::FloatSegment {
     float begin;
     float end;
-};
-
-struct WebCore::CanvasActivityRecord {
-    HashSet<String> textWritten;
-    bool wasDataRead;
 };
 
 enum class WebCore::CrossOriginOpenerPolicyValue : uint8_t {

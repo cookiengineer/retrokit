@@ -32,7 +32,7 @@ tooling	Maintenance Tooling	maintenance
 touch-bar	Touch Bar Support	removed	SECURITY.md#target-platforms	TOUCH_BAR,TouchBarMenu
 translation-ui	Translation UI Services	removed	SECURITY.md#legacy-plugins	TRANSLATION_UI_SERVICES
 translations	Translation Catalogs	removed	SECURITY.md#legacy-quirks	
-web-api-statistics	Web API Statistics	removed	SECURITY.md#ecmascript-apis	WEB_API_STATISTICS
+web-api-statistics	Web API Statistics	removed	SECURITY.md#ecmascript-apis	WEB_API_STATISTICS,webAPIStatisticsEnabled,WebAPIStatisticsEnabled,logFontLoad,logCanvasRead,logCanvasWriteOrMeasure,logNavigatorAPIAccessed,logScreenAPIAccessed,NavigatorAPIsAccessed,ScreenAPIsAccessed,CanvasActivityRecord
 webgl	WebGL API	removed	SECURITY.md#ecmascript-apis	WEBGL,WebGL,GraphicsContextGL
 webgl2	WebGL2 API	removed	SECURITY.md#ecmascript-apis	WEBGL2,WebGL2
 webrtc	WebRTC API	removed	SECURITY.md#ecmascript-apis	WEB_RTC,WebRTC,RTCPeerConnection,RTCDataChannel

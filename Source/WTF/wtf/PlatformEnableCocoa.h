@@ -943,8 +943,6 @@
 #define ENABLE_VP9 1
 #endif
 
-#if !defined(ENABLE_WEB_API_STATISTICS)
-#define ENABLE_WEB_API_STATISTICS 1
 #endif
 
 #if !defined(ENABLE_WEB_ARCHIVE)

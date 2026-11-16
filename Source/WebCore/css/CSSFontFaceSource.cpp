@@ -37,7 +37,6 @@
 #include "FontCreationContext.h"
 #include "FontCustomPlatformData.h"
 #include "FontDescription.h"
-#include "ResourceLoadObserver.h"
 #include "SVGElementTypeHelpers.h"
 #include "SVGFontElement.h"
 #include "SVGFontFaceElement.h"
@@ -168,6 +167,7 @@ RefPtr<FontCustomPlatformData> CSSFontFaceSource::loadCustomFont(SharedBuffer& b
 
 void CSSFontFaceSource::load(DownloadableBinaryFontTrustedTypes trustedTypes, Document* document)
 {
+    UNUSED_PARAM(document);
     setStatus(Status::Loading);
 
     if (m_fontRequest) {
@@ -203,8 +203,6 @@ void CSSFontFaceSource::load(DownloadableBinaryFontTrustedTypes trustedTypes, Do
             fontDescription.setComputedSize(1);
             fontDescription.setShouldAllowUserInstalledFonts(cssFontFace().allowUserInstalledFonts());
             success = protect(FontCache::forCurrentThread())->fontForFamily(fontDescription, m_fontFaceName, { }, FontLookupOptions::ExactFamilyNameMatch);
-            if (document && document->settings().webAPIStatisticsEnabled())
-                ResourceLoadObserver::singleton().logFontLoad(*document, m_fontFaceName.string(), success);
         }
         setStatus(success ? Status::Success : Status::Failure);
     }

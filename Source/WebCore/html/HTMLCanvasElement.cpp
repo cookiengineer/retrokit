@@ -67,7 +67,6 @@
 #include "RenderBoxInlines.h"
 #include "RenderElement.h"
 #include "RenderHTMLCanvas.h"
-#include "ResourceLoadObserver.h"
 #include "ScriptController.h"
 #include "ScriptTrackingPrivacyCategory.h"
 #include "Settings.h"
@@ -650,8 +649,6 @@ ExceptionOr<UncachedString> HTMLCanvasElement::toDataURL(const String& mimeType,
     if (size().isEmpty())
         return UncachedString { "data:,"_s };
     Ref document = this->document();
-    if (document->settings().webAPIStatisticsEnabled())
-        ResourceLoadObserver::singleton().logCanvasRead(document);
 
     auto encodingMIMEType = toEncodingMimeType(mimeType);
     auto quality = qualityFromJSValue(qualityValue);
@@ -689,8 +686,6 @@ ExceptionOr<void> HTMLCanvasElement::toBlob(Ref<BlobCallback>&& callback, const 
         callback->scheduleCallback(document, nullptr);
         return { };
     }
-    if (document->settings().webAPIStatisticsEnabled())
-        ResourceLoadObserver::singleton().logCanvasRead(document);
 
     auto encodingMIMEType = toEncodingMimeType(mimeType);
     auto quality = qualityFromJSValue(qualityValue);
@@ -733,10 +728,6 @@ RefPtr<ImageData> HTMLCanvasElement::getImageData()
     if (!context)
         return nullptr;
 
-    Ref document = this->document();
-    if (document->settings().webAPIStatisticsEnabled())
-        ResourceLoadObserver::singleton().logCanvasRead(document.get());
-
     RefPtr pixelBuffer = context->drawingBufferToPixelBuffer();
     if (!pixelBuffer)
         return nullptr;
@@ -753,17 +744,11 @@ RefPtr<ImageData> HTMLCanvasElement::getImageData()
 RefPtr<VideoFrame> HTMLCanvasElement::toVideoFrame()
 {
 #if PLATFORM(COCOA) || USE(GSTREAMER)
-    Ref document = this->document();
 #if ENABLE(WEBGL)
     if (RefPtr context = dynamicDowncast<WebGLRenderingContextBase>(m_context.get())) {
-        if (document->settings().webAPIStatisticsEnabled())
-            ResourceLoadObserver::singleton().logCanvasRead(document.get());
         return context->surfaceBufferToVideoFrame(CanvasRenderingContext::SurfaceBuffer::DrawingBuffer);
     }
 #endif
-
-    if (document->settings().webAPIStatisticsEnabled())
-        ResourceLoadObserver::singleton().logCanvasRead(document.get());
 
     RefPtr imageBuffer = makeRenderingResultsAvailable();
     if (!imageBuffer)
@@ -792,8 +777,6 @@ ExceptionOr<Ref<MediaStream>> HTMLCanvasElement::captureStream(std::optional<dou
     if (!originClean())
         return Exception(ExceptionCode::SecurityError, "Canvas is tainted"_s);
     Ref document = this->document();
-    if (document->settings().webAPIStatisticsEnabled())
-        ResourceLoadObserver::singleton().logCanvasRead(document.get());
 
     if (frameRequestRate && frameRequestRate.value() < 0)
         return Exception(ExceptionCode::NotSupportedError, "frameRequestRate is negative"_s);

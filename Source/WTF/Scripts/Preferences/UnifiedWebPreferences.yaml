@@ -9682,20 +9682,6 @@ WasmWideArithmeticEnabled:
     WebKit:
       default: false
 
-WebAPIStatisticsEnabled:
-  type: bool
-  status: unstable
-  category: dom
-  humanReadableName: "Web API Statistics"
-  humanReadableDescription: "Enable Web API Statistics"
-  defaultValue:
-    WebKitLegacy:
-      default: false
-    WebKit:
-      default: false
-    WebCore:
-      default: false
-
 WebAPIsInShadowRealmEnabled:
   type: bool
   status: unstable

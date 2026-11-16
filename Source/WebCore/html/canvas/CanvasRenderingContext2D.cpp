@@ -54,7 +54,6 @@
 #include "RenderReplaced.h"
 #include "RenderTheme.h"
 #include "RenderWidget.h"
-#include "ResourceLoadObserver.h"
 #include "ScriptDisallowedScope.h"
 #include "Settings.h"
 #include "StyleBuilder.h"
@@ -306,11 +305,6 @@ Ref<TextMetrics> CanvasRenderingContext2D::measureText(const String& text)
 
     ScriptDisallowedScope::InMainThread scriptDisallowedScope;
 
-    if (document->settings().webAPIStatisticsEnabled()) {
-        ResourceLoadObserver::singleton().logCanvasWriteOrMeasure(document, text);
-        ResourceLoadObserver::singleton().logCanvasRead(document);
-    }
-
     String normalizedText = normalizeSpaces(text);
     const Style::ComputedStyle* computedStyle;
     auto direction = toTextDirection(state().direction, &computedStyle);
@@ -338,9 +332,6 @@ void CanvasRenderingContext2D::drawTextInternal(const String& text, double x, do
     document->updateStyleIfNeeded();
 
     ScriptDisallowedScope::InMainThread scriptDisallowedScope;
-
-    if (document->settings().webAPIStatisticsEnabled())
-        ResourceLoadObserver::singleton().logCanvasWriteOrMeasure(document, text);
 
     if (!canDrawText(x, y, fill, maxWidth))
         return;

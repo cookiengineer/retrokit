@@ -44,7 +44,6 @@
 #include "PermissionsPolicy.h"
 #include "PlatformStrategies.h"
 #include "PluginData.h"
-#include "ResourceLoadObserver.h"
 #include "ScriptController.h"
 #include "ScriptWrappableInlines.h"
 #include "SecurityOrigin.h"
@@ -80,8 +79,6 @@ String Navigator::appVersion() const
     RefPtr frame = this->frame();
     if (!frame)
         return String();
-    if (frame->settings().webAPIStatisticsEnabled())
-        ResourceLoadObserver::singleton().logNavigatorAPIAccessed(*protect(frame->document()), NavigatorAPIsAccessed::AppVersion);
     return NavigatorBase::appVersion();
 }
 
@@ -90,8 +87,6 @@ const String& Navigator::userAgent() const
     RefPtr frame = this->frame();
     if (!frame || !frame->page())
         return m_userAgent;
-    if (frame->settings().webAPIStatisticsEnabled())
-        ResourceLoadObserver::singleton().logNavigatorAPIAccessed(*protect(frame->document()), NavigatorAPIsAccessed::UserAgent);
 
 #if PLATFORM(IOS_FAMILY)
     if (RefPtr document = frame->document(); document && document->quirks().needsChromeOSNavigatorUserAgentQuirk(*document)) {
@@ -314,18 +309,12 @@ void Navigator::initializePluginAndMimeTypeArrays()
 
 DOMPluginArray& Navigator::plugins()
 {
-    if (RefPtr frame = this->frame(); frame && frame->settings().webAPIStatisticsEnabled())
-        ResourceLoadObserver::singleton().logNavigatorAPIAccessed(*protect(frame->document()), NavigatorAPIsAccessed::Plugins);
-
     initializePluginAndMimeTypeArrays();
     return *m_plugins;
 }
 
 DOMMimeTypeArray& Navigator::mimeTypes()
 {
-    if (RefPtr frame = this->frame(); frame && frame->settings().webAPIStatisticsEnabled())
-        ResourceLoadObserver::singleton().logNavigatorAPIAccessed(*protect(frame->document()), NavigatorAPIsAccessed::MimeTypes);
-
     initializePluginAndMimeTypeArrays();
     return *m_mimeTypes;
 }
@@ -342,9 +331,6 @@ bool Navigator::cookieEnabled() const
     RefPtr frame = this->frame();
     if (!frame)
         return false;
-
-    if (frame->settings().webAPIStatisticsEnabled())
-        ResourceLoadObserver::singleton().logNavigatorAPIAccessed(*protect(frame->document()), NavigatorAPIsAccessed::CookieEnabled);
 
     RefPtr page = frame->page();
     if (!page)
