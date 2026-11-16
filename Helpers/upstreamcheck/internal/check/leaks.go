@@ -79,7 +79,7 @@ func Leaks(repo *gitx.Repo, cfg *config.Config, forkRef, onlyFeature string, lim
 					continue
 				}
 				path, number, content, ok := parseGrepLine(line)
-				if !ok || isCommentLine(content) {
+				if !ok || isCommentLine(content) || ignoredLeakPath(path) {
 					continue
 				}
 				key := path + ":" + fmt.Sprint(number) + ":" + content
@@ -128,6 +128,17 @@ func parseGrepLine(line string) (path string, number int, content string, ok boo
 		return "", 0, "", false
 	}
 	return path, number, rest[third+1:], true
+}
+
+func ignoredLeakPath(path string) bool {
+	p := strings.ToLower(path)
+	if strings.Contains(p, "/thirdparty/") || strings.Contains(p, "/external/") || strings.Contains(p, ".xcodeproj/") {
+		return true
+	}
+	if strings.HasSuffix(p, "/news") || p == "news" {
+		return true
+	}
+	return false
 }
 
 func isCommentLine(content string) bool {
