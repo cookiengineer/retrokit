@@ -109,7 +109,7 @@ func Generate(repo *gitx.Repo, cfg *config.Config, baseRef, targetRef, feature, 
 				}
 				f.deleteAll = true
 				result.DeletedFiles = append(result.DeletedFiles, targetPath)
-			case "build_ref", "flag", "pref", "config_line":
+			case "build_ref", "flag":
 				f, err := getFile(targetPath)
 				if err != nil {
 					result.Missing = append(result.Missing, entry.Path+" (unreadable)")
@@ -122,6 +122,8 @@ func Generate(repo *gitx.Repo, cfg *config.Config, baseRef, targetRef, feature, 
 				} else {
 					result.Missing = append(result.Missing, entry.Symbol+" ("+entry.Path+")")
 				}
+			case "pref", "config_line", "behavior":
+				result.Manual = append(result.Manual, fmt.Sprintf("%s %s in %s (%s)", entry.Kind, entry.Symbol, entry.Path, entry.Origin))
 			default:
 				f, err := getFile(targetPath)
 				if err != nil {

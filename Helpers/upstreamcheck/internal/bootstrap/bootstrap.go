@@ -47,6 +47,7 @@ func Run(repo *gitx.Repo, cfg *config.Config, baseRef, forkRef string) (*Result,
 
 	paths := make(map[string]*pathInfo)
 	var review []ReviewItem
+	var historyEntries []manifest.Entry
 
 	for _, commit := range commits {
 		feature, title := featureForSubject(commit.Subject)
@@ -78,6 +79,35 @@ func Run(repo *gitx.Repo, cfg *config.Config, baseRef, forkRef string) (*Result,
 		}
 
 		for _, entry := range diff {
+			if (entry.Status == 'M' || entry.Status == 'R' || entry.Status == 'C') &&
+				len(commit.Parents) > 0 && cfg.InScope(entry.NewPath) && index.IsBuild(entry.NewPath) {
+				parent := commit.Parents[0]
+				parentContent, parentErr := repo.ShowFile(parent, entry.OldPath)
+				commitContent, commitErr := repo.ShowFile(commit.Hash, entry.NewPath)
+				if parentErr == nil && commitErr == nil {
+					removedLines, _ := index.DiffLines(index.BuildLines(parentContent), index.BuildLines(commitContent))
+					for i, line := range removedLines {
+						if i >= 300 {
+							break
+						}
+						if !usefulBuildLine(entry.NewPath, line.Text) {
+							continue
+						}
+						lineFeature := feature
+						if override, _, ok := pathFeatureOverride(line.Text); ok {
+							lineFeature = override
+						}
+						historyEntries = append(historyEntries, manifest.Entry{
+							Feature: lineFeature, Kind: buildKind(entry.NewPath, line.Text),
+							Symbol: truncate(line.Text, 300), Path: entry.NewPath,
+							Disposition: "removed", Scope: cfg.ScopeFor(entry.NewPath),
+							Origin: commit.Hash,
+							Notes:  fmt.Sprintf("line=%d; commit=%s", line.Number, shortHash(commit.Hash)),
+						})
+					}
+				}
+			}
+
 			for _, p := range diffPaths(entry) {
 				info := paths[p]
 				if info == nil {
@@ -98,6 +128,21 @@ func Run(repo *gitx.Repo, cfg *config.Config, baseRef, forkRef string) (*Result,
 				info.lastOrigin = commit.Hash
 				info.lastSubject = commit.Subject
 			}
+		}
+	}
+
+	// Commits often bundle multiple removals (for example, the Gamepad
+	// commit deleted the WebXR modules). Reassign paths with an unmistakable
+	// feature name in their path so each feature can be migrated on its own.
+	for path, info := range paths {
+		if specialFeature, specialTitle, ok := specialFeatureForPath(path); ok {
+			info.feature = specialFeature
+			info.title = specialTitle
+			continue
+		}
+		if feature, title, ok := pathFeatureOverride(path); ok {
+			info.feature = feature
+			info.title = title
 		}
 	}
 
@@ -133,6 +178,9 @@ func Run(repo *gitx.Repo, cfg *config.Config, baseRef, forkRef string) (*Result,
 		} else if isTranslationPath(path) {
 			feature = "translations"
 			info.title = "Translation Catalogs"
+		} else if override, overrideTitle, ok := pathFeatureOverride(path); ok {
+			feature = override
+			info.title = overrideTitle
 		}
 		if feature == "" {
 			feature = "misc"
@@ -242,6 +290,9 @@ func Run(repo *gitx.Repo, cfg *config.Config, baseRef, forkRef string) (*Result,
 				if i >= 300 {
 					break
 				}
+				if !usefulBuildLine(forkPath, line.Text) {
+					continue
+				}
 				result.Entries = append(result.Entries, manifest.Entry{
 					Feature: feature, Kind: buildKind(forkPath, line.Text), Symbol: truncate(line.Text, 300),
 					Path: forkPath, Disposition: "removed", Scope: scope, Origin: origin,
@@ -252,6 +303,9 @@ func Run(repo *gitx.Repo, cfg *config.Config, baseRef, forkRef string) (*Result,
 				if i >= 300 {
 					break
 				}
+				if !usefulBuildLine(forkPath, line.Text) {
+					continue
+				}
 				result.Entries = append(result.Entries, manifest.Entry{
 					Feature: feature, Kind: buildKind(forkPath, line.Text), Symbol: truncate(line.Text, 300),
 					Path: forkPath, Disposition: "added", Scope: scope, Origin: origin,
@@ -261,6 +315,7 @@ func Run(repo *gitx.Repo, cfg *config.Config, baseRef, forkRef string) (*Result,
 		}
 	}
 
+	result.Entries = append(result.Entries, historyEntries...)
 	result.Entries = manifest.Dedup(result.Entries)
 	result.OutOfScope = manifest.Dedup(result.OutOfScope)
 	result.Review = dedupReview(review)
@@ -304,6 +359,54 @@ func isSourcePath(path string) bool {
 func isTranslationPath(path string) bool {
 	path = strings.ReplaceAll(path, "\\", "/")
 	return strings.HasSuffix(path, ".po") || strings.Contains(path, "/platform/gtk/po/")
+}
+
+// pathFeatureOverride assigns paths that contain an unambiguous feature name
+// to that feature. This corrects bundled commits, where one commit removed
+// files belonging to several features.
+func pathFeatureOverride(path string) (string, string, bool) {
+	p := strings.ToLower(strings.ReplaceAll(path, "\\", "/"))
+	switch {
+	case strings.Contains(p, "webxr") || strings.Contains(p, "/xr/") || strings.Contains(p, "openxr") || strings.Contains(p, "fakexr"):
+		return "webxr", "WebXR API", true
+	case strings.Contains(p, "gamepad"):
+		return "gamepad", "Gamepad API", true
+	case strings.Contains(p, "geolocation"):
+		return "geolocation", "Geolocation API", true
+	case strings.Contains(p, "mediastream") || strings.Contains(p, "getusermedia") || strings.Contains(p, "mediadevices"):
+		return "media-capture", "Media Capture and Streams API", true
+	case strings.Contains(p, "encryptedmedia"):
+		return "encrypted-media", "Encrypted Media API", true
+	case strings.Contains(p, "mediarecorder"):
+		return "media-recorder", "Media Recorder API", true
+	case strings.Contains(p, "paymentrequest") || strings.Contains(p, "applepay"):
+		return "payment", "Payment and Apple Pay APIs", true
+	case strings.Contains(p, "graphicscontextgl") || strings.Contains(p, "/canvas/webgl") || strings.Contains(p, "thirdparty/angle") || strings.Contains(p, "opengl"):
+		return "webgl", "WebGL API", true
+	case strings.Contains(p, "webrtc"):
+		return "webrtc", "WebRTC API", true
+	case strings.Contains(p, "webdriver") || strings.Contains(p, "automation"):
+		return "automation", "Web Automation and WebDriver", true
+	case strings.Contains(p, "fullscreen") || strings.Contains(p, "pictureinpicture") || strings.Contains(p, "picture-in-picture"):
+		return "fullscreen-pip", "Fullscreen and Picture-in-Picture", true
+	case strings.Contains(p, "devicemotion") || strings.Contains(p, "deviceorientation"):
+		return "device-sensors", "Device Motion and Orientation APIs", true
+	case strings.Contains(p, "wirelessplayback") || strings.Contains(p, "remoteplayback"):
+		return "wireless-playback", "Wireless Playback Target API", true
+	case strings.Contains(p, "mediausage"):
+		return "media-usage", "Media Usage API", true
+	case strings.Contains(p, "mediastatistics"):
+		return "media-statistics", "Media Statistics API", true
+	case strings.Contains(p, "plugin"):
+		return "plugins", "Legacy Plugin APIs", true
+	case strings.Contains(p, "incrementalpdf"):
+		return "incremental-pdf", "Incremental PDF APIs", true
+	case strings.Contains(p, "quicklook"):
+		return "quick-look", "Quick Look Integration", true
+	case strings.Contains(p, "touchbar"):
+		return "touch-bar", "Touch Bar Support", true
+	}
+	return "", "", false
 }
 
 func specialFeatureForPath(path string) (string, string, bool) {
@@ -379,6 +482,38 @@ func collapseContainers(symbols []index.Symbol) []index.Symbol {
 	return result
 }
 
+func usefulBuildLine(path, text string) bool {
+	t := strings.TrimSpace(text)
+	if t == "" {
+		return false
+	}
+	switch t {
+	case "endif ()", "else", "}", "{", ")", "(", "WebCore:", "WebKit:", "WebKitLegacy:", "defaultValue:", "type: bool", "type: string", "default: false", "default: true":
+		return false
+	}
+	lower := strings.ToLower(path)
+	if strings.HasSuffix(lower, ".yaml") || strings.HasSuffix(lower, ".yml") {
+		if strings.HasSuffix(t, ":") && !strings.Contains(t, " ") {
+			return true
+		}
+		for _, prefix := range []string{"humanReadableName:", "humanReadableDescription:", "condition:", "default: WebKit::", "default: WebCore::", "default: PAL::", "status:", "webPreference:"} {
+			if strings.HasPrefix(t, prefix) {
+				return true
+			}
+		}
+		return false
+	}
+	if strings.HasSuffix(lower, ".json") {
+		_, _, ok := pathFeatureOverride(t)
+		return ok
+	}
+	if strings.HasPrefix(t, "list(APPEND ") {
+		_, _, ok := pathFeatureOverride(t)
+		return ok
+	}
+	return true
+}
+
 func buildKind(path, text string) string {
 	if strings.Contains(text, "ENABLE_") || strings.Contains(text, "USE_") ||
 		strings.Contains(text, "WEBKIT_") || strings.Contains(text, "DEFAULT") {
@@ -401,6 +536,13 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return s[:n]
+}
+
+func shortHash(hash string) string {
+	if len(hash) > 12 {
+		return hash[:12]
+	}
+	return hash
 }
 
 func unique(values []string) []string {
