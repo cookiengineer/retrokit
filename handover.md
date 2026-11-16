@@ -42,6 +42,7 @@ media controls, inspector resources and the GLib dependency-file workaround.
 Recent commits on `migrate/2.54`:
 
 ```text
+a547af7ce Remove libsecret Integration
 3a6f708b3 Ignore translation catalogs in leak scans
 5aed758bd Remove Geolocation API
 799333ead Remove Device Motion and Orientation APIs
@@ -141,7 +142,7 @@ The source of truth for intentional divergence is:
 feature  kind  symbol  path  disposition  scope  origin  notes
 ```
 
-It currently contains **10,170 rows across 39 features**. The manifest covers
+It currently contains **10,079 rows across 39 features**. The manifest covers
 the original 2.34.1 fork diff plus the new upstream WebXR/WebGPU-XR files and
 the migration edits for completed features.
 
@@ -354,6 +355,29 @@ leaks       --feature geolocation: 0 residual occurrences
 make build DISTRO=debian:          success (WebKit + MiniBrowser)
 make smoke DISTRO=debian:          success
 ```
+
+### libsecret and libnotify
+
+Commit: `a547af7ce Remove libsecret Integration`
+
+libsecret:
+
+- Deleted `Source/cmake/FindSecret.cmake`.
+- Removed the `USE_LIBSECRET` option, `Secret::Secret` linkage, the
+  `libsecret` container packages and the GLib authentication persistence path.
+- Soup credential storage now keeps credentials in memory only:
+  `getCredentialFromPersistentStorage()` completes empty and
+  `saveCredentialToPersistentStorage()` is a no-op.
+- `webkit_authentication_request_can_save_credentials()` returns `FALSE`.
+
+libnotify:
+
+- No libnotify code was left upstream; only stale GLib API documentation
+  claiming notifications close/emit through libnotify. Those references were
+  removed.
+- The manifest rows for libsecret/libnotify that were misattributed from the
+  legacy libsoup migration were dropped; the features now describe only the
+  actual removal.
 
 ## 5. Next steps
 

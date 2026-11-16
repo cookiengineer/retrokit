@@ -930,7 +930,20 @@ What happened:
   `WebKitGeolocationPermissionRequest` type were part of the tracked build
   closure; remove them from the generated header templates and autoptr list
   as well.
-- 325 removal entries, 0 errors, 0 warnings, 0 leaks.
+- 324 removal entries, 0 errors, 0 warnings, 0 leaks.
+
+### libsecret and libnotify
+
+What happened:
+
+- Removed `USE_LIBSECRET`, `FindSecret.cmake`, `Secret::Secret` linkage and
+  the container packages.
+- Soup persistent credential storage was reduced to session-only memory:
+  `getCredentialFromPersistentStorage()` completes empty and
+  `saveCredentialToPersistentStorage()` is a no-op.
+- libnotify was already absent; only stale GLib API documentation referenced
+  it, and the misattributed legacy manifest rows for both libraries were
+  dropped.
 
 ---
 
@@ -938,13 +951,12 @@ What happened:
 
 Recommended order:
 
-1. **Remaining dependency removals** — libsecret and any libnotify residue.
-2. Media stack (capture, streams, recorder, EME, PiP/fullscreen).
-3. Automation, WebDriver, quirks and user-agent quirks.
-4. Remaining build/behaviour fixes.
-5. WebGL (largest, last).
-
-Small self-contained candidates: `media-usage` and `custom-protocol`.
+1. **`media-usage`** — small, self-contained WebKit UIProcess removal.
+2. `custom-protocol` — self-contained legacy protocol manager removal.
+3. Media stack (capture, streams, recorder, EME, PiP/fullscreen).
+4. Automation, WebDriver, quirks and user-agent quirks.
+5. Remaining build/behaviour fixes.
+6. WebGL (largest, last).
 
 Also curate `needs-review.tsv`:
 

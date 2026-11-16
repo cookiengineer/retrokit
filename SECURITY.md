@@ -212,8 +212,8 @@ removed as well.
 - [ ] Switch to cURL (Remove `USE_SOUP` and insert `USE_CURL` from Windows Platform)
 - [x] Remove Geoclue Integration (`geoclue`) which leaks your geolocation to websites
 - [ ] Remove libhyphen Integration (`LIBHYPTHEN`, `libhyphen`)
-- [x] Remove libsecret Integration (`LIBSECRET`, `libsecret`, `secret.h`)
-- [x] Remove libnotify Integration (`LIBNOTIFY`, `libnotify`, `notify.h`)
+- [x] Remove libsecret Integration (`LIBSECRET`, `USE_LIBSECRET`, `libsecret`, `Secret::Secret`, `secret.h`)
+- [x] Remove libnotify Integration (`LIBNOTIFY`, `USE_LIBNOTIFY`, `libnotify`, `notify.h`)
 - [x] Remove libwebrtc Integration (`LIBWEBRTC`, `libWebRTC`, `libwebrtc`)
 - [x] Remove SystemD Integration (`libsystemd`, `USE_SYSTEMD`, `JOURNALD`)
 - [x] Remove ARKIT Integration (`ARKIT_INLINE_PREVIEW`)
