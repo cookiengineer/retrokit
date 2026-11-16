@@ -1,0 +1,39 @@
+# id	title	status	security_ref	tokens
+arkit-model	ARKIT and Model Element Support	removed	SECURITY.md#library-dependencies	ARKIT,MODEL_ELEMENT,HTMLModelElement
+automation	Web Automation and WebDriver	removed	SECURITY.md#target-platforms	WEBDRIVER,WebAutomation,AutomationSession
+custom-protocol	Legacy Custom Protocol Support	removed	SECURITY.md#legacy-hacks	LEGACY_CUSTOM_PROTOCOL_MANAGER,LegacyCustomProtocol
+device-sensors	Device Motion and Orientation APIs	removed	SECURITY.md#ecmascript-apis	DEVICE_ORIENTATION,DeviceMotion,DeviceOrientation
+docs	Documentation	maintenance		
+encrypted-media	Encrypted Media API	removed	SECURITY.md#ecmascript-apis	ENCRYPTED_MEDIA,EME,MediaKeys
+ftp	FTP Support	removed	SECURITY.md#ecmascript-apis	FTPDIR,FTPDirectory
+fullscreen-pip	Fullscreen and Picture-in-Picture	removed	SECURITY.md#ecmascript-apis	FULLSCREEN,PICTURE_IN_PICTURE,EnterPictureInPictureEvent
+gamepad	Gamepad API	removed	SECURITY.md#ecmascript-apis	GAMEPAD,Gamepad,navigator.getGamepads
+geolocation	Geolocation API	removed	SECURITY.md#ecmascript-apis	GEOLOCATION,Geolocation,Geoposition
+incremental-pdf	Incremental PDF APIs	removed	SECURITY.md#legacy-plugins	INCREMENTAL_PDF_APIS,IncrementalPDF
+libnotify	libnotify Integration	removed	SECURITY.md#library-dependencies	LIBNOTIFY,libnotify
+libsecret	libsecret Integration	removed	SECURITY.md#library-dependencies	LIBSECRET,libsecret
+maintenance	Maintenance and build fixes	maintenance		
+media-capture	Media Capture and Streams API	removed	SECURITY.md#ecmascript-apis	MEDIA_CAPTURE,MEDIA_STREAM,getUserMedia,MediaStream,MediaDevices
+media-recorder	Media Recorder API	removed	SECURITY.md#ecmascript-apis	MediaRecorder,MEDIA_RECORDER
+media-statistics	Media Statistics API	removed	SECURITY.md#ecmascript-apis	MEDIA_STATISTICS,webkitDecodedFrameCount
+media-usage	Media Usage API	removed	SECURITY.md#ecmascript-apis	MEDIA_USAGE,MediaUsageManager
+misc	Miscellaneous divergence	maintenance		
+payment	Payment and Apple Pay APIs	removed	SECURITY.md#ecmascript-apis	PAYMENT_REQUEST,APPLE_PAY,ApplePay,PaymentRequest
+platform-hurd	GNU/HURD Platform Support	removed	SECURITY.md#target-platforms	HURD,__GNU__
+platform-playstation	PlayStation Platform Support	removed	SECURITY.md#target-platforms	PLATFORM_PLAYSTATION,PlayStation
+platform-unix	Outdated Unix Platform Support	removed	SECURITY.md#target-platforms	__sun,HPUX,IRIX,__osf
+platform-watchos	watchOS Platform Support	removed	SECURITY.md#target-platforms	TARGET_OS_WATCH,WATCHOS
+plugins	Legacy Plugin APIs	removed	SECURITY.md#legacy-plugins	NETSCAPE_PLUGIN_API,NPAPI,PluginDocument,RenderEmbeddedObject
+quick-look	Quick Look Integration	removed	SECURITY.md#library-dependencies	QUICK_LOOK,ARKIT_QUICK_LOOK_PREVIEW
+quirks	Site-specific Quirks	removed	SECURITY.md#legacy-quirks	needsSiteSpecificQuirks,shouldAutoplayForArbitraryUserGesture
+sleep-disablers	Sleep Disablers	removed	SECURITY.md#legacy-hacks	SleepDisabler,shouldDisableSleep
+systemd	SystemD Integration	removed	SECURITY.md#library-dependencies	USE_SYSTEMD,JOURNALD,libsystemd
+touch-bar	Touch Bar Support	removed	SECURITY.md#target-platforms	TOUCH_BAR,TouchBarMenu
+translation-ui	Translation UI Services	removed	SECURITY.md#legacy-plugins	TRANSLATION_UI_SERVICES
+translations	Translation Catalogs	removed	SECURITY.md#legacy-quirks	
+web-api-statistics	Web API Statistics	removed	SECURITY.md#ecmascript-apis	WEB_API_STATISTICS
+webgl	WebGL API	removed	SECURITY.md#ecmascript-apis	WEBGL,WebGL,GraphicsContextGL
+webgl2	WebGL2 API	removed	SECURITY.md#ecmascript-apis	WEBGL2,WebGL2
+webrtc	WebRTC API	removed	SECURITY.md#ecmascript-apis	WEB_RTC,WebRTC,RTCPeerConnection,RTCDataChannel
+webxr	WebXR API	removed	SECURITY.md#ecmascript-apis	WEBXR,WebXR,XRSession
+wireless-playback	Wireless Playback Target API	removed	SECURITY.md#target-platforms	WIRELESS_PLAYBACK_TARGET,RemotePlayback,PlaybackTarget

@@ -1,0 +1,25 @@
+[vendor]
+# Files and directories imported from upstream. This is the build closure:
+# Source needs Tools/glib for generated resources, and MiniBrowser is the
+# smoke-test application.
+paths = [
+	"CMakeLists.txt",
+	"Source",
+	"Tools/CMakeLists.txt",
+	"Tools/PlatformGTK.cmake",
+	"Tools/MiniBrowser/gtk",
+	"Tools/glib",
+]
+base_ref = "vendor-base/2.34.1"
+target_ref = "vendor/2.54.2"
+upstream_dir = "upstream_repo"
+
+[manifest]
+dir = "manifest"
+features = "features.tsv"
+divergence = "divergence.tsv"
+out_of_scope = "out-of-scope.tsv"
+review = "needs-review.tsv"
+
+[leaks]
+security = "../../SECURITY.md"
