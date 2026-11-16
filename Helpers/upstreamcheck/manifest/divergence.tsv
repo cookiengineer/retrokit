@@ -5186,6 +5186,7 @@ tooling	file	-	.gitignore	added	downstream	7d69b8507250454697483e05c282f6ed4fad4
 tooling	file	-	build.sh	added	downstream	3a3f1a273af7f1b242b45e7dfd06f9e2da8a6a43	origin=3a3f1a273af7f1b242b45e7dfd06f9e2da8a6a43 :bug: Fix for build script
 tooling	file	-	clean.sh	added	downstream	85bca05162922e7bff24e38a7576be8ab1cd11de	origin=85bca05162922e7bff24e38a7576be8ab1cd11de :bug: Fix for clean.sh
 tooling	file	-	search.sh	added	downstream	519e9f061ffcb8ee601b4f1d51eefb4839d577e5	origin=519e9f061ffcb8ee601b4f1d51eefb4839d577e5 :unicorn: Remove Legacy Plugin APIs :shit:
+touch-bar	file	-	Source/WebCore/PAL/pal/spi/cocoa/NSTouchBarSPI.h	modified	source	manual:touch-bar-2.54	Touch Bar support removed during 2.54 migration
 touch-bar	file	-	Source/WebCore/html/HTMLMenuElement.cpp	modified	source	fece61483777470fc46f970621612dee9175325e	origin=fece61483777470fc46f970621612dee9175325e :bug: Fixes for Soup and Input Mode
 touch-bar	field	WebCore::HTMLMenuElement::m_isTouchBarMenu	Source/WebCore/html/HTMLMenuElement.h	removed	source	984b4031ce8dfe9f7b0923bfadf9dcf51103cc38	line=43
 touch-bar	file	-	Source/WebCore/html/HTMLMenuElement.h	modified	source	984b4031ce8dfe9f7b0923bfadf9dcf51103cc38	origin=984b4031ce8dfe9f7b0923bfadf9dcf51103cc38 :unicorn: Remove Touch Bar Support
@@ -5195,13 +5196,22 @@ touch-bar	file	-	Source/WebKit/Shared/TouchBarMenuData.cpp	removed	source	984b40
 touch-bar	file	-	Source/WebKit/Shared/TouchBarMenuData.h	removed	source	984b4031ce8dfe9f7b0923bfadf9dcf51103cc38	origin=984b4031ce8dfe9f7b0923bfadf9dcf51103cc38 :unicorn: Remove Touch Bar Support
 touch-bar	file	-	Source/WebKit/Shared/TouchBarMenuItemData.cpp	removed	source	984b4031ce8dfe9f7b0923bfadf9dcf51103cc38	origin=984b4031ce8dfe9f7b0923bfadf9dcf51103cc38 :unicorn: Remove Touch Bar Support
 touch-bar	file	-	Source/WebKit/Shared/TouchBarMenuItemData.h	removed	source	984b4031ce8dfe9f7b0923bfadf9dcf51103cc38	origin=984b4031ce8dfe9f7b0923bfadf9dcf51103cc38 :unicorn: Remove Touch Bar Support
+touch-bar	file	-	Source/WebKit/Shared/WebPageCreationParameters.serialization.in	modified	source	manual:touch-bar-2.54	Touch Bar support removed during 2.54 migration
 touch-bar	build_ref	Shared/TouchBarMenuData.cpp	Source/WebKit/Sources.txt	removed	source	984b4031ce8dfe9f7b0923bfadf9dcf51103cc38	line=199; commit=984b4031ce8d
 touch-bar	build_ref	Shared/TouchBarMenuItemData.cpp	Source/WebKit/Sources.txt	removed	source	984b4031ce8dfe9f7b0923bfadf9dcf51103cc38	line=200; commit=984b4031ce8d
+touch-bar	file	-	Source/WebKit/UIProcess/API/Cocoa/WKWebView.mm	modified	source	manual:touch-bar-2.54	Touch Bar support removed during 2.54 migration
+touch-bar	file	-	Source/WebKit/UIProcess/API/mac/WKView.mm	modified	source	manual:touch-bar-2.54	Touch Bar support removed during 2.54 migration
+touch-bar	file	-	Source/WebKit/UIProcess/API/mac/WKWebViewMac.mm	modified	source	manual:touch-bar-2.54	Touch Bar support removed during 2.54 migration
 touch-bar	config_line	SetIsNeverRichlyEditableForTouchBar(bool isNeverRichlyEditable)	Source/WebKit/UIProcess/WebPageProxy.messages.in	removed	source	e1494683a105c6feb9dbfaa5f6b2caa5e2e1451e	line=238; commit=e1494683a105
 touch-bar	config_line	SetIsTouchBarUpdateSupressedForHiddenContentEditable(bool isTouchBarUpdateSupressed)	Source/WebKit/UIProcess/WebPageProxy.messages.in	removed	source	e1494683a105c6feb9dbfaa5f6b2caa5e2e1451e	line=237; commit=e1494683a105
 touch-bar	config_line	TouchBarMenuDataChanged(WebKit::TouchBarMenuData touchBarMenuData)	Source/WebKit/UIProcess/WebPageProxy.messages.in	removed	source	984b4031ce8dfe9f7b0923bfadf9dcf51103cc38	line=346; commit=984b4031ce8d
 touch-bar	config_line	TouchBarMenuItemDataAdded(struct WebKit::TouchBarMenuItemData touchBarMenuItemData)	Source/WebKit/UIProcess/WebPageProxy.messages.in	removed	source	984b4031ce8dfe9f7b0923bfadf9dcf51103cc38	line=347; commit=984b4031ce8d
 touch-bar	config_line	TouchBarMenuItemDataRemoved(struct WebKit::TouchBarMenuItemData touchBarMenuItemData)	Source/WebKit/UIProcess/WebPageProxy.messages.in	removed	source	984b4031ce8dfe9f7b0923bfadf9dcf51103cc38	line=348; commit=984b4031ce8d
+touch-bar	file	-	Source/WebKit/UIProcess/mac/WebViewImpl.h	modified	source	manual:touch-bar-2.54	Touch Bar support removed during 2.54 migration
+touch-bar	file	-	Source/WebKit/UIProcess/mac/WebViewImpl.mm	modified	source	manual:touch-bar-2.54	Touch Bar support removed during 2.54 migration
+touch-bar	file	-	Source/WebKitLegacy/mac/WebView/WebHTMLView.mm	modified	source	manual:touch-bar-2.54	Touch Bar support removed during 2.54 migration
+touch-bar	file	-	Source/WebKitLegacy/mac/WebView/WebView.mm	modified	source	manual:touch-bar-2.54	Touch Bar support removed during 2.54 migration
+touch-bar	file	-	Source/WebKitLegacy/mac/WebView/WebViewData.h	modified	source	manual:touch-bar-2.54	Touch Bar support removed during 2.54 migration
 translation-ui	build_ref	page/TranslationContextMenuInfo.h	Source/WebCore/Headers.cmake	removed	source	1fe518490c499468173e52632bbe93d4588ea11a	line=880; commit=1fe518490c49
 translation-ui	class	WebCore::EmptyMediaRecorderProvider	Source/WebCore/loader/EmptyClients.cpp	removed	source	1fe518490c499468173e52632bbe93d4588ea11a	line=1159
 translation-ui	class	WebCore::EmptyPluginInfoProvider	Source/WebCore/loader/EmptyClients.cpp	removed	source	1fe518490c499468173e52632bbe93d4588ea11a	line=432

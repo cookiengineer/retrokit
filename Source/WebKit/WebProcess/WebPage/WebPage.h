@@ -3089,11 +3089,6 @@ private:
         SelectedRange       = 1 << 1,
     };
     OptionSet<UserInteractionFlag> m_userInteractionsSincePageTransition;
-#if HAVE(TOUCH_BAR)
-    bool m_requiresUserActionForEditingControlsManager { false };
-    bool m_isTouchBarUpdateSuppressedForHiddenContentEditable { false };
-    bool m_isNeverRichlyEditableForTouchBar { false };
-#endif
     OptionSet<WebCore::ActivityState> m_lastActivityStateChanges;
 
 #if HAVE(UIKIT_RESIZABLE_WINDOWS)

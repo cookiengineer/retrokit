@@ -689,9 +689,6 @@ WebPage::WebPage(PageIdentifier pageID, WebPageCreationParameters&& parameters)
     , m_pageScrolledHysteresis([this](PAL::HysteresisState state) { if (state == PAL::HysteresisState::Stopped) pageStoppedScrolling(); }, pageScrollHysteresisDuration)
     , m_canRunBeforeUnloadConfirmPanel(parameters.canRunBeforeUnloadConfirmPanel)
     , m_canRunModal(parameters.canRunModal)
-#if HAVE(TOUCH_BAR)
-    , m_requiresUserActionForEditingControlsManager(parameters.requiresUserActionForEditingControlsManager)
-#endif
 #if HAVE(UIKIT_RESIZABLE_WINDOWS)
     , m_isWindowResizingEnabled(parameters.hasResizableWindows)
 #endif
@@ -4713,10 +4710,6 @@ void WebPage::didStartPageTransition()
 {
     freezeLayerTree(LayerTreeFreezeReason::PageTransition);
 
-#if HAVE(TOUCH_BAR)
-    bool hasPreviouslyFocusedDueToUserInteraction = m_userInteractionsSincePageTransition.contains(UserInteractionFlag::FocusedElement);
-    m_userInteractionsSincePageTransition = { };
-#endif
     m_lastEditorStateWasContentEditable = EditorStateIsContentEditable::Unset;
 
 #if PLATFORM(MAC)
@@ -4724,17 +4717,6 @@ void WebPage::didStartPageTransition()
         send(Messages::WebPageProxy::SetHasFocusedElementWithUserInteraction(false));
 #endif
 
-#if HAVE(TOUCH_BAR)
-    if (m_isTouchBarUpdateSuppressedForHiddenContentEditable) {
-        m_isTouchBarUpdateSuppressedForHiddenContentEditable = false;
-        send(Messages::WebPageProxy::SetIsTouchBarUpdateSuppressedForHiddenContentEditable(m_isTouchBarUpdateSuppressedForHiddenContentEditable));
-    }
-
-    if (m_isNeverRichlyEditableForTouchBar) {
-        m_isNeverRichlyEditableForTouchBar = false;
-        send(Messages::WebPageProxy::SetIsNeverRichlyEditableForTouchBar(m_isNeverRichlyEditableForTouchBar));
-    }
-#endif
 
 #if PLATFORM(IOS_FAMILY)
     m_isShowingInputViewForFocusedElement = false;
@@ -7638,38 +7620,6 @@ void WebPage::didChangeSelectionOrOverflowScrollPosition()
     if (m_isSelectingTextWhileInsertingAsynchronously)
         return;
 
-#if HAVE(TOUCH_BAR)
-    bool hasPreviouslyFocusedDueToUserInteraction = m_userInteractionsSincePageTransition.contains(UserInteractionFlag::FocusedElement);
-    if (m_userIsInteracting && m_focusedElement)
-        m_userInteractionsSincePageTransition.add(UserInteractionFlag::FocusedElement);
-
-    if (!hasPreviouslyFocusedDueToUserInteraction && m_userInteractionsSincePageTransition.contains(UserInteractionFlag::FocusedElement)) {
-        RefPtr document = frame->document();
-        if (document->quirks().isTouchBarUpdateSuppressedForHiddenContentEditable()) {
-            m_isTouchBarUpdateSuppressedForHiddenContentEditable = true;
-            send(Messages::WebPageProxy::SetIsTouchBarUpdateSuppressedForHiddenContentEditable(m_isTouchBarUpdateSuppressedForHiddenContentEditable));
-        }
-
-        if (document->quirks().isNeverRichlyEditableForTouchBar()) {
-            m_isNeverRichlyEditableForTouchBar = true;
-            send(Messages::WebPageProxy::SetIsNeverRichlyEditableForTouchBar(m_isNeverRichlyEditableForTouchBar));
-        }
-
-        send(Messages::WebPageProxy::SetHasFocusedElementWithUserInteraction(true));
-    }
-
-    // Abandon the current inline input session if selection changed for any other reason but an input method direct action.
-    // FIXME: This logic should be in WebCore.
-    // FIXME: Many changes that affect composition node do not go through didChangeSelection(). We need to do something when DOM manipulation affects the composition, because otherwise input method's idea about it will be different from Editor's.
-    // FIXME: We can't cancel composition when selection changes to NoSelection, but we probably should.
-    Ref editor = frame->editor();
-    if (editor->hasComposition() && !frame->editor().ignoreSelectionChanges() && !frame->selection().isNone()) {
-        editor->cancelComposition();
-        if (RefPtr document = frame->document())
-            discardedComposition(*document);
-        return;
-    }
-#endif // HAVE(TOUCH_BAR)
 
     scheduleFullEditorStateUpdate();
 }

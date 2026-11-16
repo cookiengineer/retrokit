@@ -6810,14 +6810,6 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 #endif
 
-#if HAVE(TOUCH_BAR)
-
-- (NSCandidateListTouchBarItem *)candidateListTouchBarItem
-{
-    return [[self _webView] candidateList];
-}
-
-#endif
 
 @end
 

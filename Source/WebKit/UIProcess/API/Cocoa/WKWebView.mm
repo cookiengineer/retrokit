@@ -4739,9 +4739,6 @@ static RetainPtr<NSArray> wkTextManipulationErrors(NSArray<_WKTextManipulationIt
 - (void)_updateMediaPlaybackControlsManager
 {
     THROW_IF_SUSPENDED;
-#if HAVE(TOUCH_BAR) && ENABLE(WEB_PLAYBACK_CONTROLS_MANAGER)
-    _impl->updateMediaPlaybackControlsManager();
-#endif
 }
 
 - (BOOL)_isSuspended
@@ -4751,20 +4748,10 @@ static RetainPtr<NSArray> wkTextManipulationErrors(NSArray<_WKTextManipulationIt
 
 - (BOOL)_canTogglePictureInPicture
 {
-#if HAVE(TOUCH_BAR)
-    return _impl->canTogglePictureInPicture();
-#else
-    return NO;
-#endif
 }
 
 - (BOOL)_canToggleInWindow
 {
-#if HAVE(TOUCH_BAR)
-    return _impl->canTogglePictureInPicture();
-#else
-    return NO;
-#endif
 }
 
 - (BOOL)_canEnterFullscreen
@@ -4774,38 +4761,20 @@ static RetainPtr<NSArray> wkTextManipulationErrors(NSArray<_WKTextManipulationIt
 
 - (BOOL)_isPictureInPictureActive
 {
-#if HAVE(TOUCH_BAR) && ENABLE(WEB_PLAYBACK_CONTROLS_MANAGER)
-    return _impl->isPictureInPictureActive();
-#else
-    return NO;
-#endif
 }
 
 - (BOOL)_isInWindowActive
 {
-#if HAVE(TOUCH_BAR) && ENABLE(WEB_PLAYBACK_CONTROLS_MANAGER)
-    return _impl->isInWindowFullscreenActive();
-#else
-    return NO;
-#endif
 }
 
 - (void)_togglePictureInPicture
 {
     THROW_IF_SUSPENDED;
-#if HAVE(TOUCH_BAR) && ENABLE(WEB_PLAYBACK_CONTROLS_MANAGER)
-    _impl->togglePictureInPicture();
-#endif
 }
 
 - (void)_nowPlayingMediaTitleAndArtist:(void (^)(NSString *, NSString *))completionHandler
 {
     THROW_IF_SUSPENDED;
-#if HAVE(TOUCH_BAR) && ENABLE(WEB_PLAYBACK_CONTROLS_MANAGER)
-    _impl->nowPlayingMediaTitleAndArtist(completionHandler);
-#else
-    completionHandler(nil, nil);
-#endif
 }
 
 - (void)_convertPoint:(CGPoint)point fromFrame:(WKFrameInfo *)frame toMainFrameCoordinates:(void (^)(CGPoint, NSError *error))completionHandler
@@ -4879,25 +4848,16 @@ static RetainPtr<NSArray> wkTextManipulationErrors(NSArray<_WKTextManipulationIt
 - (void)_toggleInWindow
 {
     THROW_IF_SUSPENDED;
-#if HAVE(TOUCH_BAR) && ENABLE(WEB_PLAYBACK_CONTROLS_MANAGER)
-    _impl->isInWindowFullscreenActive() ? _impl->exitInWindowFullscreen() : _impl->enterInWindowFullscreen();
-#endif
 }
 
 - (void)_enterInWindow
 {
     THROW_IF_SUSPENDED;
-#if HAVE(TOUCH_BAR) && ENABLE(WEB_PLAYBACK_CONTROLS_MANAGER)
-    _impl->enterInWindowFullscreen();
-#endif
 }
 
 - (void)_exitInWindow
 {
     THROW_IF_SUSPENDED;
-#if HAVE(TOUCH_BAR) && ENABLE(WEB_PLAYBACK_CONTROLS_MANAGER)
-    _impl->exitInWindowFullscreen();
-#endif
 }
 
 - (void)_enterFullscreen

@@ -59,10 +59,6 @@
 @interface WKView () <WebViewImplDelegate>
 @end
 
-#if HAVE(TOUCH_BAR)
-@interface WKView () <NSTouchBarProvider>
-@end
-#endif
 
 @interface WKView () <NSScrollViewSeparatorTrackingAdapter>
 @end
@@ -935,29 +931,6 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 {
 }
 
-#if HAVE(TOUCH_BAR)
-
-@dynamic touchBar;
-
-- (NSTouchBar *)makeTouchBar
-{
-    return nil;
-}
-
-- (NSCandidateListTouchBarItem *)candidateListTouchBarItem
-{
-    return nil;
-}
-
-- (void)_web_didAddMediaControlsManager:(id)controlsManager
-{
-}
-
-- (void)_web_didRemoveMediaControlsManager
-{
-}
-
-#endif // HAVE(TOUCH_BAR)
 
 - (NSRect)scrollViewFrame
 {

@@ -436,10 +436,6 @@ public:
     void setAttributedBundleIdentifier(WTF::String&& identifier) { m_data.attributedBundleIdentifier = WTF::move(identifier); }
     const WTF::String& attributedBundleIdentifier() const LIFETIME_BOUND { return m_data.attributedBundleIdentifier; }
 
-#if HAVE(TOUCH_BAR)
-    bool requiresUserActionForEditingControlsManager() const { return m_data.requiresUserActionForEditingControlsManager; }
-    void setRequiresUserActionForEditingControlsManager(bool value) { m_data.requiresUserActionForEditingControlsManager = value; }
-#endif
 
     bool isLockdownModeExplicitlySet() const;
     bool lockdownModeEnabled() const;
@@ -686,9 +682,6 @@ private:
         WebCore::ShouldRelaxThirdPartyCookieBlocking shouldRelaxThirdPartyCookieBlocking { WebCore::ShouldRelaxThirdPartyCookieBlocking::No };
         WTF::String attributedBundleIdentifier;
 
-#if HAVE(TOUCH_BAR)
-        bool requiresUserActionForEditingControlsManager { false };
-#endif
 
         WebCore::ContentSecurityPolicyModeForExtension contentSecurityPolicyModeForExtension { WebCore::ContentSecurityPolicyModeForExtension::None };
     };

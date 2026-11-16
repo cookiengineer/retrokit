@@ -12221,19 +12221,6 @@ void WebPageProxy::setHasFocusedElementWithUserInteraction(bool value)
     m_hasFocusedElementWithUserInteraction = value;
 }
 
-#if HAVE(TOUCH_BAR)
-
-void WebPageProxy::setIsTouchBarUpdateSuppressedForHiddenContentEditable(bool ignoreTouchBarUpdate)
-{
-    m_isTouchBarUpdateSuppressedForHiddenContentEditable = ignoreTouchBarUpdate;
-}
-
-void WebPageProxy::setIsNeverRichlyEditableForTouchBar(bool isNeverRichlyEditable)
-{
-    m_isNeverRichlyEditableForTouchBar = isNeverRichlyEditable;
-}
-
-#endif
 
 void WebPageProxy::requestDOMPasteAccess(IPC::Connection& connection, DOMPasteAccessCategory pasteAccessCategory, FrameIdentifier frameID, const IntRect& elementRect, const String& originIdentifier, CompletionHandler<void(DOMPasteAccessResponse)>&& completionHandler)
 {
@@ -14441,9 +14428,6 @@ WebPageCreationParameters WebPageProxy::creationParameters(WebProcessProxy& proc
     parameters.appHighlightsVisible = appHighlightsVisibility() ? HighlightVisibility::Visible : HighlightVisibility::Hidden;
 #endif
 
-#if HAVE(TOUCH_BAR)
-    parameters.requiresUserActionForEditingControlsManager = m_configuration->requiresUserActionForEditingControlsManager();
-#endif
 
 #if HAVE(UIKIT_RESIZABLE_WINDOWS)
     parameters.hasResizableWindows = pageClient && pageClient->hasResizableWindows();

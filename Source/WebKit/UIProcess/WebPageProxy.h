@@ -2264,10 +2264,6 @@ public:
 
     bool hasFocusedElementWithUserInteraction() const { return m_hasFocusedElementWithUserInteraction; }
 
-#if HAVE(TOUCH_BAR)
-    bool isTouchBarUpdateSuppressedForHiddenContentEditable() const { return m_isTouchBarUpdateSuppressedForHiddenContentEditable; }
-    bool isNeverRichlyEditableForTouchBar() const { return m_isNeverRichlyEditableForTouchBar; }
-#endif
 
 #if ENABLE(GAMEPAD)
     static constexpr Seconds gamepadsRecentlyAccessedThreshold { 1500_ms };
@@ -3293,10 +3289,6 @@ private:
     void compositionWasCanceled();
     void NODELETE setHasFocusedElementWithUserInteraction(bool);
 
-#if HAVE(TOUCH_BAR)
-    void NODELETE setIsTouchBarUpdateSuppressedForHiddenContentEditable(bool);
-    void NODELETE setIsNeverRichlyEditableForTouchBar(bool);
-#endif
 
     void requestDOMPasteAccess(IPC::Connection&, WebCore::DOMPasteAccessCategory, WebCore::FrameIdentifier, const WebCore::IntRect&, const String&, CompletionHandler<void(WebCore::DOMPasteAccessResponse)>&&);
     std::optional<IPC::AsyncReplyID> willPerformPasteCommand(WebCore::DOMPasteAccessCategory, CompletionHandler<void()>&&, std::optional<WebCore::FrameIdentifier> = std::nullopt);
@@ -4140,10 +4132,6 @@ private:
 
     bool m_hasFocusedElementWithUserInteraction { false };
 
-#if HAVE(TOUCH_BAR)
-    bool m_isTouchBarUpdateSuppressedForHiddenContentEditable { false };
-    bool m_isNeverRichlyEditableForTouchBar { false };
-#endif
 
 #if ENABLE(META_VIEWPORT)
     bool m_forceAlwaysUserScalable { false };

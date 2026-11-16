@@ -103,15 +103,6 @@ OBJC_CLASS WKTextEffectManager;
 OBJC_CLASS _WKRemoteObjectRegistry;
 OBJC_CLASS _WKThumbnailView;
 
-#if HAVE(TOUCH_BAR)
-OBJC_CLASS NSCandidateListTouchBarItem;
-OBJC_CLASS NSCustomTouchBarItem;
-OBJC_CLASS NSTouchBar;
-OBJC_CLASS NSTouchBarItem;
-OBJC_CLASS NSPopoverTouchBarItem;
-OBJC_CLASS WKTextTouchBarItemController;
-OBJC_CLASS WebPlaybackControlsManager;
-#endif // HAVE(TOUCH_BAR)
 
 #if ENABLE(WEB_AUTHN)
 OBJC_CLASS WKDigitalCredentialsPicker;
@@ -772,35 +763,6 @@ public:
 
     void handleAcceptedCandidate(NSTextCheckingResult *acceptedCandidate);
 
-#if HAVE(TOUCH_BAR)
-    NSTouchBar *makeTouchBar();
-    void updateTouchBar();
-    NSTouchBar *currentTouchBar() const LIFETIME_BOUND { return m_currentTouchBar.get(); }
-    NSCandidateListTouchBarItem *candidateListTouchBarItem() const;
-#if ENABLE(WEB_PLAYBACK_CONTROLS_MANAGER)
-    WebCore::PlatformPlaybackSessionInterface* playbackSessionInterface() const;
-    bool isPictureInPictureActive();
-    void togglePictureInPicture();
-    bool isInWindowFullscreenActive() const;
-    void enterInWindowFullscreen();
-    void exitInWindowFullscreen();
-    void updateMediaPlaybackControlsManager();
-
-    AVTouchBarScrubber *mediaPlaybackControlsView() const;
-#endif
-    void nowPlayingMediaTitleAndArtist(void(^completionHandler)(NSString *, NSString *));
-
-    NSTouchBar *textTouchBar() const;
-    void dismissTextTouchBarPopoverItemWithIdentifier(NSString *);
-
-    bool clientWantsMediaPlaybackControlsView() const { return m_clientWantsMediaPlaybackControlsView; }
-    void setClientWantsMediaPlaybackControlsView(bool clientWantsMediaPlaybackControlsView) { m_clientWantsMediaPlaybackControlsView = clientWantsMediaPlaybackControlsView; }
-
-    void updateTouchBarAndRefreshTextBarIdentifiers();
-    void setIsCustomizingTouchBar(bool isCustomizingTouchBar) { m_isCustomizingTouchBar = isCustomizingTouchBar; };
-
-    bool canTogglePictureInPicture();
-#endif // HAVE(TOUCH_BAR)
 
     bool beginBackSwipeForTesting();
     bool completeBackSwipeForTesting();
@@ -914,51 +876,6 @@ public:
 #endif
 
 private:
-#if HAVE(TOUCH_BAR)
-    void setUpTextTouchBar(NSTouchBar *);
-    void updateTextTouchBar();
-    void updateMediaTouchBar();
-
-    bool useMediaPlaybackControlsView() const;
-    bool isRichlyEditableForTouchBar() const;
-
-#if ENABLE(IMAGE_ANALYSIS)
-    void installImageAnalysisOverlayView(RetainPtr<VKCImageAnalysis>&&);
-    void uninstallImageAnalysisOverlayView();
-    void performOrDeferImageAnalysisOverlayViewHierarchyTask(std::function<void()>&&);
-    void fulfillDeferredImageAnalysisOverlayViewHierarchyTask();
-#endif
-
-    bool pageIsScrolledToTop() const { return m_lastPageScrollOffset.y() <= 0; }
-    void pageScrollingHysteresisFired(PAL::HysteresisState);
-
-    bool hasContentRelativeChildViews() const;
-
-    void suppressContentRelativeChildViews();
-    void restoreContentRelativeChildViews();
-
-    bool m_clientWantsMediaPlaybackControlsView { false };
-    bool m_canCreateTouchBars { false };
-    bool m_startedListeningToCustomizationEvents { false };
-    bool m_isUpdatingTextTouchBar { false };
-    bool m_isCustomizingTouchBar { false };
-
-    RetainPtr<NSTouchBar> m_currentTouchBar;
-    RetainPtr<NSTouchBar> m_richTextTouchBar;
-    RetainPtr<NSTouchBar> m_plainTextTouchBar;
-    RetainPtr<NSTouchBar> m_passwordTextTouchBar;
-    RetainPtr<WKTextTouchBarItemController> m_textTouchBarItemController;
-    RetainPtr<NSCandidateListTouchBarItem> m_richTextCandidateListTouchBarItem;
-    RetainPtr<NSCandidateListTouchBarItem> m_plainTextCandidateListTouchBarItem;
-    RetainPtr<NSCandidateListTouchBarItem> m_passwordTextCandidateListTouchBarItem;
-    RetainPtr<WebPlaybackControlsManager> m_playbackControlsManager;
-    RetainPtr<NSCustomTouchBarItem> m_exitFullScreenButton;
-
-#if ENABLE(WEB_PLAYBACK_CONTROLS_MANAGER)
-    RetainPtr<AVTouchBarPlaybackControlsProvider> m_mediaTouchBarProvider;
-    RetainPtr<AVTouchBarScrubber> m_mediaPlaybackControlsView;
-#endif // ENABLE(WEB_PLAYBACK_CONTROLS_MANAGER)
-#endif // HAVE(TOUCH_BAR)
 
     NSRect convertFromViewToScreen(NSRect rectInView) const;
 

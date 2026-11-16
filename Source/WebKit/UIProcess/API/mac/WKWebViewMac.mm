@@ -109,9 +109,6 @@ static WebCore::FloatBoxExtent NODELETE coreBoxExtentsFromEdgeInsets(NSEdgeInset
 
 @interface WKWebView (WKImplementationMac) <NSTextInputClient
     , NSTextInputClient_Async
-#if HAVE(TOUCH_BAR)
-    , NSTouchBarProvider
-#endif
 #if ENABLE(DRAG_SUPPORT)
     , NSFilePromiseProviderDelegate
     , NSDraggingSource
@@ -1158,37 +1155,6 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 
 #pragma mark - Touch Bar
 
-#if HAVE(TOUCH_BAR)
-
-@dynamic touchBar;
-
-- (NSTouchBar *)makeTouchBar
-{
-    return _impl->makeTouchBar();
-}
-
-- (NSCandidateListTouchBarItem *)candidateListTouchBarItem
-{
-    return _impl->candidateListTouchBarItem();
-}
-
-- (void)_web_didAddMediaControlsManager:(id)controlsManager
-{
-    [self _addMediaPlaybackControlsView:controlsManager];
-}
-
-- (void)_web_didRemoveMediaControlsManager
-{
-    [self _removeMediaPlaybackControlsView];
-}
-
-- (void)_interactWithMediaControlsForTesting
-{
-    [self _setWantsMediaPlaybackControlsView:YES];
-    [self makeTouchBar];
-}
-
-#endif // HAVE(TOUCH_BAR)
 
 #pragma mark - NSScrollViewSeparatorTrackingAdapter
 
@@ -2178,27 +2144,14 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 - (BOOL)_wantsMediaPlaybackControlsView
 {
-#if HAVE(TOUCH_BAR)
-    return _impl->clientWantsMediaPlaybackControlsView();
-#else
-    return NO;
-#endif
 }
 
 - (void)_setWantsMediaPlaybackControlsView:(BOOL)wantsMediaPlaybackControlsView
 {
-#if HAVE(TOUCH_BAR)
-    _impl->setClientWantsMediaPlaybackControlsView(wantsMediaPlaybackControlsView);
-#endif
 }
 
 - (id)_mediaPlaybackControlsView
 {
-#if HAVE(TOUCH_BAR)
-    return _impl->clientWantsMediaPlaybackControlsView() ? _impl->mediaPlaybackControlsView() : nil;
-#else
-    return nil;
-#endif
 }
 
 // This method is for subclasses to override.

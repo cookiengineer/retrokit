@@ -324,9 +324,6 @@ struct WebPageCreationParameters {
     WebCore::HighlightVisibility appHighlightsVisible { WebCore::HighlightVisibility::Hidden };
 #endif
 
-#if HAVE(TOUCH_BAR)
-    bool requiresUserActionForEditingControlsManager { false };
-#endif
 
     bool hasResizableWindows { false };
 

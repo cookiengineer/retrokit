@@ -31,9 +31,6 @@
 #import "LegacyWebPageInspectorController.h"
 #import "WebDelegateImplementationCaching.h"
 #import "WebUIDelegate.h"
-#if HAVE(TOUCH_BAR)
-#import <pal/spi/cocoa/AVKitSPI.h>
-#endif
 #import <WebCore/AlternativeTextClient.h>
 #import <WebCore/Page.h>
 #import <WebCore/WebCoreKeyboardUIMode.h>
@@ -105,9 +102,6 @@ class WebViewRenderingUpdateScheduler;
 class WebSelectionServiceController;
 #endif
 
-#if HAVE(TOUCH_BAR)
-@class WebTextTouchBarItemController;
-#endif
 
 @interface WebWindowVisibilityObserver : NSObject {
     WebView *_view;
@@ -148,27 +142,6 @@ class WebSelectionServiceController;
 #if PLATFORM(MAC)
     RetainPtr<WebImmediateActionController> immediateActionController;
 
-#if HAVE(TOUCH_BAR)
-    RetainPtr<NSTouchBar> _currentTouchBar;
-    RetainPtr<NSTouchBar> _plainTextTouchBar;
-    RetainPtr<NSTouchBar> _richTextTouchBar;
-    RetainPtr<NSTouchBar> _passwordTextTouchBar;
-    RetainPtr<WebTextTouchBarItemController> _textTouchBarItemController;
-    RetainPtr<NSCandidateListTouchBarItem> _richTextCandidateListTouchBarItem;
-    RetainPtr<NSCandidateListTouchBarItem> _plainTextCandidateListTouchBarItem;
-    RetainPtr<NSCandidateListTouchBarItem> _passwordTextCandidateListTouchBarItem;
-#if ENABLE(WEB_PLAYBACK_CONTROLS_MANAGER)
-    RetainPtr<AVTouchBarPlaybackControlsProvider> mediaTouchBarProvider;
-    RetainPtr<AVTouchBarScrubber> mediaPlaybackControlsView;
-#endif // ENABLE(WEB_PLAYBACK_CONTROLS_MANAGER)
-
-    BOOL _canCreateTouchBars;
-    BOOL _isUpdatingTextTouchBar;
-    BOOL _startedListeningToCustomizationEvents;
-    BOOL _isCustomizingTouchBar;
-    BOOL _isDeferringTextTouchBarUpdates;
-    BOOL _needsDeferredTextTouchBarUpdate;
-#endif // HAVE(TOUCH_BAR)
 
     std::unique_ptr<TextIndicatorWindow> textIndicatorWindow;
     BOOL hasInitializedLookupObserver;

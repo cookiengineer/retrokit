@@ -238,9 +238,6 @@ enum class WebCore::UserInterfaceLayoutDirection : bool;
     WebCore::HighlightVisibility appHighlightsVisible;
 #endif
 
-#if HAVE(TOUCH_BAR)
-    bool requiresUserActionForEditingControlsManager;
-#endif
 
     bool hasResizableWindows;
 
