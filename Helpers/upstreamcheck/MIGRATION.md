@@ -10,7 +10,7 @@
   commit that imports RetroKit's downstream files and `upstreamcheck`).
 - `main` and `legacy/2.34` still point at the 2.34.1 fork; promote
   `migrate/2.54` during cutover.
-- Generated manifest: `manifest/divergence.tsv` (10,002 rows, 39 features).
+- Generated manifest: `manifest/divergence.tsv` (10,170 rows, 39 features).
 - The manifest now also records the new upstream WebXR/WebGPU-XR files and
   the WebXR/systemd/touch-bar migration edits.
 
@@ -65,8 +65,15 @@ Completed feature commits on `migrate/2.54`:
   orientation plumbing are retained for camera frame rotation.
   `equivalence --feature device-sensors` passes with 0 errors and 0 warnings
   over 260 entries; the leak scan is clean.
+- **Geolocation** — removed the WebCore API, permission plumbing, WebKit
+  UI/Web-process managers, C/GLib APIs, the Geoclue and CoreLocation
+  providers, WebKitLegacy providers and MiniBrowser UI.
+  `equivalence --feature geolocation` passes with 0 errors and 0 warnings over
+  324 entries; the leak scan is clean.
 
-Geolocation is next, including the Geoclue integration.
+The next cleanup is the remaining dependency surface (libsecret/libnotify),
+then the media stack. Smaller self-contained candidates are `media-usage` and
+`custom-protocol`.
 
 ## Workflow
 

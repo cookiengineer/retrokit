@@ -42,6 +42,8 @@ media controls, inspector resources and the GLib dependency-file workaround.
 Recent commits on `migrate/2.54`:
 
 ```text
+3a6f708b3 Ignore translation catalogs in leak scans
+5aed758bd Remove Geolocation API
 799333ead Remove Device Motion and Orientation APIs
 509931647 Document Gamepad removal and next steps
 eea8c5a8e Remove Gamepad API
@@ -139,7 +141,7 @@ The source of truth for intentional divergence is:
 feature  kind  symbol  path  disposition  scope  origin  notes
 ```
 
-It currently contains **10,002 rows across 39 features**. The manifest covers
+It currently contains **10,170 rows across 39 features**. The manifest covers
 the original 2.34.1 fork diff plus the new upstream WebXR/WebGPU-XR files and
 the migration edits for completed features.
 
@@ -326,27 +328,59 @@ make build DISTRO=debian:             success (WebKit + MiniBrowser)
 make smoke DISTRO=debian:             success
 ```
 
+### Geolocation
+
+Commit: `5aed758bd Remove Geolocation API`
+
+Removed:
+
+- WebCore `Modules/geolocation` (Geolocation, GeoNotifier, controllers,
+  coordinates/position/error data, navigator supplement and callbacks), the
+  mock client and the Cocoa CoreLocation provider.
+- Geolocation permission plumbing: `PermissionName`, `PermissionsPolicy`
+  feature, `SecurityContext` geolocation flags, `TaskSource`,
+  `ScriptExecutionContext` resource type, settings/preference/feature entries.
+- WebKit UI/Web-process geolocation managers, permission request proxies,
+  `WebGeolocationPosition`, C and GLib APIs, the Geoclue provider, the iOS
+  CoreLocation providers and the Cocoa delegate callbacks.
+- WebKitLegacy geolocation providers/clients, preferences and error codes.
+- MiniBrowser's geolocation permission UI.
+
+Verification:
+
+```text
+equivalence --feature geolocation: 324 entries, 0 errors, 0 warnings
+leaks       --feature geolocation: 0 residual occurrences
+make build DISTRO=debian:          success (WebKit + MiniBrowser)
+make smoke DISTRO=debian:          success
+```
+
 ## 5. Next steps
 
-### Next: Geolocation
+### Next: Remaining platform and dependency removals
 
-Device Motion/Orientation is done. The next feature is Geolocation, including
-the Geoclue integration. It covers the WebCore API, the UI-process Geoclue
-provider, the GLib geolocation manager, IPC messages, settings and permission
-plumbing.
+Geolocation is done. The next cleanup is the remaining dependency surface
+(libsecret, libnotify if anything reappeared) and then the media stack.
 
-### Then: remaining features
+- Geolocation and Geoclue are gone; do not resurrect permission wiring for
+  them when removing other APIs.
+- Media capture/streams/recorder/EME/PiP/fullscreen remain the largest
+  pending group after WebGL.
+- Continue curating `needs-review.tsv`.
 
 Use the target-relative report to choose the next feature, and always verify
 with `equivalence --fork HEAD --feature <id>` and `leaks --feature <id>`.
 
 Suggested order:
 
-1. Geolocation (including Geoclue).
-2. Remaining platform and dependency removals (libsecret, libnotify).
-3. Media stack (capture, streams, recorder, EME, PiP/fullscreen).
-4. Automation, WebDriver, quirks and user-agent quirks.
-5. Remaining build/behaviour fixes.
+1. Remaining platform and dependency removals (libsecret, libnotify).
+2. Media stack (capture, streams, recorder, EME, PiP/fullscreen).
+3. Automation, WebDriver, quirks and user-agent quirks.
+4. Remaining build/behaviour fixes.
+5. WebGL (largest, last).
+
+If you want a smaller next step, `media-usage` (8 pending) and
+`custom-protocol` (22 pending) are self-contained candidates.
 
 ### Curation
 
@@ -507,7 +541,7 @@ podman info --format '{{.Host.Security.Rootless}}'
 2. `cd Helpers/upstreamcheck && go build -o upstreamcheck ./cmd/upstreamcheck`
 3. `make build DISTRO=debian` (or `archlinux`) to establish a full baseline
    build of the migrated tree.
-4. `./upstreamcheck plan --feature geolocation --target vendor/2.54.2`
-5. Use `./upstreamcheck migrate --feature geolocation ...` and verify with
+4. `./upstreamcheck plan --feature media-usage --target vendor/2.54.2`
+5. Use `./upstreamcheck migrate --feature media-usage ...` and verify with
    `equivalence` and `leaks`.
 6. Curate `needs-review.tsv` while build iterations run.

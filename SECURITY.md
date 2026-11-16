@@ -231,7 +231,7 @@ list of Web APIs that are removed.
 - [x] Remove Bluetooth API
 - [x] Remove FTP Support (`FTPDIR`, `FTPDirectory`, `FTPEnabled`, `ftpEnabled`, `protocolIsInFTPFamily`, `ProtectionSpaceServerFTP`, `ProtectionSpaceServerFTPS`, `ProtectionSpaceProxyFTP`, `unknownFileSizeText`)
 - [x] Remove Gamepad API (`GAMEPAD`, `Gamepad`, `GamepadManager`, `GamepadProvider`, `GamepadData`, `UIGamepad`, `WebGamepad`, `GamepadsEnabled`, `navigator.getGamepads`, `gamepadconnected`, `gamepaddisconnected`)
-- [x] Remove Geolocation API (`ENABLE_GEOLOCATION`, `Geolocation`, `Geoposition`)
+- [x] Remove Geolocation API (`ENABLE_GEOLOCATION`, `Geolocation`, `GeolocationManager`, `GeolocationPermissionRequest`, `GeolocationPosition`, `Geoposition`, `Geoclue`, `geolocation`)
 - [x] Remove Payment Request API (`PAYMENT_REQUEST`, `Merchant`, `Payer`, `Payment`, `Coupon`)
 - [x] Remove DeviceOrientation API (`DEVICE_ORIENTATION`, `ORIENTATION_EVENTS`, `DeviceOrientation`, `DeviceOrientationEvent`, `deviceorientation`, `window.orientation`, `onorientationchange`)
 - [x] Remove DeviceMotion API (`DEVICE_ORIENTATION`, `DeviceMotion`, `DeviceMotionEvent`, `devicemotion`)
