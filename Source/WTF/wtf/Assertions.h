@@ -60,10 +60,6 @@
 #include <os/log.h>
 #endif
 
-#if ENABLE(JOURNALD_LOG)
-#define SD_JOURNAL_SUPPRESS_LOCATION
-#include <systemd/sd-journal.h>
-#endif
 
 #ifdef __cplusplus
 #include <cstdlib>
@@ -103,11 +99,11 @@
 #if ENABLE(RELEASE_LOG)
 #define RELEASE_LOG_DISABLED 0
 #else
-#define RELEASE_LOG_DISABLED !(USE(OS_LOG) || ENABLE(JOURNALD_LOG) || OS(ANDROID))
+#define RELEASE_LOG_DISABLED !(USE(OS_LOG) || OS(ANDROID))
 #endif
 
 #ifndef VERBOSE_RELEASE_LOG
-#define VERBOSE_RELEASE_LOG (ENABLE(JOURNALD_LOG) || OS(ANDROID))
+#define VERBOSE_RELEASE_LOG OS(ANDROID)
 #endif
 
 #define WTF_PRETTY_FUNCTION __PRETTY_FUNCTION__
@@ -237,9 +233,6 @@ WTF_EXPORT_PRIVATE void WTFLogWithLevel(WTFLogChannel*, WTFLogLevel, const char*
 WTF_EXPORT_PRIVATE void NODELETE WTFSetLogChannelLevel(WTFLogChannel*, WTFLogLevel);
 WTF_EXPORT_PRIVATE bool NODELETE WTFWillLogWithLevel(WTFLogChannel*, WTFLogLevel);
 
-#if ENABLE(JOURNALD_LOG)
-WTF_EXPORT_PRIVATE bool WTFShouldLogToJournal(void);
-#endif
 
 WTF_EXPORT_PRIVATE NEVER_INLINE void WTFGetBacktrace(void** stack, int* size);
 WTF_EXPORT_PRIVATE void WTFReportBacktraceWithPrefix(const char*);
@@ -782,70 +775,6 @@ WTF_ALLOW_UNSAFE_BUFFER_USAGE_END \
 #define RELEASE_LOG_WITH_LEVEL_IF(isAllowed, channel, logLevel, ...) do { \
     if ((isAllowed) && LOG_CHANNEL(channel).level >= (logLevel)) \
         LOG_ANDROID_SEND(channel, VERBOSE, __VA_ARGS__); \
-} while (0)
-
-#elif ENABLE(JOURNALD_LOG)
-
-inline void wtfCompileTimeCheckPrintfSpecifier(const char*, ...) WTF_ATTRIBUTE_PRINTF(1, 2);
-inline void wtfCompileTimeCheckPrintfSpecifier(const char* format, ...)
-{
-    UNUSED_PARAM(format); // Function intentionally empty.
-}
-
-inline const char* wtfLogPriorityName(int priority)
-{
-    switch (priority) {
-    case LOG_CRIT:
-        return "crit";
-    case LOG_ERR:
-        return "err";
-    case LOG_WARNING:
-        return "warning";
-    case LOG_NOTICE:
-        return "notice";
-    case LOG_INFO:
-        return "info";
-    case LOG_DEBUG:
-        return "debug";
-    default:
-        return "log";
-    }
-}
-
-#define JOURNAL_FALLBACK_LOGF(logChannel, priority, file, line, function, fmt, ...) do { \
-    IGNORE_WARNINGS_BEGIN("unsafe-buffer-usage-in-libc-call") \
-    fprintf(stderr, "[" LOG_CHANNEL_WEBKIT_SUBSYSTEM ":%s:%s] " fmt " [" file ":" line " %s]\n", logChannel.name, wtfLogPriorityName(priority), ##__VA_ARGS__, function); \
-    IGNORE_WARNINGS_END \
-} while (0)
-
-#define SD_JOURNAL_SEND(channel, priority, file, line, function, fmt, ...) do { \
-    IGNORE_WARNINGS_BEGIN("unsafe-buffer-usage-in-format-attr-call") \
-    wtfCompileTimeCheckPrintfSpecifier(fmt, ##__VA_ARGS__); \
-    auto& logChannel = LOG_CHANNEL(channel); \
-    if (logChannel.state != WTFLogChannelState::Off) { \
-        if (WTFShouldLogToJournal()) \
-            sd_journal_send_with_location("CODE_FILE=" file, "CODE_LINE=" line, function, "WEBKIT_SUBSYSTEM=" LOG_CHANNEL_WEBKIT_SUBSYSTEM, "WEBKIT_CHANNEL=%s", logChannel.name, "PRIORITY=%u", static_cast<unsigned>(priority), "MESSAGE=" fmt, ##__VA_ARGS__, nullptr); \
-        else \
-            JOURNAL_FALLBACK_LOGF(logChannel, priority, file, line, function, fmt, ##__VA_ARGS__); \
-    } \
-    IGNORE_WARNINGS_END \
-} while (0)
-
-#define RELEASE_LOG(channel, ...) SD_JOURNAL_SEND(channel, LOG_NOTICE, __FILE__, _STRINGIFY(__LINE__), __func__, __VA_ARGS__)
-#define RELEASE_LOG_ERROR(channel, ...) SD_JOURNAL_SEND(channel, LOG_ERR, __FILE__, _STRINGIFY(__LINE__), __func__, __VA_ARGS__)
-#define RELEASE_LOG_FAULT(channel, ...) SD_JOURNAL_SEND(channel, LOG_CRIT, __FILE__, _STRINGIFY(__LINE__), __func__, __VA_ARGS__)
-#define RELEASE_LOG_FAULT_WITH_PAYLOAD(channel, format, ...) RELEASE_LOG_FAULT(channel, format __VA_OPT__(, SAFE_PRINTF_TYPE(__VA_ARGS__)))
-#define RELEASE_LOG_INFO(channel, ...) SD_JOURNAL_SEND(channel, LOG_INFO, __FILE__, _STRINGIFY(__LINE__), __func__, __VA_ARGS__)
-#define RELEASE_LOG_DEBUG(channel, ...) SD_JOURNAL_SEND(channel, LOG_DEBUG, __FILE__, _STRINGIFY(__LINE__), __func__, __VA_ARGS__)
-
-#define RELEASE_LOG_WITH_LEVEL(channel, logLevel, ...) do { \
-    if (LOG_CHANNEL(channel).level >= (logLevel)) \
-        SD_JOURNAL_SEND(channel, LOG_INFO, __FILE__, _STRINGIFY(__LINE__), __func__, __VA_ARGS__); \
-} while (0)
-
-#define RELEASE_LOG_WITH_LEVEL_IF(isAllowed, channel, logLevel, ...) do { \
-    if ((isAllowed) && LOG_CHANNEL(channel).level >= (logLevel)) \
-        SD_JOURNAL_SEND(channel, LOG_INFO, __FILE__, _STRINGIFY(__LINE__), __func__, __VA_ARGS__); \
 } while (0)
 
 #else

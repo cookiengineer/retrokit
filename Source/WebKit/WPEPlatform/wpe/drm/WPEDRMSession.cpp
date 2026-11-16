@@ -39,10 +39,6 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(Session);
 
 std::unique_ptr<Session> Session::create()
 {
-#if ENABLE(JOURNALD_LOG)
-    if (auto session = SessionLogind::create())
-        return session;
-#endif
 
     return makeUnique<Session>();
 }

@@ -1919,7 +1919,6 @@ incremental-pdf	method	WebCore::RuntimeEnabledFeatures::setExperimentalPlugInSan
 incremental-pdf	file	-	Source/WebKit/Platform/Logging.h	modified	source	bd8d3cb4801a100beef71ad65419a9283438fa4a	origin=bd8d3cb4801a100beef71ad65419a9283438fa4a :unicorn: Remove IncrementalPDF Hack
 libnotify	file	-	Source/WebCore/PAL/pal/Logging.cpp	modified	source	c3b865b65792769bf332bbc74e831225bfc22efa	origin=c3b865b65792769bf332bbc74e831225bfc22efa :unicorn: Remove libnotify
 libnotify	file	-	Source/WebKit/NetworkProcess/NetworkConnectionToWebProcess.cpp	modified	source	c3b865b65792769bf332bbc74e831225bfc22efa	origin=c3b865b65792769bf332bbc74e831225bfc22efa :unicorn: Remove libnotify
-libnotify	method	WebKit::NetworkConnectionToWebProcess::createRTCProvider	Source/WebKit/NetworkProcess/NetworkConnectionToWebProcess.cpp	removed	source	c3b865b65792769bf332bbc74e831225bfc22efa	line=285
 libnotify	file	-	Source/WebKit/NetworkProcess/NetworkConnectionToWebProcess.h	modified	source	c3b865b65792769bf332bbc74e831225bfc22efa	origin=c3b865b65792769bf332bbc74e831225bfc22efa :unicorn: Remove libnotify
 libnotify	file	-	Source/WebKit/NetworkProcess/cache/NetworkCache.cpp	modified	source	c3b865b65792769bf332bbc74e831225bfc22efa	origin=c3b865b65792769bf332bbc74e831225bfc22efa :unicorn: Remove libnotify
 libnotify	config_line	${LIBNOTIFY_INCLUDE_DIRS}	Source/WebKit/PlatformGTK.cmake	removed	source	c3b865b65792769bf332bbc74e831225bfc22efa	line=468; commit=c3b865b65792
@@ -5166,6 +5165,14 @@ sleep-disablers	file	-	Source/WebKit/WebProcess/WebSleepDisablerClient.cpp	remov
 sleep-disablers	file	-	Source/WebKit/WebProcess/WebSleepDisablerClient.h	removed	source	f373ef9dcbc55e838d95662aeb9aaee52ca3570b	origin=f373ef9dcbc55e838d95662aeb9aaee52ca3570b :unicorn: SleepDisablers
 systemd	file	-	Source/WTF/wtf/Assertions.h	modified	source	ef53a82722584e35a48304b529cdc6c2c5ce203d	origin=ef53a82722584e35a48304b529cdc6c2c5ce203d :unicorn: SystemD Support
 systemd	file	-	Source/WTF/wtf/Logger.h	modified	source	ef53a82722584e35a48304b529cdc6c2c5ce203d	origin=ef53a82722584e35a48304b529cdc6c2c5ce203d :unicorn: SystemD Support
+systemd	file	-	Source/WTF/wtf/PlatformGTK.cmake	modified	source	manual:systemd-2.54	systemd/journald removal during 2.54 migration
+systemd	file	-	Source/WTF/wtf/PlatformWPE.cmake	modified	source	manual:systemd-2.54	systemd/journald removal during 2.54 migration
+systemd	file	-	Source/WebKit/WPEPlatform/wpe/drm/CMakeLists.txt	modified	source	manual:systemd-2.54	systemd/journald removal during 2.54 migration
+systemd	file	-	Source/WebKit/WPEPlatform/wpe/drm/WPEDRMSession.cpp	modified	source	manual:systemd-2.54	systemd/journald removal during 2.54 migration
+systemd	file	-	Source/WebKit/WPEPlatform/wpe/drm/WPEDRMSessionLogind.cpp	modified	source	manual:systemd-2.54	systemd/journald removal during 2.54 migration
+systemd	file	-	Source/WebKit/WPEPlatform/wpe/drm/WPEDRMSessionLogind.h	modified	source	manual:systemd-2.54	systemd/journald removal during 2.54 migration
+systemd	file	-	Source/WebKit/glib/environment-variables.md.in	modified	source	manual:systemd-2.54	systemd/journald removal during 2.54 migration
+systemd	file	-	Source/cmake/FindJournald.cmake	removed	source	manual:systemd-2.54	systemd/journald removal during 2.54 migration
 systemd	file	-	Source/cmake/FindSystemd.cmake	removed	source	ef53a82722584e35a48304b529cdc6c2c5ce203d	origin=ef53a82722584e35a48304b529cdc6c2c5ce203d :unicorn: SystemD Support
 systemd	config_line	else ()	Source/cmake/OptionsGTK.cmake	removed	source	ef53a82722584e35a48304b529cdc6c2c5ce203d	line=443; commit=ef53a8272258
 systemd	config_line	find_package(Systemd)	Source/cmake/OptionsGTK.cmake	removed	source	ef53a82722584e35a48304b529cdc6c2c5ce203d	line=439; commit=ef53a8272258
@@ -8648,6 +8655,7 @@ webrtc	file	-	Source/WebKit/GPUProcess/webrtc/RemoteSampleBufferDisplayLayer.mes
 webrtc	file	-	Source/WebKit/GPUProcess/webrtc/RemoteSampleBufferDisplayLayerManager.cpp	removed	source	f9fe47b60b5fc77c36d0dddb7fe5bf77145ee9dd	origin=f9fe47b60b5fc77c36d0dddb7fe5bf77145ee9dd :unicorn: Remove WebRTC Support
 webrtc	file	-	Source/WebKit/GPUProcess/webrtc/RemoteSampleBufferDisplayLayerManager.h	removed	source	f9fe47b60b5fc77c36d0dddb7fe5bf77145ee9dd	origin=f9fe47b60b5fc77c36d0dddb7fe5bf77145ee9dd :unicorn: Remove WebRTC Support
 webrtc	file	-	Source/WebKit/GPUProcess/webrtc/RemoteSampleBufferDisplayLayerManager.messages.in	removed	source	f9fe47b60b5fc77c36d0dddb7fe5bf77145ee9dd	origin=f9fe47b60b5fc77c36d0dddb7fe5bf77145ee9dd :unicorn: Remove WebRTC Support
+webrtc	method	WebKit::NetworkConnectionToWebProcess::createRTCProvider	Source/WebKit/NetworkProcess/NetworkConnectionToWebProcess.cpp	removed	source	c3b865b65792769bf332bbc74e831225bfc22efa	line=285; misattributed by net-diff bootstrap; belongs to WebRTC
 webrtc	config_line	ConnectToRTCDataChannelRemoteSource(struct WebCore::RTCDataChannelIdentifier source, struct WebCore::RTCDataChannelIdentifier handler) -> (std::optional<bool> result) Async	Source/WebKit/NetworkProcess/NetworkConnectionToWebProcess.messages.in	removed	source	f9fe47b60b5fc77c36d0dddb7fe5bf77145ee9dd	line=93; line=93; commit=f9fe47b60b5f
 webrtc	config_line	CreateRTCProvider() -> () Async	Source/WebKit/NetworkProcess/NetworkConnectionToWebProcess.messages.in	removed	source	f9fe47b60b5fc77c36d0dddb7fe5bf77145ee9dd	line=91; line=91; commit=f9fe47b60b5f
 webrtc	file	-	Source/WebKit/NetworkProcess/NetworkConnectionToWebProcess.messages.in	modified	source	f9fe47b60b5fc77c36d0dddb7fe5bf77145ee9dd	origin=f9fe47b60b5fc77c36d0dddb7fe5bf77145ee9dd :unicorn: Remove WebRTC Support

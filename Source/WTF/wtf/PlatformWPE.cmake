@@ -93,9 +93,6 @@ list(APPEND WTF_PRIVATE_DEFINITIONS
     PKGDATADIR="${CMAKE_INSTALL_FULL_DATADIR}/wpe-webkit-${WPE_API_VERSION}"
 )
 
-if (ENABLE_JOURNALD_LOG)
-    list(APPEND WTF_LIBRARIES Journald::Journald)
-endif ()
 
 if (ANDROID)
     list(APPEND WTF_LIBRARIES Android::Android Android::Log)

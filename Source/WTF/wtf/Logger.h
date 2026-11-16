@@ -31,10 +31,6 @@
 #include <wtf/text/MakeString.h>
 #include <wtf/text/StringBuilder.h>
 
-#if ENABLE(JOURNALD_LOG)
-#define SD_JOURNAL_SUPPRESS_LOCATION
-#include <systemd/sd-journal.h>
-#endif
 
 #if OS(ANDROID)
 #include <android/log.h>
@@ -277,10 +273,6 @@ public:
         if (!m_enabled)
             return false;
 
-#if ENABLE(JOURNALD_LOG) || OS(ANDROID)
-        if (channel.state == WTFLogChannelState::Off)
-            return false;
-#endif
 
         if (level <= WTFLogLevel::Error)
             return true;
@@ -382,14 +374,6 @@ private:
         osLog(channel, logMessage.utf8());
 #elif OS(ANDROID)
         __android_log_print(ANDROID_LOG_VERBOSE, LOG_CHANNEL_WEBKIT_SUBSYSTEM, "[%s] %s", channel.name, logMessage.utf8().data());
-#elif ENABLE(JOURNALD_LOG)
-        if (WTFShouldLogToJournal())
-            sd_journal_send("WEBKIT_SUBSYSTEM=" LOG_CHANNEL_WEBKIT_SUBSYSTEM, "WEBKIT_CHANNEL=%s", channel.name, "MESSAGE=%s", logMessage.utf8().data(), nullptr);
-        else {
-            IGNORE_WARNINGS_BEGIN("unsafe-buffer-usage-in-libc-call")
-            fprintf(stderr, "[" LOG_CHANNEL_WEBKIT_SUBSYSTEM ":%s:-] %s\n", channel.name, logMessage.utf8().data());
-            IGNORE_WARNINGS_END
-        }
 #else
         IGNORE_WARNINGS_BEGIN("unsafe-buffer-usage-in-libc-call")
         fprintf(stderr, "[" LOG_CHANNEL_WEBKIT_SUBSYSTEM ":%s:-] %s\n", channel.name, logMessage.utf8().data());
@@ -427,16 +411,6 @@ private:
         UNUSED_PARAM(function);
 #elif OS(ANDROID)
         __android_log_print(ANDROID_LOG_VERBOSE, LOG_CHANNEL_WEBKIT_SUBSYSTEM, "[%s] %s FILE=%s:%d: %s", channel.name, logMessage.utf8().data(), file, line, function);
-#elif ENABLE(JOURNALD_LOG)
-        if (WTFShouldLogToJournal()) {
-            auto fileString = makeString("CODE_FILE="_s, unsafeSpan(file));
-            auto lineString = makeString("CODE_LINE="_s, line);
-            sd_journal_send_with_location(fileString.utf8().data(), lineString.utf8().data(), function, "WEBKIT_SUBSYSTEM=" LOG_CHANNEL_WEBKIT_SUBSYSTEM, "WEBKIT_CHANNEL=%s", channel.name, "MESSAGE=%s", logMessage.utf8().data(), nullptr);
-        } else {
-            IGNORE_WARNINGS_BEGIN("unsafe-buffer-usage-in-libc-call")
-            fprintf(stderr, "[" LOG_CHANNEL_WEBKIT_SUBSYSTEM ":%s:-] %s [%s:%d %s]\n", channel.name, logMessage.utf8().data(), file, line, function);
-            IGNORE_WARNINGS_END
-        }
 #else
         fprintf(stderr, "[" LOG_CHANNEL_WEBKIT_SUBSYSTEM ":%s:-] %s FILE=%s:%d %s\n", channel.name, logMessage.utf8().data(), file, line, function);
 #endif

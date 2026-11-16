@@ -98,7 +98,6 @@ WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_WK_WEB_EXTENSIONS PRIVATE ${ENABLE_EXPER
 # and the option is not relevant to other WebKit ports.
 WEBKIT_OPTION_DEFINE(ENABLE_DOCUMENTATION "Whether to generate documentation." PUBLIC ON)
 WEBKIT_OPTION_DEFINE(ENABLE_INTROSPECTION "Whether to enable GObject introspection." PUBLIC ON)
-WEBKIT_OPTION_DEFINE(ENABLE_JOURNALD_LOG "Whether to enable journald logging" PUBLIC ON)
 WEBKIT_OPTION_DEFINE(ENABLE_WPE_PLATFORM "Whether to enable the WPEPlatform library" PUBLIC ON)
 WEBKIT_OPTION_DEFINE(ENABLE_WPE_PLATFORM_DRM "Whether to enable support for DRM platform" PUBLIC ON)
 WEBKIT_OPTION_DEFINE(ENABLE_WPE_PLATFORM_HEADLESS "Whether to enable support for headless platform" PUBLIC ON)
@@ -365,12 +364,6 @@ if (USE_AVIF)
     endif ()
 endif ()
 
-if (ENABLE_JOURNALD_LOG)
-    find_package(Journald)
-    if (NOT Journald_FOUND)
-        message(FATAL_ERROR "libsystemd or libelogind are needed for ENABLE_JOURNALD_LOG")
-    endif ()
-endif ()
 
 if (ENABLE_ENCRYPTED_MEDIA AND ENABLE_THUNDER)
   find_package(Thunder REQUIRED)
