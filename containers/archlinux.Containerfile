@@ -86,7 +86,6 @@ RUN pacman -Syu --noconfirm --needed \
     libgcrypt \
     libtasn1 \
     libseccomp \
-    libsecret \
     gobject-introspection \
     gstreamer \
     gst-plugins-base \

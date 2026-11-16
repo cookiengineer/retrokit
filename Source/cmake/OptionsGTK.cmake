@@ -58,7 +58,6 @@ WEBKIT_OPTION_DEFINE(USE_GTK4 "Whether to enable usage of GTK4 instead of GTK3."
 WEBKIT_OPTION_DEFINE(USE_LIBBACKTRACE "Whether to enable usage of libbacktrace." PUBLIC ON)
 WEBKIT_OPTION_DEFINE(USE_LIBDRM "Whether to enable usage of libdrm." PUBLIC ON)
 WEBKIT_OPTION_DEFINE(USE_LIBHYPHEN "Whether to enable the default automatic hyphenation implementation." PUBLIC ON)
-WEBKIT_OPTION_DEFINE(USE_LIBSECRET "Whether to enable the persistent credential storage using libsecret." PUBLIC ON)
 WEBKIT_OPTION_DEFINE(USE_SKIA_OPENTYPE_SVG "Whether to use the Skia built-in support for OpenType SVG fonts." PUBLIC ON)
 WEBKIT_OPTION_DEFINE(USE_SYSTEM_SYSPROF_CAPTURE "Whether to use a system-provided libsysprof-capture" PUBLIC ON)
 WEBKIT_OPTION_DEFINE(USE_VULKAN "Whether to build support to use Vulkan." PUBLIC ${ENABLE_EXPERIMENTAL_FEATURES})
@@ -260,13 +259,6 @@ endif ()
 
 if (ENABLE_XSLT)
     find_package(LibXslt 1.1.13 REQUIRED)
-endif ()
-
-if (USE_LIBSECRET)
-    find_package(Secret)
-    if (NOT Secret_FOUND)
-        message(FATAL_ERROR "libsecret is needed for USE_LIBSECRET")
-    endif ()
 endif ()
 
 find_package(GI)

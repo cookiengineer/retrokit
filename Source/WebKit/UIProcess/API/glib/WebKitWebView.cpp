@@ -2548,9 +2548,6 @@ static void webkit_web_view_class_init(WebKitWebViewClass* webViewClass)
      * user. The @notification is kept alive until either: 1) the web page cancels it
      * or 2) a navigation happens.
      *
-     * The default handler will emit a notification using libnotify, if built with
-     * support for it.
-     *
      * Returns: %TRUE to stop other handlers from being invoked. %FALSE otherwise.
      *
      * Since: 2.8

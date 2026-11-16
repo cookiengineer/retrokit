@@ -151,9 +151,6 @@ static void webkit_notification_class_init(WebKitNotificationClass* notification
      *
      * Emitted when a notification has been withdrawn.
      *
-     * The default handler will close the notification using libnotify, if built with
-     * support for it.
-     *
      * Since: 2.8
      */
     signals[CLOSED] =

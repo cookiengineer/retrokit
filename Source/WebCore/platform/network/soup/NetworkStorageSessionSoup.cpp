@@ -46,18 +46,6 @@
 #include <wtf/Vector.h>
 #include <wtf/glib/GUniquePtr.h>
 
-#if USE(LIBSECRET)
-#include <glib/gi18n-lib.h>
-#define SECRET_WITH_UNSTABLE 1
-#define SECRET_API_SUBJECT_TO_CHANGE 1
-#include <libsecret/secret.h>
-#include <wtf/glib/GRefPtr.h>
-
-namespace WTF {
-WTF_DEFINE_GREF_TRAITS_INLINE(SecretValue, secret_value_ref, secret_value_unref)
-}
-#endif
-
 namespace WebCore {
 
 enum class ForHTTPHeader : bool { No, Yes };
@@ -176,160 +164,21 @@ void NetworkStorageSession::setCookieObserverHandler(Function<void ()>&& handler
     m_cookieObserverHandler = WTF::move(handler);
 }
 
-#if USE(LIBSECRET)
-static ASCIILiteral schemeFromProtectionSpaceServerType(ProtectionSpace::ServerType serverType)
-{
-    switch (serverType) {
-    case ProtectionSpace::ServerType::HTTP:
-    case ProtectionSpace::ServerType::ProxyHTTP:
-        return "http"_s;
-    case ProtectionSpace::ServerType::HTTPS:
-    case ProtectionSpace::ServerType::ProxyHTTPS:
-        return "https"_s;
-    case ProtectionSpace::ServerType::ProxySOCKS:
-        break;
-    }
-    RELEASE_ASSERT_NOT_REACHED();
-}
-
-static ASCIILiteral authTypeFromProtectionSpaceAuthenticationScheme(ProtectionSpace::AuthenticationScheme scheme)
-{
-    switch (scheme) {
-    case ProtectionSpace::AuthenticationScheme::Default:
-    case ProtectionSpace::AuthenticationScheme::HTTPBasic:
-        return "Basic"_s;
-    case ProtectionSpace::AuthenticationScheme::HTTPDigest:
-        return "Digest"_s;
-    case ProtectionSpace::AuthenticationScheme::NTLM:
-        return "NTLM"_s;
-    case ProtectionSpace::AuthenticationScheme::Negotiate:
-        return "Negotiate"_s;
-    case ProtectionSpace::AuthenticationScheme::HTMLForm:
-    case ProtectionSpace::AuthenticationScheme::ClientCertificateRequested:
-    case ProtectionSpace::AuthenticationScheme::ServerTrustEvaluationRequested:
-        ASSERT_NOT_REACHED();
-        break;
-    case ProtectionSpace::AuthenticationScheme::ClientCertificatePINRequested:
-        return "Certificate PIN"_s;
-    case ProtectionSpace::AuthenticationScheme::OAuth:
-        return "OAuth"_s;
-    case ProtectionSpace::AuthenticationScheme::Unknown:
-        return "unknown"_s;
-    }
-
-    RELEASE_ASSERT_NOT_REACHED();
-}
-
-struct SecretServiceSearchData {
-    WTF_DEPRECATED_MAKE_STRUCT_FAST_ALLOCATED(SecretServiceSearchData);
-    SecretServiceSearchData(GCancellable* cancellable, Function<void (Credential&&)>&& completionHandler)
-        : cancellable(cancellable)
-        , completionHandler(WTF::move(completionHandler))
-    {
-    }
-
-    ~SecretServiceSearchData() = default;
-
-    GRefPtr<GCancellable> cancellable;
-    Function<void (Credential&&)> completionHandler;
-};
-#endif // USE(LIBSECRET)
-
 void NetworkStorageSession::getCredentialFromPersistentStorage(const ProtectionSpace& protectionSpace, GCancellable* cancellable, Function<void (Credential&&)>&& completionHandler)
 {
     ASSERT(!m_isInMemoryCookieStore);
 
-#if USE(LIBSECRET)
-    if (m_sessionID.isEphemeral()) {
-        completionHandler({ });
-        return;
-    }
-
-    const String& realm = protectionSpace.realm();
-    if (realm.isEmpty()) {
-        completionHandler({ });
-        return;
-    }
-
-    GRefPtr<GHashTable> attributes = adoptGRef(secret_attributes_build(SECRET_SCHEMA_COMPAT_NETWORK,
-        "domain", realm.utf8().data(),
-        "server", protectionSpace.host().utf8().data(),
-        "port", protectionSpace.port(),
-        "protocol", schemeFromProtectionSpaceServerType(protectionSpace.serverType()).characters(),
-        "authtype", authTypeFromProtectionSpaceAuthenticationScheme(protectionSpace.authenticationScheme()).characters(),
-        nullptr));
-    if (!attributes) {
-        completionHandler({ });
-        return;
-    }
-
-    auto data = makeUnique<SecretServiceSearchData>(cancellable, WTF::move(completionHandler));
-    secret_service_search(nullptr, SECRET_SCHEMA_COMPAT_NETWORK, attributes.get(),
-        static_cast<SecretSearchFlags>(SECRET_SEARCH_UNLOCK | SECRET_SEARCH_LOAD_SECRETS), cancellable,
-        [](GObject* source, GAsyncResult* result, gpointer userData) {
-            auto data = std::unique_ptr<SecretServiceSearchData>(static_cast<SecretServiceSearchData*>(userData));
-            GUniqueOutPtr<GError> error;
-            GUniquePtr<GList> elements(secret_service_search_finish(SECRET_SERVICE(source), result, &error.outPtr()));
-            if (g_cancellable_is_cancelled(data->cancellable.get()) || error || !elements || !elements->data) {
-                data->completionHandler({ });
-                return;
-            }
-
-            GRefPtr<SecretItem> secretItem = static_cast<SecretItem*>(elements->data);
-            g_list_foreach(elements.get(), reinterpret_cast<GFunc>(reinterpret_cast<GCallback>(g_object_unref)), nullptr);
-            GRefPtr<GHashTable> attributes = adoptGRef(secret_item_get_attributes(secretItem.get()));
-            String user = String::fromUTF8(static_cast<const char*>(g_hash_table_lookup(attributes.get(), "user")));
-            if (user.isEmpty()) {
-                data->completionHandler({ });
-                return;
-            }
-
-            size_t length;
-            GRefPtr<SecretValue> secretValue = adoptGRef(secret_item_get_secret(secretItem.get()));
-            const char* passwordData = secret_value_get(secretValue.get(), &length);
-            data->completionHandler(Credential(user, String::fromUTF8(unsafeMakeSpan(passwordData, length)), CredentialPersistence::Permanent));
-        }, data.release());
-#else
     UNUSED_PARAM(protectionSpace);
     UNUSED_PARAM(cancellable);
     completionHandler({ });
-#endif
 }
 
 void NetworkStorageSession::saveCredentialToPersistentStorage(const ProtectionSpace& protectionSpace, const Credential& credential)
 {
     ASSERT(!m_isInMemoryCookieStore);
 
-#if USE(LIBSECRET)
-    if (m_sessionID.isEphemeral())
-        return;
-
-    if (credential.isEmpty())
-        return;
-
-    const String& realm = protectionSpace.realm();
-    if (realm.isEmpty())
-        return;
-
-    GRefPtr<GHashTable> attributes = adoptGRef(secret_attributes_build(SECRET_SCHEMA_COMPAT_NETWORK,
-        "domain", realm.utf8().data(),
-        "server", protectionSpace.host().utf8().data(),
-        "port", protectionSpace.port(),
-        "protocol", schemeFromProtectionSpaceServerType(protectionSpace.serverType()).characters(),
-        "authtype", authTypeFromProtectionSpaceAuthenticationScheme(protectionSpace.authenticationScheme()).characters(),
-        nullptr));
-    if (!attributes)
-        return;
-
-    g_hash_table_insert(attributes.get(), g_strdup("user"), g_strdup(credential.user().utf8().data()));
-    CString utf8Password = credential.password().utf8();
-    GRefPtr<SecretValue> newSecretValue = adoptGRef(secret_value_new(utf8Password.data(), utf8Password.length(), "text/plain"));
-    secret_service_store(nullptr, SECRET_SCHEMA_COMPAT_NETWORK, attributes.get(), SECRET_COLLECTION_DEFAULT, _("WebKitGTK password"),
-        newSecretValue.get(), nullptr, nullptr, nullptr);
-#else
     UNUSED_PARAM(protectionSpace);
     UNUSED_PARAM(credential);
-#endif
 }
 
 void NetworkStorageSession::setCookieAcceptPolicy(HTTPCookieAcceptPolicy policy)

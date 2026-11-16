@@ -92,7 +92,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgcrypt20-dev \
     libtasn1-6-dev \
     libseccomp-dev \
-    libsecret-1-dev \
     libgstreamer1.0-dev \
     libgstreamer-plugins-base1.0-dev \
     libgstreamer-plugins-bad1.0-dev \

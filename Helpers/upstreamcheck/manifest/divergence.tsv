@@ -2489,108 +2489,17 @@ incremental-pdf	file	-	Source/WebCore/page/RuntimeEnabledFeatures.h	modified	sou
 incremental-pdf	method	WebCore::RuntimeEnabledFeatures::experimentalPlugInSandboxProfilesEnabled	Source/WebCore/page/RuntimeEnabledFeatures.h	removed	source	bd8d3cb4801a100beef71ad65419a9283438fa4a	line=105
 incremental-pdf	method	WebCore::RuntimeEnabledFeatures::setExperimentalPlugInSandboxProfilesEnabled	Source/WebCore/page/RuntimeEnabledFeatures.h	removed	source	bd8d3cb4801a100beef71ad65419a9283438fa4a	line=104
 incremental-pdf	file	-	Source/WebKit/Platform/Logging.h	modified	source	bd8d3cb4801a100beef71ad65419a9283438fa4a	origin=bd8d3cb4801a100beef71ad65419a9283438fa4a :unicorn: Remove IncrementalPDF Hack
-libnotify	file	-	Source/WebCore/PAL/pal/Logging.cpp	modified	source	c3b865b65792769bf332bbc74e831225bfc22efa	origin=c3b865b65792769bf332bbc74e831225bfc22efa :unicorn: Remove libnotify
-libnotify	file	-	Source/WebKit/NetworkProcess/NetworkConnectionToWebProcess.cpp	modified	source	c3b865b65792769bf332bbc74e831225bfc22efa	origin=c3b865b65792769bf332bbc74e831225bfc22efa :unicorn: Remove libnotify
-libnotify	file	-	Source/WebKit/NetworkProcess/NetworkConnectionToWebProcess.h	modified	source	c3b865b65792769bf332bbc74e831225bfc22efa	origin=c3b865b65792769bf332bbc74e831225bfc22efa :unicorn: Remove libnotify
-libnotify	file	-	Source/WebKit/NetworkProcess/cache/NetworkCache.cpp	modified	source	c3b865b65792769bf332bbc74e831225bfc22efa	origin=c3b865b65792769bf332bbc74e831225bfc22efa :unicorn: Remove libnotify
-libnotify	config_line	${LIBNOTIFY_INCLUDE_DIRS}	Source/WebKit/PlatformGTK.cmake	removed	source	c3b865b65792769bf332bbc74e831225bfc22efa	line=468; commit=c3b865b65792
-libnotify	config_line	${LIBNOTIFY_LIBRARIES}	Source/WebKit/PlatformGTK.cmake	removed	source	c3b865b65792769bf332bbc74e831225bfc22efa	line=500; commit=c3b865b65792
-libnotify	config_line	if (LIBNOTIFY_FOUND)	Source/WebKit/PlatformGTK.cmake	removed	source	c3b865b65792769bf332bbc74e831225bfc22efa	line=498; commit=c3b865b65792
-libnotify	flag	if (USE_LIBNOTIFY)	Source/WebKit/PlatformGTK.cmake	removed	source	c3b865b65792769bf332bbc74e831225bfc22efa	line=466; commit=c3b865b65792
-libnotify	file	-	Source/WebKit/WebProcess/Network/NetworkProcessConnection.cpp	modified	source	c3b865b65792769bf332bbc74e831225bfc22efa	origin=c3b865b65792769bf332bbc74e831225bfc22efa :unicorn: Remove libnotify
-libnotify	file	-	Source/cmake/FindLibNotify.cmake	removed	source	c3b865b65792769bf332bbc74e831225bfc22efa	origin=c3b865b65792769bf332bbc74e831225bfc22efa :unicorn: Remove libnotify
-libnotify	config_line	find_package(LibNotify)	Source/cmake/OptionsGTK.cmake	removed	source	c3b865b65792769bf332bbc74e831225bfc22efa	line=383; commit=c3b865b65792
-libnotify	config_line	if (NOT LIBNOTIFY_FOUND)	Source/cmake/OptionsGTK.cmake	removed	source	c3b865b65792769bf332bbc74e831225bfc22efa	line=384; commit=c3b865b65792
-libnotify	flag	WEBKIT_OPTION_DEFINE(USE_LIBNOTIFY "Whether to enable the default web notification implementation." PUBLIC ON)	Source/cmake/OptionsGTK.cmake	removed	source	c3b865b65792769bf332bbc74e831225bfc22efa	line=67; commit=c3b865b65792
-libnotify	flag	if (USE_LIBNOTIFY)	Source/cmake/OptionsGTK.cmake	removed	source	c3b865b65792769bf332bbc74e831225bfc22efa	line=382; commit=c3b865b65792
-libnotify	flag	message(FATAL_ERROR "libnotify is needed for USE_LIBNOTIFY.")	Source/cmake/OptionsGTK.cmake	removed	source	c3b865b65792769bf332bbc74e831225bfc22efa	line=385; commit=c3b865b65792
-libsecret	build_ref	platform/gamepad/manette/ManetteGamepadProvider.h	Source/WebCore/PlatformGTK.cmake	removed	source	195ffe4298b53a8de2a5a6ac7ce1fb6c206f86a3	line=146
-libsecret	config_line	${LIBSECRET_INCLUDE_DIRS}	Source/WebCore/PlatformGTK.cmake	removed	source	195ffe4298b53a8de2a5a6ac7ce1fb6c206f86a3	line=120; line=120; commit=195ffe4298b5
-libsecret	config_line	${LIBSECRET_LIBRARIES}	Source/WebCore/PlatformGTK.cmake	removed	source	195ffe4298b53a8de2a5a6ac7ce1fb6c206f86a3	line=91; line=91; commit=195ffe4298b5
-libsecret	config_line	Manette::Manette	Source/WebCore/PlatformGTK.cmake	removed	source	195ffe4298b53a8de2a5a6ac7ce1fb6c206f86a3	line=149
-libsecret	file	-	Source/WebCore/PlatformGTK.cmake	modified	source	195ffe4298b53a8de2a5a6ac7ce1fb6c206f86a3	origin=195ffe4298b53a8de2a5a6ac7ce1fb6c206f86a3 :unicorn: Remove Libsecret Dependency and update Libsoup Dependency
-libsecret	flag	if (ENABLE_GAMEPAD)	Source/WebCore/PlatformGTK.cmake	removed	source	195ffe4298b53a8de2a5a6ac7ce1fb6c206f86a3	line=144
-libsecret	file	-	Source/WebCore/platform/gtk/GRefPtrGtk.cpp	modified	source	195ffe4298b53a8de2a5a6ac7ce1fb6c206f86a3	origin=195ffe4298b53a8de2a5a6ac7ce1fb6c206f86a3 :unicorn: Remove Libsecret Dependency and update Libsoup Dependency
-libsecret	file	-	Source/WebCore/platform/gtk/GRefPtrGtk.h	modified	source	195ffe4298b53a8de2a5a6ac7ce1fb6c206f86a3	origin=195ffe4298b53a8de2a5a6ac7ce1fb6c206f86a3 :unicorn: Remove Libsecret Dependency and update Libsoup Dependency
-libsecret	file	-	Source/WebCore/platform/network/NetworkStorageSession.h	modified	source	195ffe4298b53a8de2a5a6ac7ce1fb6c206f86a3	origin=195ffe4298b53a8de2a5a6ac7ce1fb6c206f86a3 :unicorn: Remove Libsecret Dependency and update Libsoup Dependency
-libsecret	file	-	Source/WebCore/platform/network/soup/AuthenticationChallenge.h	modified	source	195ffe4298b53a8de2a5a6ac7ce1fb6c206f86a3	origin=195ffe4298b53a8de2a5a6ac7ce1fb6c206f86a3 :unicorn: Remove Libsecret Dependency and update Libsoup Dependency
-libsecret	file	-	Source/WebCore/platform/network/soup/AuthenticationChallengeSoup.cpp	modified	source	195ffe4298b53a8de2a5a6ac7ce1fb6c206f86a3	origin=195ffe4298b53a8de2a5a6ac7ce1fb6c206f86a3 :unicorn: Remove Libsecret Dependency and update Libsoup Dependency
-libsecret	file	-	Source/WebCore/platform/network/soup/CookieSoup.cpp	modified	source	195ffe4298b53a8de2a5a6ac7ce1fb6c206f86a3	origin=195ffe4298b53a8de2a5a6ac7ce1fb6c206f86a3 :unicorn: Remove Libsecret Dependency and update Libsoup Dependency
-libsecret	file	-	Source/WebCore/platform/network/soup/GUniquePtrSoup.h	modified	source	195ffe4298b53a8de2a5a6ac7ce1fb6c206f86a3	origin=195ffe4298b53a8de2a5a6ac7ce1fb6c206f86a3 :unicorn: Remove Libsecret Dependency and update Libsoup Dependency
-libsecret	file	-	Source/WebCore/platform/network/soup/NetworkStorageSessionSoup.cpp	modified	source	fece61483777470fc46f970621612dee9175325e	origin=fece61483777470fc46f970621612dee9175325e :bug: Fixes for Soup and Input Mode
-libsecret	file	-	Source/WebCore/platform/network/soup/ResourceErrorSoup.cpp	modified	source	195ffe4298b53a8de2a5a6ac7ce1fb6c206f86a3	origin=195ffe4298b53a8de2a5a6ac7ce1fb6c206f86a3 :unicorn: Remove Libsecret Dependency and update Libsoup Dependency
-libsecret	file	-	Source/WebCore/platform/network/soup/ResourceRequest.h	modified	source	195ffe4298b53a8de2a5a6ac7ce1fb6c206f86a3	origin=195ffe4298b53a8de2a5a6ac7ce1fb6c206f86a3 :unicorn: Remove Libsecret Dependency and update Libsoup Dependency
-libsecret	method	WebCore::ResourceRequest::createSoupURI	Source/WebCore/platform/network/soup/ResourceRequest.h	added	source	195ffe4298b53a8de2a5a6ac7ce1fb6c206f86a3	line=81
-libsecret	file	-	Source/WebCore/platform/network/soup/ResourceRequestSoup.cpp	modified	source	195ffe4298b53a8de2a5a6ac7ce1fb6c206f86a3	origin=195ffe4298b53a8de2a5a6ac7ce1fb6c206f86a3 :unicorn: Remove Libsecret Dependency and update Libsoup Dependency
-libsecret	file	-	Source/WebCore/platform/network/soup/ResourceResponseSoup.cpp	modified	source	195ffe4298b53a8de2a5a6ac7ce1fb6c206f86a3	origin=195ffe4298b53a8de2a5a6ac7ce1fb6c206f86a3 :unicorn: Remove Libsecret Dependency and update Libsoup Dependency
-libsecret	file	-	Source/WebCore/platform/network/soup/SoupNetworkSession.cpp	modified	source	195ffe4298b53a8de2a5a6ac7ce1fb6c206f86a3	origin=195ffe4298b53a8de2a5a6ac7ce1fb6c206f86a3 :unicorn: Remove Libsecret Dependency and update Libsoup Dependency
-libsecret	file	-	Source/WebCore/platform/network/soup/SoupVersioning.h	removed	source	195ffe4298b53a8de2a5a6ac7ce1fb6c206f86a3	origin=195ffe4298b53a8de2a5a6ac7ce1fb6c206f86a3 :unicorn: Remove Libsecret Dependency and update Libsoup Dependency
-libsecret	file	-	Source/WebCore/platform/network/soup/URLSoup.cpp	modified	source	195ffe4298b53a8de2a5a6ac7ce1fb6c206f86a3	origin=195ffe4298b53a8de2a5a6ac7ce1fb6c206f86a3 :unicorn: Remove Libsecret Dependency and update Libsoup Dependency
-libsecret	function	WebCore::soupURIToURL	Source/WebCore/platform/network/soup/URLSoup.cpp	added	source	195ffe4298b53a8de2a5a6ac7ce1fb6c206f86a3	line=33
-libsecret	function	WebCore::urlToSoupURI	Source/WebCore/platform/network/soup/URLSoup.cpp	added	source	195ffe4298b53a8de2a5a6ac7ce1fb6c206f86a3	line=38
-libsecret	file	-	Source/WebCore/platform/network/soup/URLSoup.h	modified	source	195ffe4298b53a8de2a5a6ac7ce1fb6c206f86a3	origin=195ffe4298b53a8de2a5a6ac7ce1fb6c206f86a3 :unicorn: Remove Libsecret Dependency and update Libsoup Dependency
-libsecret	function	WebCore::soupURIToURL	Source/WebCore/platform/network/soup/URLSoup.h	added	source	195ffe4298b53a8de2a5a6ac7ce1fb6c206f86a3	line=36
-libsecret	function	WebCore::urlToSoupURI	Source/WebCore/platform/network/soup/URLSoup.h	added	source	195ffe4298b53a8de2a5a6ac7ce1fb6c206f86a3	line=37
-libsecret	file	-	Source/WebKit/NetworkProcess/soup/NetworkDataTaskSoup.cpp	modified	source	fece61483777470fc46f970621612dee9175325e	origin=fece61483777470fc46f970621612dee9175325e :bug: Fixes for Soup and Input Mode
-libsecret	function	WebKit::tlsProtocolVersionToString	Source/WebKit/NetworkProcess/soup/NetworkDataTaskSoup.cpp	added	source	fece61483777470fc46f970621612dee9175325e	line=1039
-libsecret	method	WebKit::NetworkDataTaskSoup::acceptCertificateCallback	Source/WebKit/NetworkProcess/soup/NetworkDataTaskSoup.cpp	added	source	fece61483777470fc46f970621612dee9175325e	line=498
-libsecret	method	WebKit::NetworkDataTaskSoup::authenticateCallback	Source/WebKit/NetworkProcess/soup/NetworkDataTaskSoup.cpp	added	source	fece61483777470fc46f970621612dee9175325e	line=569
-libsecret	method	WebKit::NetworkDataTaskSoup::cleanDownloadFiles	Source/WebKit/NetworkProcess/soup/NetworkDataTaskSoup.cpp	added	source	fece61483777470fc46f970621612dee9175325e	line=1297
-libsecret	method	WebKit::NetworkDataTaskSoup::didFail	Source/WebKit/NetworkProcess/soup/NetworkDataTaskSoup.cpp	added	source	fece61483777470fc46f970621612dee9175325e	line=1309
-libsecret	method	WebKit::NetworkDataTaskSoup::didFailDownload	Source/WebKit/NetworkProcess/soup/NetworkDataTaskSoup.cpp	added	source	fece61483777470fc46f970621612dee9175325e	line=1284
-libsecret	method	WebKit::NetworkDataTaskSoup::didFinishDownload	Source/WebKit/NetworkProcess/soup/NetworkDataTaskSoup.cpp	added	source	fece61483777470fc46f970621612dee9175325e	line=1257
-libsecret	method	WebKit::NetworkDataTaskSoup::didGetFileInfo	Source/WebKit/NetworkProcess/soup/NetworkDataTaskSoup.cpp	added	source	fece61483777470fc46f970621612dee9175325e	line=1433
-libsecret	method	WebKit::NetworkDataTaskSoup::didReadDataURL	Source/WebKit/NetworkProcess/soup/NetworkDataTaskSoup.cpp	added	source	fece61483777470fc46f970621612dee9175325e	line=1503
-libsecret	method	WebKit::NetworkDataTaskSoup::didReadFile	Source/WebKit/NetworkProcess/soup/NetworkDataTaskSoup.cpp	added	source	fece61483777470fc46f970621612dee9175325e	line=1497
-libsecret	method	WebKit::NetworkDataTaskSoup::didRestart	Source/WebKit/NetworkProcess/soup/NetworkDataTaskSoup.cpp	added	source	fece61483777470fc46f970621612dee9175325e	line=1400
-libsecret	method	WebKit::NetworkDataTaskSoup::didStartRequest	Source/WebKit/NetworkProcess/soup/NetworkDataTaskSoup.cpp	added	source	fece61483777470fc46f970621612dee9175325e	line=1368
-libsecret	method	WebKit::NetworkDataTaskSoup::didWriteBodyData	Source/WebKit/NetworkProcess/soup/NetworkDataTaskSoup.cpp	added	source	fece61483777470fc46f970621612dee9175325e	line=1173
-libsecret	method	WebKit::NetworkDataTaskSoup::didWriteDownload	Source/WebKit/NetworkProcess/soup/NetworkDataTaskSoup.cpp	added	source	fece61483777470fc46f970621612dee9175325e	line=1248
-libsecret	method	WebKit::NetworkDataTaskSoup::download	Source/WebKit/NetworkProcess/soup/NetworkDataTaskSoup.cpp	added	source	fece61483777470fc46f970621612dee9175325e	line=1180
-libsecret	method	WebKit::NetworkDataTaskSoup::enumerateFileChildrenCallback	Source/WebKit/NetworkProcess/soup/NetworkDataTaskSoup.cpp	added	source	fece61483777470fc46f970621612dee9175325e	line=1473
-libsecret	method	WebKit::NetworkDataTaskSoup::fileQueryInfoCallback	Source/WebKit/NetworkProcess/soup/NetworkDataTaskSoup.cpp	added	source	fece61483777470fc46f970621612dee9175325e	line=1409
-libsecret	method	WebKit::NetworkDataTaskSoup::gotBodyCallback	Source/WebKit/NetworkProcess/soup/NetworkDataTaskSoup.cpp	added	source	fece61483777470fc46f970621612dee9175325e	line=1129
-libsecret	method	WebKit::NetworkDataTaskSoup::preconnectCallback	Source/WebKit/NetworkProcess/soup/NetworkDataTaskSoup.cpp	added	source	fece61483777470fc46f970621612dee9175325e	line=477
-libsecret	method	WebKit::NetworkDataTaskSoup::readFileCallback	Source/WebKit/NetworkProcess/soup/NetworkDataTaskSoup.cpp	added	source	fece61483777470fc46f970621612dee9175325e	line=1449
-libsecret	method	WebKit::NetworkDataTaskSoup::requestCertificateCallback	Source/WebKit/NetworkProcess/soup/NetworkDataTaskSoup.cpp	added	source	fece61483777470fc46f970621612dee9175325e	line=1141
-libsecret	method	WebKit::NetworkDataTaskSoup::requestCertificatePasswordCallback	Source/WebKit/NetworkProcess/soup/NetworkDataTaskSoup.cpp	added	source	fece61483777470fc46f970621612dee9175325e	line=1152
-libsecret	method	WebKit::NetworkDataTaskSoup::restartedCallback	Source/WebKit/NetworkProcess/soup/NetworkDataTaskSoup.cpp	added	source	fece61483777470fc46f970621612dee9175325e	line=1389
-libsecret	method	WebKit::NetworkDataTaskSoup::startingCallback	Source/WebKit/NetworkProcess/soup/NetworkDataTaskSoup.cpp	added	source	fece61483777470fc46f970621612dee9175325e	line=1321
-libsecret	method	WebKit::NetworkDataTaskSoup::writeDownload	Source/WebKit/NetworkProcess/soup/NetworkDataTaskSoup.cpp	added	source	fece61483777470fc46f970621612dee9175325e	line=1241
-libsecret	method	WebKit::NetworkDataTaskSoup::writeDownloadCallback	Source/WebKit/NetworkProcess/soup/NetworkDataTaskSoup.cpp	added	source	fece61483777470fc46f970621612dee9175325e	line=1223
-libsecret	method	WebKit::NetworkDataTaskSoup::wroteBodyCallback	Source/WebKit/NetworkProcess/soup/NetworkDataTaskSoup.cpp	added	source	fece61483777470fc46f970621612dee9175325e	line=1118
-libsecret	method	WebKit::NetworkDataTaskSoup::wroteBodyDataCallback	Source/WebKit/NetworkProcess/soup/NetworkDataTaskSoup.cpp	added	source	fece61483777470fc46f970621612dee9175325e	line=1163
-libsecret	method	WebKit::NetworkDataTaskSoup::wroteHeadersCallback	Source/WebKit/NetworkProcess/soup/NetworkDataTaskSoup.cpp	added	source	fece61483777470fc46f970621612dee9175325e	line=1107
-libsecret	file	-	Source/WebKit/NetworkProcess/soup/NetworkDataTaskSoup.h	modified	source	195ffe4298b53a8de2a5a6ac7ce1fb6c206f86a3	origin=195ffe4298b53a8de2a5a6ac7ce1fb6c206f86a3 :unicorn: Remove Libsecret Dependency and update Libsoup Dependency
-libsecret	method	WebKit::NetworkDataTaskSoup::acceptCertificateCallback	Source/WebKit/NetworkProcess/soup/NetworkDataTaskSoup.h	added	source	195ffe4298b53a8de2a5a6ac7ce1fb6c206f86a3	line=84
-libsecret	method	WebKit::NetworkDataTaskSoup::authenticateCallback	Source/WebKit/NetworkProcess/soup/NetworkDataTaskSoup.h	added	source	195ffe4298b53a8de2a5a6ac7ce1fb6c206f86a3	line=92
-libsecret	method	WebKit::NetworkDataTaskSoup::gotBodyCallback	Source/WebKit/NetworkProcess/soup/NetworkDataTaskSoup.h	added	source	195ffe4298b53a8de2a5a6ac7ce1fb6c206f86a3	line=122
-libsecret	method	WebKit::NetworkDataTaskSoup::preconnectCallback	Source/WebKit/NetworkProcess/soup/NetworkDataTaskSoup.h	added	source	195ffe4298b53a8de2a5a6ac7ce1fb6c206f86a3	line=82
-libsecret	method	WebKit::NetworkDataTaskSoup::requestCertificateCallback	Source/WebKit/NetworkProcess/soup/NetworkDataTaskSoup.h	added	source	195ffe4298b53a8de2a5a6ac7ce1fb6c206f86a3	line=123
-libsecret	method	WebKit::NetworkDataTaskSoup::requestCertificatePasswordCallback	Source/WebKit/NetworkProcess/soup/NetworkDataTaskSoup.h	added	source	195ffe4298b53a8de2a5a6ac7ce1fb6c206f86a3	line=124
-libsecret	method	WebKit::NetworkDataTaskSoup::wroteBodyCallback	Source/WebKit/NetworkProcess/soup/NetworkDataTaskSoup.h	added	source	195ffe4298b53a8de2a5a6ac7ce1fb6c206f86a3	line=121
-libsecret	method	WebKit::NetworkDataTaskSoup::wroteBodyDataCallback	Source/WebKit/NetworkProcess/soup/NetworkDataTaskSoup.h	added	source	195ffe4298b53a8de2a5a6ac7ce1fb6c206f86a3	line=117
-libsecret	method	WebKit::NetworkDataTaskSoup::wroteHeadersCallback	Source/WebKit/NetworkProcess/soup/NetworkDataTaskSoup.h	added	source	195ffe4298b53a8de2a5a6ac7ce1fb6c206f86a3	line=120
-libsecret	file	-	Source/WebKit/NetworkProcess/soup/NetworkSessionSoup.cpp	modified	source	195ffe4298b53a8de2a5a6ac7ce1fb6c206f86a3	origin=195ffe4298b53a8de2a5a6ac7ce1fb6c206f86a3 :unicorn: Remove Libsecret Dependency and update Libsoup Dependency
-libsecret	file	-	Source/WebKit/NetworkProcess/soup/WebSocketTaskSoup.cpp	modified	source	fece61483777470fc46f970621612dee9175325e	origin=fece61483777470fc46f970621612dee9175325e :bug: Fixes for Soup and Input Mode
-libsecret	file	-	Source/WebKit/UIProcess/API/glib/WebKitAuthenticationRequest.cpp	modified	source	195ffe4298b53a8de2a5a6ac7ce1fb6c206f86a3	origin=195ffe4298b53a8de2a5a6ac7ce1fb6c206f86a3 :unicorn: Remove Libsecret Dependency and update Libsoup Dependency
-libsecret	file	-	Source/cmake/FindLibsecret.cmake	removed	source	195ffe4298b53a8de2a5a6ac7ce1fb6c206f86a3	origin=195ffe4298b53a8de2a5a6ac7ce1fb6c206f86a3 :unicorn: Remove Libsecret Dependency and update Libsoup Dependency
-libsecret	config_line	else ()	Source/cmake/OptionsGTK.cmake	removed	source	195ffe4298b53a8de2a5a6ac7ce1fb6c206f86a3	line=218; commit=195ffe4298b5; line=335; commit=195ffe4298b5
-libsecret	config_line	find_package(Libsecret)	Source/cmake/OptionsGTK.cmake	removed	source	195ffe4298b53a8de2a5a6ac7ce1fb6c206f86a3	line=289; commit=195ffe4298b5
-libsecret	config_line	if (NOT LIBSECRET_FOUND)	Source/cmake/OptionsGTK.cmake	removed	source	195ffe4298b53a8de2a5a6ac7ce1fb6c206f86a3	line=290; commit=195ffe4298b5
-libsecret	config_line	message(FATAL_ERROR "libsoup is required.")	Source/cmake/OptionsGTK.cmake	removed	source	195ffe4298b53a8de2a5a6ac7ce1fb6c206f86a3	line=206; commit=195ffe4298b5
-libsecret	config_line	set(SOUP_API_VERSION 2.4)	Source/cmake/OptionsGTK.cmake	removed	source	195ffe4298b53a8de2a5a6ac7ce1fb6c206f86a3	line=196; commit=195ffe4298b5
-libsecret	config_line	set(SOUP_MINIMUM_VERSION 2.54.0)	Source/cmake/OptionsGTK.cmake	removed	source	195ffe4298b53a8de2a5a6ac7ce1fb6c206f86a3	line=195; commit=195ffe4298b5
-libsecret	config_line	set(WEBKITGTK_API_DOC_VERSION 4.0)	Source/cmake/OptionsGTK.cmake	removed	source	195ffe4298b53a8de2a5a6ac7ce1fb6c206f86a3	line=221; commit=195ffe4298b5
-libsecret	config_line	set(WEBKITGTK_API_VERSION 4.0)	Source/cmake/OptionsGTK.cmake	removed	source	195ffe4298b53a8de2a5a6ac7ce1fb6c206f86a3	line=216; commit=195ffe4298b5
-libsecret	flag	WEBKIT_OPTION_CONFLICT(USE_GTK4 USE_SOUP2)	Source/cmake/OptionsGTK.cmake	removed	source	195ffe4298b53a8de2a5a6ac7ce1fb6c206f86a3	line=88; commit=195ffe4298b5
-libsecret	flag	WEBKIT_OPTION_DEFINE(USE_LIBSECRET "Whether to enable the persistent credential storage using libsecret." PUBLIC ON)	Source/cmake/OptionsGTK.cmake	removed	source	195ffe4298b53a8de2a5a6ac7ce1fb6c206f86a3	line=68; commit=195ffe4298b5
-libsecret	flag	WEBKIT_OPTION_DEFINE(USE_SOUP2 "Whether to enable usage of Soup 2 instead of Soup 3." PUBLIC OFF)	Source/cmake/OptionsGTK.cmake	removed	source	195ffe4298b53a8de2a5a6ac7ce1fb6c206f86a3	line=71; commit=195ffe4298b5
-libsecret	flag	elseif (USE_SOUP2)	Source/cmake/OptionsGTK.cmake	removed	source	195ffe4298b53a8de2a5a6ac7ce1fb6c206f86a3	line=215; commit=195ffe4298b5
-libsecret	flag	if (USE_LIBSECRET)	Source/cmake/OptionsGTK.cmake	removed	source	195ffe4298b53a8de2a5a6ac7ce1fb6c206f86a3	line=288; commit=195ffe4298b5
-libsecret	flag	if (USE_SOUP2)	Source/cmake/OptionsGTK.cmake	removed	source	195ffe4298b53a8de2a5a6ac7ce1fb6c206f86a3	line=194; commit=195ffe4298b5; line=205; commit=195ffe4298b5
-libsecret	flag	message(FATAL_ERROR "libsecret is needed for USE_LIBSECRET")	Source/cmake/OptionsGTK.cmake	removed	source	195ffe4298b53a8de2a5a6ac7ce1fb6c206f86a3	line=291; commit=195ffe4298b5
-libsecret	flag	message(FATAL_ERROR "libsoup 3 is required. Enable USE_SOUP2 to use libsoup 2 (disables HTTP/2)")	Source/cmake/OptionsGTK.cmake	removed	source	195ffe4298b53a8de2a5a6ac7ce1fb6c206f86a3	line=208; commit=195ffe4298b5
+libnotify	behavior	libnotify-integration-absent	Source/WebKit/UIProcess/API/glib/WebKitNotification.cpp	modified	source	manual:libnotify-2.54	libnotify is not linked; stale API documentation references removed
+libsecret	build_ref	Secret::Secret	Source/WebCore/PlatformGTK.cmake	removed	source	manual:libsecret-2.54	libsecret integration removal (2.54)
+libsecret	file	-	Source/WebCore/PlatformGTK.cmake	modified	source	manual:libsecret-2.54	libsecret integration removal (2.54); integration change
+libsecret	behavior	persistent-credential-storage-disabled	Source/WebCore/platform/network/soup/NetworkStorageSessionSoup.cpp	modified	source	manual:libsecret-2.54	Persistent credential storage removed; credentials stay in memory for the session
+libsecret	file	-	Source/WebCore/platform/network/soup/NetworkStorageSessionSoup.cpp	modified	source	manual:libsecret-2.54	libsecret integration removal (2.54); integration change
+libsecret	file	-	Source/WebKit/UIProcess/API/glib/WebKitAuthenticationRequest.cpp	modified	source	manual:libsecret-2.54	libsecret integration removal (2.54); integration change
+libsecret	file	-	Source/cmake/FindSecret.cmake	removed	source	manual:libsecret-2.54	libsecret integration removal (2.54); deleted file
+libsecret	file	-	Source/cmake/OptionsGTK.cmake	modified	source	manual:libsecret-2.54	libsecret integration removal (2.54); integration change
+libsecret	flag	WEBKIT_OPTION_DEFINE(USE_LIBSECRET "Whether to enable the persistent credential storage using libsecret." PUBLIC ON)	Source/cmake/OptionsGTK.cmake	removed	source	manual:libsecret-2.54	libsecret integration removal (2.54)
+libsecret	file	-	containers/archlinux.Containerfile	modified	source	manual:libsecret-2.54	libsecret integration removal (2.54); integration change
+libsecret	file	-	containers/debian.Containerfile	modified	source	manual:libsecret-2.54	libsecret integration removal (2.54); integration change
 maintenance	file	-	Source/WTF/wtf/StringExtras.h	modified	source	f00442c33ea4904f6deac62075b8da554f8e910c	origin=f00442c33ea4904f6deac62075b8da554f8e910c :bug: Fix for MEMMEM
 maintenance	build_ref	"${WEBCORE_DIR}/Modules/speech"	Source/WebCore/CMakeLists.txt	removed	source	b5f9982ac10e2fbb9f9cbcb5518729d013c5ae6b	line=43; commit=b5f9982ac10e
 maintenance	build_ref	"${WEBCORE_DIR}/bridge/c"	Source/WebCore/CMakeLists.txt	removed	source	82d0b2e14fcac3b505e686aaa360dd27963d725e	line=68; commit=82d0b2e14fca
