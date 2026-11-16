@@ -35,28 +35,4 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 
 #pragma mark Loading
 
-+ (void)registerSchemeForCustomProtocol:(NSString *)scheme
-{
-    if ([NSThread isMainThread])
-        WebKit::WebProcessPool::registerGlobalURLSchemeAsHavingCustomProtocolHandlers(scheme);
-    else {
-        // This cannot be RunLoop::mainSingleton().dispatch because it is called before the main runloop is initialized. See rdar://problem/73615999
-        WorkQueue::mainSingleton().dispatch([scheme = retainPtr(scheme)] {
-            WebKit::WebProcessPool::registerGlobalURLSchemeAsHavingCustomProtocolHandlers(scheme.get());
-        });
-    }
-}
-
-+ (void)unregisterSchemeForCustomProtocol:(NSString *)scheme
-{
-    if ([NSThread isMainThread])
-        WebKit::WebProcessPool::unregisterGlobalURLSchemeAsHavingCustomProtocolHandlers(scheme);
-    else {
-        // This cannot be RunLoop::mainSingleton().dispatch because it is called before the main runloop is initialized. See rdar://problem/73615999
-        WorkQueue::mainSingleton().dispatch([scheme = retainPtr(scheme)] {
-            WebKit::WebProcessPool::unregisterGlobalURLSchemeAsHavingCustomProtocolHandlers(scheme.get());
-        });
-    }
-}
-
 @end

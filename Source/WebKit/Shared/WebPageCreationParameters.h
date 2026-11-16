@@ -258,7 +258,6 @@ struct WebPageCreationParameters {
     std::optional<double> cpuLimit { };
 
     HashMap<String, WebURLSchemeHandlerIdentifier> urlSchemeHandlers { };
-    Vector<String> urlSchemesWithLegacyCustomProtocolHandlers { };
 
 #if ENABLE(APPLICATION_MANIFEST)
     std::optional<WebCore::ApplicationManifest> applicationManifest { };

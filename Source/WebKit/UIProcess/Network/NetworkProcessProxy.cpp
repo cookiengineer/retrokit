@@ -27,7 +27,6 @@
 #include "NetworkProcessProxy.h"
 
 #include "APIContentRuleList.h"
-#include "APICustomProtocolManagerClient.h"
 #include "APIDataTask.h"
 #include "APIDataTaskClient.h"
 #include "APIHTTPCookieStore.h"
@@ -106,14 +105,8 @@
 #include <wtf/spi/darwin/XPCSPI.h>
 #endif
 
-#if ENABLE(LEGACY_CUSTOM_PROTOCOL_MANAGER)
-#include "LegacyCustomProtocolManagerMessages.h"
-#include "LegacyCustomProtocolManagerProxyMessages.h"
-#endif
-
 #if PLATFORM(COCOA)
 #include "DefaultWebBrowserChecks.h"
-#include "LegacyCustomProtocolManagerClient.h"
 #include "WebPrivacyHelpers.h"
 #include <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
 #endif
@@ -209,7 +202,6 @@ void NetworkProcessProxy::sendCreationParametersToNewProcess()
     parameters.urlSchemesRegisteredAsNoAccess = copyToVector(LegacyGlobalSettings::singleton().schemesToRegisterAsNoAccess());
 #endif
     parameters.cacheModel = LegacyGlobalSettings::singleton().cacheModel();
-    parameters.urlSchemesRegisteredForCustomProtocols = WebProcessPool::urlSchemesWithCustomProtocolHandlers();
     parameters.localhostAliasesForTesting = LegacyGlobalSettings::singleton().hostnamesToRegisterAsLocal();
 
 #if !PLATFORM(GTK) && !PLATFORM(WPE) // GTK and WPE don't use defaultNetworkProcess
@@ -265,12 +257,6 @@ NetworkProcessProxy::NetworkProcessProxy()
     : AuxiliaryProcessProxy("NetworkProcess"_s, WebProcessPool::anyProcessPoolNeedsUIBackgroundAssertion() ? ShouldTakeUIBackgroundAssertion::Yes : ShouldTakeUIBackgroundAssertion::No
     , anyProcessPoolAlwaysRunsAtBackgroundPriority() ? AlwaysRunsAtBackgroundPriority::Yes : AlwaysRunsAtBackgroundPriority::No
     , networkProcessResponsivenessTimeout)
-#if ENABLE(LEGACY_CUSTOM_PROTOCOL_MANAGER)
-    , m_customProtocolManagerClient(makeUniqueRef<LegacyCustomProtocolManagerClient>())
-    , m_customProtocolManagerProxy(*this)
-#else
-    , m_customProtocolManagerClient(makeUniqueRef<API::CustomProtocolManagerClient>())
-#endif
 #if PLATFORM(MAC)
     , m_backgroundActivityToPreventSuspension(protect(throttler())->backgroundActivity("Prevent suspension"_s))
 #endif
@@ -490,9 +476,6 @@ void NetworkProcessProxy::networkProcessDidTerminate(ProcessTerminationReason re
 
     if (RefPtr downloadProxyMap = m_downloadProxyMap.get())
         downloadProxyMap->invalidate();
-#if ENABLE(LEGACY_CUSTOM_PROTOCOL_MANAGER)
-    protect(m_customProtocolManagerProxy)->invalidate();
-#endif
 
     m_uploadActivity = std::nullopt;
 
@@ -1651,24 +1634,6 @@ void NetworkProcessProxy::increaseQuota(PAL::SessionID sessionID, const WebCore:
         if (RefPtr protectedThis = weakThis.get())
             protectedThis->send(Messages::NetworkProcess::DidIncreaseQuota(sessionID, origin, identifier, result), 0);
     });
-}
-
-void NetworkProcessProxy::registerSchemeForLegacyCustomProtocol(const String& scheme)
-{
-#if ENABLE(LEGACY_CUSTOM_PROTOCOL_MANAGER)
-    send(Messages::LegacyCustomProtocolManager::RegisterScheme(scheme), 0);
-#else
-    UNUSED_PARAM(scheme);
-#endif
-}
-
-void NetworkProcessProxy::unregisterSchemeForLegacyCustomProtocol(const String& scheme)
-{
-#if ENABLE(LEGACY_CUSTOM_PROTOCOL_MANAGER)
-    send(Messages::LegacyCustomProtocolManager::UnregisterScheme(scheme), 0);
-#else
-    UNUSED_PARAM(scheme);
-#endif
 }
 
 void NetworkProcessProxy::setWebProcessHasUploads(WebCore::ProcessIdentifier processID, bool hasUpload)

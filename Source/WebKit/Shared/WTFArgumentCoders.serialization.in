@@ -211,7 +211,6 @@ template: struct WebCore::SnapshotIdentifierType
 template: enum class WebCore::WebLockIdentifierType
 template: enum class WebCore::WorkerFileSystemStorageConnectionCallbackIdentifierType
 template: struct WebKit::GPUProcessConnectionIdentifierType
-template: enum class WebKit::LegacyCustomProtocolIDType
 template: struct WebKit::LibWebRTCResolverIdentifierType
 template: struct WebKit::LogStreamIdentifierType
 template: struct WebKit::RemoteGradientIdentifierType

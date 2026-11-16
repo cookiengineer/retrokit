@@ -28,7 +28,6 @@
 
 #include "APIArray.h"
 #include "APIAutomationClient.h"
-#include "APICustomProtocolManagerClient.h"
 #include "APIDownloadClient.h"
 #include "APIHTTPCookieStore.h"
 #include "APIInjectedBundleClient.h"
@@ -200,17 +199,6 @@ Vector<Ref<WebProcessPool>> WebProcessPool::allProcessPools()
     return WTF::map(processPools(), [] (auto&& v) -> Ref<WebProcessPool> {
         return v.get();
     });
-}
-
-static HashSet<String, ASCIICaseInsensitiveHash>& NODELETE globalURLSchemesWithCustomProtocolHandlers()
-{
-    static NeverDestroyed<HashSet<String, ASCIICaseInsensitiveHash>> set;
-    return set;
-}
-
-Vector<String> WebProcessPool::urlSchemesWithCustomProtocolHandlers()
-{
-    return copyToVector(globalURLSchemesWithCustomProtocolHandlers());
 }
 
 #if ENABLE(WEB_PROCESS_SUSPENSION_DELAY)
@@ -1642,28 +1630,6 @@ void WebProcessPool::registerURLSchemeAsCORSEnabled(const String& urlScheme)
 {
     m_schemesToRegisterAsCORSEnabled.add(urlScheme);
     sendToAllProcesses(Messages::WebProcess::RegisterURLSchemeAsCORSEnabled(urlScheme));
-}
-
-void WebProcessPool::registerGlobalURLSchemeAsHavingCustomProtocolHandlers(const String& urlScheme)
-{
-    if (!urlScheme)
-        return;
-
-    InitializeWebKit2();
-    globalURLSchemesWithCustomProtocolHandlers().add(urlScheme);
-    for (Ref networkProcess : NetworkProcessProxy::allNetworkProcesses())
-        networkProcess->registerSchemeForLegacyCustomProtocol(urlScheme);
-}
-
-void WebProcessPool::unregisterGlobalURLSchemeAsHavingCustomProtocolHandlers(const String& urlScheme)
-{
-    if (!urlScheme)
-        return;
-
-    InitializeWebKit2();
-    globalURLSchemesWithCustomProtocolHandlers().remove(urlScheme);
-    for (Ref networkProcess : NetworkProcessProxy::allNetworkProcesses())
-        networkProcess->unregisterSchemeForLegacyCustomProtocol(urlScheme);
 }
 
 void WebProcessPool::registerURLSchemeAsCachePartitioned(const String& urlScheme)

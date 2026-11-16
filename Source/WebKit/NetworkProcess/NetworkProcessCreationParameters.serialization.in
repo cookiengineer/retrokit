@@ -32,8 +32,6 @@ headers: "NetworkProcessCreationParameters.h" "AuxiliaryProcessCreationParameter
 #endif
     bool shouldSuppressMemoryPressureHandler
 
-    Vector<String> urlSchemesRegisteredForCustomProtocols
-
 #if PLATFORM(COCOA)
     String uiProcessBundleIdentifier
     RetainPtr<CFDataRef> networkATSContext

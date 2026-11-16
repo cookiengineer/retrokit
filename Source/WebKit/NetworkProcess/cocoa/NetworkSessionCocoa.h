@@ -56,7 +56,6 @@ enum class AdvancedPrivacyProtections : uint16_t;
 namespace WebKit {
 
 enum class NegotiatedLegacyTLS : bool;
-class LegacyCustomProtocolManager;
 class NetworkSessionCocoa;
 
 struct SessionWrapper : public CanMakeWeakPtr<SessionWrapper>, public CanMakeCheckedPtr<SessionWrapper> {

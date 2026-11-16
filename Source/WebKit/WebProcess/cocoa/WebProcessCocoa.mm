@@ -31,7 +31,6 @@
 #import "ArgumentCodersCocoa.h"
 #import "CoreIPCAuditToken.h"
 #import "DefaultWebBrowserChecks.h"
-#import "LegacyCustomProtocolManager.h"
 #import "LogInitialization.h"
 #import "Logging.h"
 #import "NetworkConnectionToWebProcessMessages.h"

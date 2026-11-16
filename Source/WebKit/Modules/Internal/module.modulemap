@@ -213,12 +213,6 @@ module WebKit_Internal [system] {
         export *
     }
 
-    module APICustomProtocolManagerClient {
-        requires cplusplus20
-        header "../../UIProcess/API/APICustomProtocolManagerClient.h"
-        export *
-    }
-
     module APIHistoryClient {
         requires cplusplus20
         header "../../UIProcess/API/APIHistoryClient.h"

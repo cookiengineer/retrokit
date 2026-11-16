@@ -72,10 +72,6 @@ $(BUILT_PRODUCTS_DIR)/DerivedSources/WebKit/IPC/IPCTesterReceiverMessageReceiver
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebKit/IPC/IPCTesterReceiverMessageReceiver.swift
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebKit/IPC/IPCTesterReceiverMessages.h
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebKit/IPC/IPCTesterReceiverMessagesReplies.h
-$(BUILT_PRODUCTS_DIR)/DerivedSources/WebKit/IPC/LegacyCustomProtocolManagerMessageReceiver.cpp
-$(BUILT_PRODUCTS_DIR)/DerivedSources/WebKit/IPC/LegacyCustomProtocolManagerMessages.h
-$(BUILT_PRODUCTS_DIR)/DerivedSources/WebKit/IPC/LegacyCustomProtocolManagerProxyMessageReceiver.cpp
-$(BUILT_PRODUCTS_DIR)/DerivedSources/WebKit/IPC/LegacyCustomProtocolManagerProxyMessages.h
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebKit/IPC/LibWebRTCCodecsMessageReceiver.cpp
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebKit/IPC/LibWebRTCCodecsMessages.h
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebKit/IPC/LibWebRTCCodecsProxyMessageReceiver.cpp

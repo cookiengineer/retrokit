@@ -556,7 +556,6 @@ Vector<ASCIILiteral> serializedIdentifiers()
         "WebKit::IPCConnectionTesterIdentifier"_s,
         "WebKit::IPCStreamTesterIdentifier"_s,
         "WebKit::JSObjectID"_s,
-        "WebKit::LegacyCustomProtocolID"_s,
         "WebKit::LibWebRTCResolverIdentifier"_s,
         "WebKit::LogStreamIdentifier"_s,
         "WebKit::MarkSurfacesAsVolatileRequestIdentifier"_s,

@@ -40,8 +40,6 @@ NetworkProcess/Classifier/WebResourceLoadStatisticsStore.cpp
 
 NetworkProcess/Cookies/mac/WebCookieManagerMac.mm @nonARC
 
-NetworkProcess/CustomProtocols/Cocoa/LegacyCustomProtocolManagerCocoa.mm @nonARC
-NetworkProcess/CustomProtocols/LegacyCustomProtocolManager.cpp @cost:3
 
 NetworkProcess/Downloads/cocoa/DownloadCocoa.mm @nonARC
 
@@ -452,7 +450,6 @@ UIProcess/Cocoa/FullscreenClient.mm @nonARC
 UIProcess/Cocoa/GPUProcessProxyCocoa.mm @nonARC
 UIProcess/Cocoa/GlobalFindInPageState.mm @nonARC
 UIProcess/Cocoa/IconLoadingDelegate.mm @nonARC
-UIProcess/Cocoa/LegacyCustomProtocolManagerClient.mm @nonARC
 UIProcess/Cocoa/LegacyDownloadClient.mm @nonARC
 UIProcess/Cocoa/LegacySessionStateCoding.cpp
 UIProcess/Cocoa/MediaUtilities.mm @nonARC
@@ -656,7 +653,6 @@ UIProcess/Media/cocoa/AudioSessionRoutingArbitratorProxyCocoa.mm @nonARC
 UIProcess/Model/PortalPresentationManagerProxy.mm @nonARC
 UIProcess/Model/cocoa/ModelProcessProxyCocoa.mm @nonARC
 
-UIProcess/Network/CustomProtocols/LegacyCustomProtocolManagerProxy.cpp
 
 UIProcess/PDF/WKPDFHUDView.mm @nonARC
 
@@ -917,8 +913,6 @@ GPUConnectionToWebProcessMessageReceiver.cpp @cost:6
 GPUProcessConnectionMessageReceiver.cpp
 GPUProcessMessageReceiver.cpp @cost:7
 GPUProcessProxyMessageReceiver.cpp
-LegacyCustomProtocolManagerMessageReceiver.cpp
-LegacyCustomProtocolManagerProxyMessageReceiver.cpp
 LibWebRTCCodecsMessageReceiver.cpp
 LibWebRTCCodecsProxyMessageReceiver.cpp
 LibWebRTCNetworkMessageReceiver.cpp

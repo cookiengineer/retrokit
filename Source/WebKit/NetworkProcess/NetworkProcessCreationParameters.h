@@ -55,8 +55,6 @@ struct NetworkProcessCreationParameters {
 #endif
     bool shouldSuppressMemoryPressureHandler { false };
 
-    Vector<String> urlSchemesRegisteredForCustomProtocols;
-
 #if PLATFORM(COCOA)
     String uiProcessBundleIdentifier;
     RetainPtr<CFDataRef> networkATSContext;

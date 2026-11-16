@@ -36,7 +36,4 @@
 WK_CLASS_DEPRECATED_WITH_REPLACEMENT("WKWebView", macos(10.10, 10.14.4), ios(8.0, 12.2))
 @interface WKBrowsingContextController : NSObject
 
-+ (void)registerSchemeForCustomProtocol:(NSString *)scheme WK_API_DEPRECATED_WITH_REPLACEMENT("WKURLSchemeHandler", macos(10.10, 10.14.4), ios(8.0, 12.2));
-+ (void)unregisterSchemeForCustomProtocol:(NSString *)scheme WK_API_DEPRECATED_WITH_REPLACEMENT("WKURLSchemeHandler", macos(10.10, 10.14.4), ios(8.0, 12.2));
-
 @end

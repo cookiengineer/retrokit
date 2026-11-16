@@ -34,7 +34,6 @@
 #import "CookieStorageUtilsCF.h"
 #import "DefaultWebBrowserChecks.h"
 #import "ExtensionCapabilityGranter.h"
-#import "LegacyCustomProtocolManagerClient.h"
 #import "LockdownModeObserver.h"
 #import "Logging.h"
 #import "MediaCapability.h"

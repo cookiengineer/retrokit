@@ -213,7 +213,6 @@
     [NotSentFromWebContent] MessageParam DownloadProxy.DidReceiveFinalURL bookmarkData
     [NotSentFromWebContent] MessageParam DownloadProxy.DidReceivePlaceholderURL bookmarkData
     [NotSentFromWebContent] MessageParam GPUProcess.ResolveBookmarkDataForCacheDirectory bookmarkData
-    [NotSentFromWebContent] MessageParam LegacyCustomProtocolManager.DidLoadData data
     [NotSentFromWebContent] MessageParam LibWebRTCNetwork.SignalReadPacket data
     [NotSentFromWebContent] MessageParam WebPage.DidChooseFilesForOpenPanelWithDisplayStringAndIcon iconData
     [NotSentFromWebContent] MessageParam WebPage.InsertMultiRepresentationHEIC data

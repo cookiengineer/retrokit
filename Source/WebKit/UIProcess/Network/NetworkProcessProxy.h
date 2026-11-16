@@ -25,7 +25,6 @@
 
 #pragma once
 
-#include "APICustomProtocolManagerClient.h"
 #include "AppPrivacyReport.h"
 #include "AuxiliaryProcessProxy.h"
 #include "BackgroundFetchState.h"
@@ -47,10 +46,6 @@
 #include <wtf/Deque.h>
 #include <wtf/TZoneMalloc.h>
 #include <wtf/WeakHashMap.h>
-
-#if ENABLE(LEGACY_CUSTOM_PROTOCOL_MANAGER)
-#include "LegacyCustomProtocolManagerProxy.h"
-#endif
 
 #if PLATFORM(COCOA)
 #include "XPCEventHandler.h"
@@ -262,9 +257,6 @@ public:
     static void NODELETE setSuspensionAllowedForTesting(bool);
     void sendProcessWillSuspendImminentlyForTesting();
 
-    void registerSchemeForLegacyCustomProtocol(const String&);
-    void unregisterSchemeForLegacyCustomProtocol(const String&);
-
     void networkProcessDidTerminate(ProcessTerminationReason);
     
     void resetQuota(PAL::SessionID, CompletionHandler<void()>&&);
@@ -306,8 +298,6 @@ public:
     void sendPrepareToSuspend(IsSuspensionImminent, double remainingRunTime, CompletionHandler<void()>&&) final;
     void updateBundleIdentifier(const String&, CompletionHandler<void()>&&);
     void clearBundleIdentifier(CompletionHandler<void()>&&);
-
-    API::CustomProtocolManagerClient& customProtocolManagerClient() LIFETIME_BOUND { return m_customProtocolManagerClient.get(); }
 
 #if PLATFORM(COCOA)
     bool sendXPCEndpointToProcess(AuxiliaryProcessProxy&);
@@ -455,11 +445,6 @@ private:
 #endif
 
     const std::unique_ptr<DownloadProxyMap> m_downloadProxyMap;
-
-    UniqueRef<API::CustomProtocolManagerClient> m_customProtocolManagerClient;
-#if ENABLE(LEGACY_CUSTOM_PROTOCOL_MANAGER)
-    LegacyCustomProtocolManagerProxy m_customProtocolManagerProxy;
-#endif
 
     RefPtr<ProcessThrottler::Activity> m_activityFromWebProcesses;
 

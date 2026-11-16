@@ -31,7 +31,6 @@
 #import "AuthenticationManager.h"
 #import "DefaultWebBrowserChecks.h"
 #import "Download.h"
-#import "LegacyCustomProtocolManager.h"
 #import "Logging.h"
 #import "NetworkDataTaskBlob.h"
 #import "NetworkDataTaskCocoa.h"
@@ -1222,10 +1221,6 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 #if PLATFORM(IOS_FAMILY)
     if (!m_dataConnectionServiceType.isEmpty())
         configuration.get()._CTDataConnectionServiceType = m_dataConnectionServiceType.createNSString().get();
-#endif
-
-#if ENABLE(LEGACY_CUSTOM_PROTOCOL_MANAGER)
-    protect(networkProcess.supplement<LegacyCustomProtocolManager>())->registerProtocolClass(configuration.get());
 #endif
 
     configuration.get()._timingDataOptions = _TimingDataOptionsEnableW3CNavigationTiming;

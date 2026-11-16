@@ -37,9 +37,6 @@
 #include "DownloadProxyMessages.h"
 #include "FormDataReference.h"
 #include "ITPThirdPartyData.h"
-#if ENABLE(LEGACY_CUSTOM_PROTOCOL_MANAGER)
-#include "LegacyCustomProtocolManager.h"
-#endif
 #include "LoadedWebArchive.h"
 #include "Logging.h"
 #include "NetworkConnectionToWebProcess.h"
@@ -195,12 +192,6 @@ NetworkProcess::NetworkProcess(AuxiliaryProcessInitializationParameters&& parame
 
     addSupplementWithoutRefCountedCheck<AuthenticationManager>();
     addSupplementWithoutRefCountedCheck<WebCookieManager>();
-#if ENABLE(LEGACY_CUSTOM_PROTOCOL_MANAGER)
-    addSupplementWithoutRefCountedCheck<LegacyCustomProtocolManager>();
-#endif
-#if PLATFORM(COCOA) && ENABLE(LEGACY_CUSTOM_PROTOCOL_MANAGER)
-    LegacyCustomProtocolManager::networkProcessCreated(*this);
-#endif
 
     NetworkStateNotifier::singleton().addListener([weakThis = WeakPtr { *this }](bool isOnLine) {
         if (!weakThis)
@@ -1733,11 +1724,6 @@ void NetworkProcess::preconnectTo(PAL::SessionID sessionID, WebPageProxyIdentifi
     LOG(Network, "(NetworkProcess) Preconnecting to URL %s (storedCredentialsPolicy %i)", url.string().utf8().data(), (int)storedCredentialsPolicy);
 
 #if ENABLE(SERVER_PRECONNECT)
-#if ENABLE(LEGACY_CUSTOM_PROTOCOL_MANAGER)
-    if (RefPtr { supplement<LegacyCustomProtocolManager>() }->supportsScheme(url.protocol().toString()))
-        return;
-#endif
-
     CheckedPtr session = networkSession(sessionID);
     if (!session)
         return;

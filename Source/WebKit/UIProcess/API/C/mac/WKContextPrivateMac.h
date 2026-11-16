@@ -47,9 +47,6 @@ WK_EXPORT void WKContextGetInfoForInstalledPlugIns(WKContextRef context, WKConte
 WK_EXPORT void WKContextResetHSTSHosts(WKContextRef context) WK_C_API_DEPRECATED;
 WK_EXPORT void WKContextResetHSTSHostsAddedAfterDate(WKContextRef context, double startDateIntervalSince1970) WK_C_API_DEPRECATED;
 
-WK_EXPORT void WKContextRegisterSchemeForCustomProtocol(WKContextRef context, WKStringRef scheme);
-WK_EXPORT void WKContextUnregisterSchemeForCustomProtocol(WKContextRef context, WKStringRef scheme);
-
 /* DEPRECATED -  Please use constants from WKPluginInformation instead. */
 
 /* Value type: WKStringRef */

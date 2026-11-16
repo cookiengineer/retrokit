@@ -14280,7 +14280,6 @@ WebPageCreationParameters WebPageProxy::creationParameters(WebProcessProxy& proc
 
     for (auto& iterator : m_urlSchemeHandlersByScheme)
         parameters.urlSchemeHandlers.set(iterator.key, iterator.value->identifier());
-    parameters.urlSchemesWithLegacyCustomProtocolHandlers = WebProcessPool::urlSchemesWithCustomProtocolHandlers();
 
 #if ENABLE(WEB_RTC)
     // FIXME: This is also being passed over the to WebProcess via the PreferencesStore.

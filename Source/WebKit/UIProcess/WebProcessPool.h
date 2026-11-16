@@ -408,9 +408,6 @@ public:
     static void NODELETE setInvalidMessageCallback(void (*)(WKStringRef));
     static void didReceiveInvalidMessage(IPC::MessageName);
 
-    static void registerGlobalURLSchemeAsHavingCustomProtocolHandlers(const String&);
-    static void unregisterGlobalURLSchemeAsHavingCustomProtocolHandlers(const String&);
-
     void notifyMediaStreamingActivity(bool);
 
 #if PLATFORM(COCOA)
@@ -536,7 +533,6 @@ public:
 #endif
 
     static void platformInitializeNetworkProcess(NetworkProcessCreationParameters&);
-    static Vector<String> urlSchemesWithCustomProtocolHandlers();
 
     Ref<WebProcessProxy> createNewWebProcess(WebsiteDataStore*, WebProcessProxy::LockdownMode, EnhancedSecurity, WebProcessProxy::EnableWebAssemblyDebugger = WebProcessProxy::EnableWebAssemblyDebugger::No, WebProcessProxy::IsPrewarmed = WebProcessProxy::IsPrewarmed::No, WebCore::CrossOriginMode = WebCore::CrossOriginMode::Shared, JSCOptionsForWebProcess = { });
 

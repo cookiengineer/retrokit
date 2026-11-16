@@ -213,7 +213,6 @@ list(APPEND WebKit_MESSAGES_IN_FILES
 
     ModelProcess/cocoa/ModelProcessModelPlayerProxy
 
-    NetworkProcess/CustomProtocols/LegacyCustomProtocolManager
 
     Shared/API/Cocoa/RemoteObjectRegistry
 
@@ -228,7 +227,6 @@ list(APPEND WebKit_MESSAGES_IN_FILES
 
     UIProcess/Media/AudioSessionRoutingArbitratorProxy
 
-    UIProcess/Network/CustomProtocols/LegacyCustomProtocolManagerProxy
 
     UIProcess/RemoteLayerTree/RemoteLayerTreeDrawingAreaProxy
 

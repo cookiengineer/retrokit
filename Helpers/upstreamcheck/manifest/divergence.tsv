@@ -495,9 +495,76 @@ custom-protocol	file	-	Source/WebKit/UIProcess/Network/NetworkProcessProxy.h	mod
 custom-protocol	method	WebKit::NetworkProcessProxy::customProtocolManagerClient	Source/WebKit/UIProcess/Network/NetworkProcessProxy.h	removed	source	ac978b970d4ed0721c5bc7f00a6f595c251fe212	line=266
 custom-protocol	method	WebKit::NetworkProcessProxy::registerSchemeForLegacyCustomProtocol	Source/WebKit/UIProcess/Network/NetworkProcessProxy.h	removed	source	ac978b970d4ed0721c5bc7f00a6f595c251fe212	line=239
 custom-protocol	method	WebKit::NetworkProcessProxy::unregisterSchemeForLegacyCustomProtocol	Source/WebKit/UIProcess/Network/NetworkProcessProxy.h	removed	source	ac978b970d4ed0721c5bc7f00a6f595c251fe212	line=240
-custom-protocol	namespace	API	Source/WebKit/UIProcess/Network/NetworkProcessProxy.h	removed	source	ac978b970d4ed0721c5bc7f00a6f595c251fe212	line=57
 custom-protocol	flag	WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_LEGACY_CUSTOM_PROTOCOL_MANAGER PRIVATE ON)	Source/cmake/OptionsMac.cmake	removed	source	ac978b970d4ed0721c5bc7f00a6f595c251fe212	line=50; commit=ac978b970d4e
 custom-protocol	flag	WEBKIT_OPTION_DEFINE(ENABLE_LEGACY_CUSTOM_PROTOCOL_MANAGER "Toggle legacy protocol manager support" PRIVATE OFF)	Source/cmake/WebKitFeatures.cmake	removed	source	ac978b970d4ed0721c5bc7f00a6f595c251fe212	line=158; commit=ac978b970d4e
+custom-protocol	file	-	Source/WebKit/NetworkProcess/CustomProtocols/Cocoa/LegacyCustomProtocolManagerCocoa.mm	removed	source	manual:custom-protocol-2.54	Deleted file
+custom-protocol	file	-	Source/WebKit/NetworkProcess/CustomProtocols/LegacyCustomProtocolID.h	removed	source	manual:custom-protocol-2.54	Deleted file
+custom-protocol	file	-	Source/WebKit/NetworkProcess/CustomProtocols/LegacyCustomProtocolManager.cpp	removed	source	manual:custom-protocol-2.54	Deleted file
+custom-protocol	file	-	Source/WebKit/NetworkProcess/CustomProtocols/LegacyCustomProtocolManager.h	removed	source	manual:custom-protocol-2.54	Deleted file
+custom-protocol	file	-	Source/WebKit/NetworkProcess/CustomProtocols/LegacyCustomProtocolManager.messages.in	removed	source	manual:custom-protocol-2.54	Deleted file
+custom-protocol	file	-	Source/WebKit/UIProcess/API/APICustomProtocolManagerClient.h	removed	source	manual:custom-protocol-2.54	Deleted file
+custom-protocol	file	-	Source/WebKit/UIProcess/Cocoa/LegacyCustomProtocolManagerClient.h	removed	source	manual:custom-protocol-2.54	Deleted file
+custom-protocol	file	-	Source/WebKit/UIProcess/Cocoa/LegacyCustomProtocolManagerClient.mm	removed	source	manual:custom-protocol-2.54	Deleted file
+custom-protocol	file	-	Source/WebKit/UIProcess/Network/CustomProtocols/LegacyCustomProtocolManagerProxy.cpp	removed	source	manual:custom-protocol-2.54	Deleted file
+custom-protocol	file	-	Source/WebKit/UIProcess/Network/CustomProtocols/LegacyCustomProtocolManagerProxy.h	removed	source	manual:custom-protocol-2.54	Deleted file
+custom-protocol	file	-	Source/WebKit/UIProcess/Network/CustomProtocols/LegacyCustomProtocolManagerProxy.messages.in	removed	source	manual:custom-protocol-2.54	Deleted file
+custom-protocol	file	-	Source/WTF/wtf/PlatformEnableCocoa.h	modified	source	manual:custom-protocol-2.54	Legacy custom protocol removal; integration change
+custom-protocol	file	-	Source/WebKit/CMakeLists.txt	modified	source	manual:custom-protocol-2.54	Legacy custom protocol removal; integration change
+custom-protocol	file	-	Source/WebKit/DerivedSources-input.xcfilelist	modified	source	manual:custom-protocol-2.54	Legacy custom protocol removal; integration change
+custom-protocol	file	-	Source/WebKit/DerivedSources-output.xcfilelist	modified	source	manual:custom-protocol-2.54	Legacy custom protocol removal; integration change
+custom-protocol	file	-	Source/WebKit/DerivedSources.make	modified	source	manual:custom-protocol-2.54	Legacy custom protocol removal; integration change
+custom-protocol	file	-	Source/WebKit/Modules/Internal/module.modulemap	modified	source	manual:custom-protocol-2.54	Legacy custom protocol removal; integration change
+custom-protocol	file	-	Source/WebKit/NetworkProcess/NetworkConnectionToWebProcess.cpp	modified	source	manual:custom-protocol-2.54	Legacy custom protocol removal; integration change
+custom-protocol	file	-	Source/WebKit/NetworkProcess/NetworkProcess.cpp	modified	source	manual:custom-protocol-2.54	Legacy custom protocol removal; integration change
+custom-protocol	file	-	Source/WebKit/NetworkProcess/NetworkProcessCreationParameters.h	modified	source	manual:custom-protocol-2.54	Legacy custom protocol removal; integration change
+custom-protocol	file	-	Source/WebKit/NetworkProcess/NetworkProcessCreationParameters.serialization.in	modified	source	manual:custom-protocol-2.54	Legacy custom protocol removal; integration change
+custom-protocol	file	-	Source/WebKit/NetworkProcess/cocoa/NetworkSessionCocoa.h	modified	source	manual:custom-protocol-2.54	Legacy custom protocol removal; integration change
+custom-protocol	file	-	Source/WebKit/NetworkProcess/cocoa/NetworkSessionCocoa.mm	modified	source	manual:custom-protocol-2.54	Legacy custom protocol removal; integration change
+custom-protocol	file	-	Source/WebKit/PlatformCocoa.cmake	modified	source	manual:custom-protocol-2.54	Legacy custom protocol removal; integration change
+custom-protocol	file	-	Source/WebKit/Scripts/webkit/messages.py	modified	source	manual:custom-protocol-2.54	Legacy custom protocol removal; integration change
+custom-protocol	file	-	Source/WebKit/Scripts/webkit/opaque_ipc_types.tracking.in	modified	source	manual:custom-protocol-2.54	Legacy custom protocol removal; integration change
+custom-protocol	file	-	Source/WebKit/Scripts/webkit/tests/MessageArgumentDescriptions.cpp	modified	source	manual:custom-protocol-2.54	Legacy custom protocol removal; integration change
+custom-protocol	file	-	Source/WebKit/Shared/WTFArgumentCoders.serialization.in	modified	source	manual:custom-protocol-2.54	Legacy custom protocol removal; integration change
+custom-protocol	file	-	Source/WebKit/Shared/WebPageCreationParameters.h	modified	source	manual:custom-protocol-2.54	Legacy custom protocol removal; integration change
+custom-protocol	file	-	Source/WebKit/Shared/WebPageCreationParameters.serialization.in	modified	source	manual:custom-protocol-2.54	Legacy custom protocol removal; integration change
+custom-protocol	file	-	Source/WebKit/SourcesCocoa.txt	modified	source	manual:custom-protocol-2.54	Legacy custom protocol removal; integration change
+custom-protocol	file	-	Source/WebKit/UIProcess/API/C/mac/WKContextPrivateMac.h	modified	source	manual:custom-protocol-2.54	Legacy custom protocol removal; integration change
+custom-protocol	file	-	Source/WebKit/UIProcess/API/C/mac/WKContextPrivateMac.mm	modified	source	manual:custom-protocol-2.54	Legacy custom protocol removal; integration change
+custom-protocol	file	-	Source/WebKit/UIProcess/API/Cocoa/WKBrowsingContextController.h	modified	source	manual:custom-protocol-2.54	Legacy custom protocol removal; integration change
+custom-protocol	file	-	Source/WebKit/UIProcess/API/Cocoa/WKBrowsingContextController.mm	modified	source	manual:custom-protocol-2.54	Legacy custom protocol removal; integration change
+custom-protocol	file	-	Source/WebKit/UIProcess/Cocoa/WebProcessPoolCocoa.mm	modified	source	manual:custom-protocol-2.54	Legacy custom protocol removal; integration change
+custom-protocol	file	-	Source/WebKit/UIProcess/Network/NetworkProcessProxy.cpp	modified	source	manual:custom-protocol-2.54	Legacy custom protocol removal; integration change
+custom-protocol	file	-	Source/WebKit/UIProcess/Network/NetworkProcessProxy.h	modified	source	manual:custom-protocol-2.54	Legacy custom protocol removal; integration change
+custom-protocol	file	-	Source/WebKit/UIProcess/WebPageProxy.cpp	modified	source	manual:custom-protocol-2.54	Legacy custom protocol removal; integration change
+custom-protocol	file	-	Source/WebKit/UIProcess/WebProcessPool.cpp	modified	source	manual:custom-protocol-2.54	Legacy custom protocol removal; integration change
+custom-protocol	file	-	Source/WebKit/UIProcess/WebProcessPool.h	modified	source	manual:custom-protocol-2.54	Legacy custom protocol removal; integration change
+custom-protocol	file	-	Source/WebKit/WebProcess/WebPage/WebPage.cpp	modified	source	manual:custom-protocol-2.54	Legacy custom protocol removal; integration change
+custom-protocol	file	-	Source/WebKit/WebProcess/cocoa/WebProcessCocoa.mm	modified	source	manual:custom-protocol-2.54	Legacy custom protocol removal; integration change
+custom-protocol	file	-	Source/cmake/OptionsIOS.cmake	modified	source	manual:custom-protocol-2.54	Legacy custom protocol removal; integration change
+custom-protocol	file	-	Source/cmake/OptionsMac.cmake	modified	source	manual:custom-protocol-2.54	Legacy custom protocol removal; integration change
+custom-protocol	file	-	Source/cmake/WebKitFeatures.cmake	modified	source	manual:custom-protocol-2.54	Legacy custom protocol removal; integration change
+custom-protocol	build_ref	NetworkProcess/CustomProtocols/LegacyCustomProtocolManager \	Source/WebKit/DerivedSources.make	removed	source	manual:custom-protocol-2.54	Legacy custom protocol build entry removed
+custom-protocol	build_ref	UIProcess/Network/CustomProtocols/LegacyCustomProtocolManagerProxy \	Source/WebKit/DerivedSources.make	removed	source	manual:custom-protocol-2.54	Legacy custom protocol build entry removed
+custom-protocol	build_ref	$(WebKit2)/NetworkProcess/CustomProtocols \	Source/WebKit/DerivedSources.make	removed	source	manual:custom-protocol-2.54	Legacy custom protocol build entry removed
+custom-protocol	build_ref	$(WebKit2)/UIProcess/Network/CustomProtocols \	Source/WebKit/DerivedSources.make	removed	source	manual:custom-protocol-2.54	Legacy custom protocol build entry removed
+custom-protocol	build_ref	NetworkProcess/CustomProtocols/Cocoa/LegacyCustomProtocolManagerCocoa.mm @nonARC	Source/WebKit/SourcesCocoa.txt	removed	source	manual:custom-protocol-2.54	Legacy custom protocol build entry removed
+custom-protocol	build_ref	NetworkProcess/CustomProtocols/LegacyCustomProtocolManager.cpp @cost:3	Source/WebKit/SourcesCocoa.txt	removed	source	manual:custom-protocol-2.54	Legacy custom protocol build entry removed
+custom-protocol	build_ref	UIProcess/Cocoa/LegacyCustomProtocolManagerClient.mm @nonARC	Source/WebKit/SourcesCocoa.txt	removed	source	manual:custom-protocol-2.54	Legacy custom protocol build entry removed
+custom-protocol	build_ref	UIProcess/Network/CustomProtocols/LegacyCustomProtocolManagerProxy.cpp	Source/WebKit/SourcesCocoa.txt	removed	source	manual:custom-protocol-2.54	Legacy custom protocol build entry removed
+custom-protocol	build_ref	LegacyCustomProtocolManagerMessageReceiver.cpp	Source/WebKit/SourcesCocoa.txt	removed	source	manual:custom-protocol-2.54	Legacy custom protocol build entry removed
+custom-protocol	build_ref	LegacyCustomProtocolManagerProxyMessageReceiver.cpp	Source/WebKit/SourcesCocoa.txt	removed	source	manual:custom-protocol-2.54	Legacy custom protocol build entry removed
+custom-protocol	build_ref	NetworkProcess/CustomProtocols/LegacyCustomProtocolManager	Source/WebKit/PlatformCocoa.cmake	removed	source	manual:custom-protocol-2.54	Legacy custom protocol build entry removed
+custom-protocol	build_ref	UIProcess/Network/CustomProtocols/LegacyCustomProtocolManagerProxy	Source/WebKit/PlatformCocoa.cmake	removed	source	manual:custom-protocol-2.54	Legacy custom protocol build entry removed
+custom-protocol	flag	#define ENABLE_LEGACY_CUSTOM_PROTOCOL_MANAGER 1	Source/WTF/wtf/PlatformEnableCocoa.h	removed	source	manual:custom-protocol-2.54	Cocoa port no longer enables legacy custom protocol handlers
+custom-protocol	method	WebKit::WebProcessPool::registerGlobalURLSchemeAsHavingCustomProtocolHandlers	Source/WebKit/UIProcess/WebProcessPool.h	removed	source	manual:custom-protocol-2.54	Legacy custom protocol registration removed
+custom-protocol	method	WebKit::WebProcessPool::unregisterGlobalURLSchemeAsHavingCustomProtocolHandlers	Source/WebKit/UIProcess/WebProcessPool.h	removed	source	manual:custom-protocol-2.54	Legacy custom protocol registration removed
+custom-protocol	method	WebKit::WebProcessPool::urlSchemesWithCustomProtocolHandlers	Source/WebKit/UIProcess/WebProcessPool.h	removed	source	manual:custom-protocol-2.54	Legacy custom protocol registration removed
+custom-protocol	method	WKContextRegisterSchemeForCustomProtocol	Source/WebKit/UIProcess/API/C/mac/WKContextPrivateMac.h	removed	source	manual:custom-protocol-2.54	Deprecated legacy custom protocol C API removed
+custom-protocol	method	WKContextUnregisterSchemeForCustomProtocol	Source/WebKit/UIProcess/API/C/mac/WKContextPrivateMac.h	removed	source	manual:custom-protocol-2.54	Deprecated legacy custom protocol C API removed
+custom-protocol	field	WebKit::WebPageCreationParameters::urlSchemesWithLegacyCustomProtocolHandlers	Source/WebKit/Shared/WebPageCreationParameters.h	removed	source	manual:custom-protocol-2.54	Legacy custom protocol creation parameter removed
+custom-protocol	field	WebKit::NetworkProcessCreationParameters::urlSchemesRegisteredForCustomProtocols	Source/WebKit/NetworkProcess/NetworkProcessCreationParameters.h	removed	source	manual:custom-protocol-2.54	Legacy custom protocol creation parameter removed
+custom-protocol	field	WebKit::NetworkProcessProxy::m_customProtocolManagerProxy	Source/WebKit/UIProcess/Network/NetworkProcessProxy.h	removed	source	manual:custom-protocol-2.54	Legacy custom protocol proxy removed
+custom-protocol	behavior	legacy-custom-protocol-manager-removed	Source/WebKit/NetworkProcess/CustomProtocols	removed	source	manual:custom-protocol-2.54	Legacy custom protocol manager, its IPC and the deprecated WKContext/WKBrowsingContextController registration APIs removed; WKURLSchemeHandler and soup custom protocol request handling remain
 device-sensors	file	-	Source/WTF/Scripts/Preferences/UnifiedWebPreferences.yaml	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
 device-sensors	pref	DeviceOrientationEventEnabled:	Source/WTF/Scripts/Preferences/UnifiedWebPreferences.yaml	removed	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54)
 device-sensors	pref	DeviceOrientationPermissionAPIEnabled:	Source/WTF/Scripts/Preferences/UnifiedWebPreferences.yaml	removed	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54)

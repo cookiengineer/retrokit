@@ -68,16 +68,6 @@ void WKContextResetHSTSHostsAddedAfterDate(WKContextRef, double)
 {
 }
 
-void WKContextRegisterSchemeForCustomProtocol(WKContextRef context, WKStringRef scheme)
-{
-    WebKit::WebProcessPool::registerGlobalURLSchemeAsHavingCustomProtocolHandlers(WebKit::toWTFString(scheme));
-}
-
-void WKContextUnregisterSchemeForCustomProtocol(WKContextRef context, WKStringRef scheme)
-{
-    WebKit::WebProcessPool::unregisterGlobalURLSchemeAsHavingCustomProtocolHandlers(WebKit::toWTFString(scheme));
-}
-
 /* DEPRECATED -  Please use constants from WKPluginInformation instead. */
 
 WKStringRef WKPlugInInfoPathKey()

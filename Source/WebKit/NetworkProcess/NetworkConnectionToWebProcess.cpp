@@ -108,10 +108,6 @@
 #include "WebPaymentCoordinatorProxyMessages.h"
 #endif
 
-#if ENABLE(LEGACY_CUSTOM_PROTOCOL_MANAGER)
-#include "LegacyCustomProtocolManager.h"
-#endif
-
 #if ENABLE(IPC_TESTING_API)
 #include "IPCTesterMessages.h"
 #endif
@@ -810,13 +806,6 @@ void NetworkConnectionToWebProcess::preconnectTo(PreconnectRequest&& preconnectR
         if (preconnectionIdentifier)
             didFinishPreconnection(*preconnectionIdentifier, error);
     };
-
-#if ENABLE(LEGACY_CUSTOM_PROTOCOL_MANAGER)
-    if (RefPtr { m_networkProcess->supplement<LegacyCustomProtocolManager>() }->supportsScheme(preconnectRequest.request.url().protocol().toString())) {
-        completionHandler(internalError(preconnectRequest.request.url()));
-        return;
-    }
-#endif
 
 #if ENABLE(SERVER_PRECONNECT)
     CheckedPtr session = networkSession();

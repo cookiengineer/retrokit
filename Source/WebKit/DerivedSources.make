@@ -32,7 +32,6 @@ VPATH = \
     $(WebKit2)/NetworkProcess \
     $(WebKit2)/NetworkProcess/Cookies \
     $(WebKit2)/NetworkProcess/cache \
-    $(WebKit2)/NetworkProcess/CustomProtocols \
     $(WebKit2)/NetworkProcess/mac \
     $(WebKit2)/NetworkProcess/webrtc \
     $(WebKit2)/NetworkProcess/IndexedDB \
@@ -97,7 +96,6 @@ VPATH = \
     $(WebKit2)/UIProcess/MediaStream \
     $(WebKit2)/UIProcess/Model \
     $(WebKit2)/UIProcess/Network \
-    $(WebKit2)/UIProcess/Network/CustomProtocols \
     $(WebKit2)/UIProcess/Notifications \
     $(WebKit2)/UIProcess/PDF \
     $(WebKit2)/UIProcess/RemoteLayerTree \
@@ -132,7 +130,6 @@ MESSAGE_RECEIVERS = \
 	NetworkProcess/NetworkBroadcastChannelRegistry \
 	NetworkProcess/NetworkConnectionToWebProcess \
 	NetworkProcess/NetworkContentRuleListManager \
-	NetworkProcess/CustomProtocols/LegacyCustomProtocolManager \
 	NetworkProcess/NetworkSocketChannel \
 	NetworkProcess/ServiceWorker/WebSWServerConnection \
 	NetworkProcess/ServiceWorker/ServiceWorkerDownloadTask \
@@ -173,7 +170,6 @@ MESSAGE_RECEIVERS = \
 	UIProcess/WebFrameProxy \
 	UIProcess/WebFrameProxyFromNetworkProcess \
 	UIProcess/Network/NetworkProcessProxy \
-	UIProcess/Network/CustomProtocols/LegacyCustomProtocolManagerProxy \
 	UIProcess/WebPageProxy \
 	UIProcess/VisitedLinkStore \
 	UIProcess/ios/SmartMagnificationController \
