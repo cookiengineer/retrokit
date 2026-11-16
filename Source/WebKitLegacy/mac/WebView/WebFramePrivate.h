@@ -109,8 +109,6 @@ typedef enum {
 - (void)_saveViewState;
 - (void)_restoreViewState;
 
-- (void)deviceOrientationChanged;
-
 - (void)setNeedsLayout;
 - (CGSize)renderedSizeOfNode:(DOMNode *)node constrainedToWidth:(float)width;
 - (DOMNode *)deepestNodeAtViewportLocation:(CGPoint)aViewportLocation;

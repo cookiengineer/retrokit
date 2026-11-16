@@ -152,13 +152,6 @@ Seconds WebChromeClient::eventThrottlingDelay()
     return page ? page->eventThrottlingDelay() : Seconds();
 }
 
-#if ENABLE(ORIENTATION_EVENTS)
-IntDegrees WebChromeClient::deviceOrientation() const
-{
-    RefPtr page = m_page.get();
-    return page ? page->deviceOrientation() : IntDegrees();
-}
-#endif
 
 bool WebChromeClient::shouldUseMouseEventForSelection(const WebCore::PlatformMouseEvent& event)
 {

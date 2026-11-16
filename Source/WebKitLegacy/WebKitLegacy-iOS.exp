@@ -134,8 +134,6 @@ _OBJC_CLASS_$_WebDatabaseManager
 _OBJC_CLASS_$_WebDatabaseQuotaManager
 _OBJC_CLASS_$_WebDataSource
 _OBJC_CLASS_$_WebDefaultPolicyDelegate
-_OBJC_CLASS_$_WebDeviceOrientation
-_OBJC_CLASS_$_WebDeviceOrientationProviderMock
 _OBJC_CLASS_$_WebDownload
 _OBJC_CLASS_$_WebEvent
 _OBJC_CLASS_$_WebEventRegion
@@ -326,8 +324,6 @@ _OBJC_METACLASS_$_WebDatabaseManager
 _OBJC_METACLASS_$_WebDatabaseQuotaManager
 _OBJC_METACLASS_$_WebDataSource
 _OBJC_METACLASS_$_WebDefaultPolicyDelegate
-_OBJC_METACLASS_$_WebDeviceOrientation
-_OBJC_METACLASS_$_WebDeviceOrientationProviderMock
 _OBJC_METACLASS_$_WebDownload
 _OBJC_METACLASS_$_WebEvent
 _OBJC_METACLASS_$_WebEventRegion

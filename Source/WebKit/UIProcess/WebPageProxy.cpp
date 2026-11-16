@@ -412,9 +412,6 @@
 #include "SOAuthorizationCoordinator.h"
 #endif
 
-#if ENABLE(DEVICE_ORIENTATION) && PLATFORM(IOS_FAMILY)
-#include "WebDeviceOrientationUpdateProviderProxy.h"
-#endif
 
 #if ENABLE(DATA_DETECTION)
 #include "DataDetectionResult.h"
@@ -1725,10 +1722,6 @@ void WebPageProxy::didAttachToRunningProcess()
     m_webAuthnCredentialsMessenger = WebAuthenticatorCoordinatorProxy::create(*this);
 #endif
 
-#if PLATFORM(IOS_FAMILY) && ENABLE(DEVICE_ORIENTATION)
-    ASSERT(!m_webDeviceOrientationUpdateProviderProxy);
-    m_webDeviceOrientationUpdateProviderProxy = WebDeviceOrientationUpdateProviderProxy::create(*this);
-#endif
 
 #if !PLATFORM(IOS_FAMILY)
     auto currentOrientation = WebCore::naturalScreenOrientationType();
@@ -5796,26 +5789,6 @@ void WebPageProxy::receivedNavigationActionPolicyDecision(WebProcessProxy& proce
     }
 
     RefPtr websitePolicies = navigation.websitePolicies();
-#if ENABLE(DEVICE_ORIENTATION)
-    bool isPermissionSet = false;
-    auto origin = SecurityOriginData::fromURL(navigation.currentRequest().url());
-    Ref deviceOrientationAndMotionAccessController = websiteDataStore->deviceOrientationAndMotionAccessController();
-    if (websitePolicies) {
-        // Update cache with permission in navigation policy as this is the most recent decision.
-        if (auto permission = websitePolicies->deviceOrientationAndMotionAccessState()) {
-            deviceOrientationAndMotionAccessController->setCachedDeviceOrientationPermission(origin, *permission);
-            isPermissionSet = true;
-        }
-    }
-    if (!isPermissionSet) {
-        if (!websitePolicies) {
-            navigation.setWebsitePolicies(API::WebsitePolicies::create());
-            websitePolicies = navigation.websitePolicies();
-        }
-        auto cachedPermission = deviceOrientationAndMotionAccessController->cachedDeviceOrientationPermission(origin);
-        websitePolicies->setDeviceOrientationAndMotionAccessState(cachedPermission);
-    }
-#endif
 
     Ref preferences = m_preferences;
 
@@ -9398,13 +9371,6 @@ void WebPageProxy::didChangeMainDocument(IPC::Connection& connection, FrameIdent
 
     m_speechRecognitionPermissionManager = nullptr;
 
-#if ENABLE(DEVICE_ORIENTATION)
-    if (frame && frame->isMainFrame()) {
-        protect(browsingContextGroup())->forEachRemotePage(*this, [](auto& remotePageProxy) {
-            remotePageProxy.clearDeviceOrientationAndMotionPermissions();
-        });
-    }
-#endif
 }
 
 void WebPageProxy::viewIsBecomingVisible()
@@ -13906,9 +13872,6 @@ void WebPageProxy::resetState(ResetStateReason resetStateReason)
     m_webAuthnCredentialsMessenger = nullptr;
 #endif
 
-#if PLATFORM(IOS_FAMILY) && ENABLE(DEVICE_ORIENTATION)
-    m_webDeviceOrientationUpdateProviderProxy = nullptr;
-#endif
 
     for (Ref editCommand : std::exchange(m_editCommandSet, { }))
         editCommand->invalidate();
@@ -14694,11 +14657,6 @@ bool WebPageProxy::shouldAlwaysPromptForPermission(PermissionName permissionName
     case PermissionName::Notifications:
     case PermissionName::Push:
 
-    // Orientation and motion data are not emitted.
-    case PermissionName::Accelerometer:
-    case PermissionName::Gyroscope:
-    case PermissionName::Magnetometer:
-
     // These are not persistent permissions.
     case PermissionName::BackgroundFetch:
     case PermissionName::DisplayCapture:
@@ -15143,18 +15101,6 @@ void WebPageProxy::requestMediaKeySystemPermissionForFrame(IPC::Connection& conn
 #endif
 }
 
-#if ENABLE(DEVICE_ORIENTATION)
-
-void WebPageProxy::shouldAllowDeviceOrientationAndMotionAccess(IPC::Connection& connection, FrameIdentifier frameID, FrameInfoData&& frameInfo, bool mayPrompt, CompletionHandler<void(DeviceOrientationOrMotionPermissionState)>&& completionHandler)
-{
-    RefPtr frame = WebFrameProxy::webFrame(frameID);
-    if (!frame)
-        return completionHandler(DeviceOrientationOrMotionPermissionState::Denied);
-
-    protect(protect(websiteDataStore())->deviceOrientationAndMotionAccessController())->shouldAllowAccess(*this, *frame, WTF::move(frameInfo), mayPrompt, WTF::move(completionHandler));
-}
-
-#endif
 
 
 #if ENABLE(IMAGE_ANALYSIS)
@@ -17724,20 +17670,6 @@ void WebPageProxy::willAcquireUniversalFileReadSandboxExtension(WebProcessProxy&
     process.willAcquireUniversalFileReadSandboxExtension();
 }
 
-void WebPageProxy::simulateDeviceMotionChange(double xAcceleration, double yAcceleration, double zAcceleration, double xAccelerationIncludingGravity, double yAccelerationIncludingGravity, double zAccelerationIncludingGravity, double xRotationRate, double yRotationRate, double zRotationRate)
-{
-    forEachWebContentProcess([&](auto& webProcess, auto pageID) {
-        webProcess.send(Messages::WebPage::SimulateDeviceMotionChange(xAcceleration, yAcceleration, zAcceleration, xAccelerationIncludingGravity, yAccelerationIncludingGravity, zAccelerationIncludingGravity, xRotationRate, yRotationRate, zRotationRate), pageID);
-    });
-}
-
-void WebPageProxy::simulateDeviceOrientationChange(double alpha, double beta, double gamma)
-{
-    forEachWebContentProcess([&](auto& webProcess, auto pageID) {
-        webProcess.send(Messages::WebPage::SimulateDeviceOrientationChange(alpha, beta, gamma), pageID);
-    });
-}
-
 #if ENABLE(DATA_DETECTION)
 
 void WebPageProxy::detectDataInAllFrames(OptionSet<WebCore::DataDetectorType> types, CompletionHandler<void(DataDetectionResult&&)>&& completionHandler)
@@ -19619,12 +19551,6 @@ bool NODELETE shouldShowSwiftDemoLogo()
 #endif
 }
 
-#if PLATFORM(IOS_FAMILY) && ENABLE(DEVICE_ORIENTATION)
-RefPtr<WebDeviceOrientationUpdateProviderProxy> WebPageProxy::webDeviceOrientationUpdateProviderProxy()
-{
-    return m_webDeviceOrientationUpdateProviderProxy;
-}
-#endif
 
 #if ENABLE(BACK_FORWARD_LIST_SWIFT)
 

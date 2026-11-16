@@ -38,7 +38,6 @@
 #include "WebsiteSimulatedMouseEventsDispatchPolicy.h"
 #include <WebCore/AdvancedPrivacyProtections.h>
 #include <WebCore/CustomHeaderFields.h>
-#include <WebCore/DeviceOrientationOrMotionPermissionState.h>
 #include <WebCore/DocumentLoader.h>
 #include <WebCore/FrameLoaderTypes.h>
 #include <WebCore/ResourceRequest.h>
@@ -82,9 +81,6 @@ public:
     WebCore::ModalContainerObservationPolicy modalContainerObservationPolicy { WebCore::ModalContainerObservationPolicy::Disabled };
     WebCore::ColorSchemePreference colorSchemePreference { WebCore::ColorSchemePreference::NoPreference };
     WebContentMode preferredContentMode { WebContentMode::Recommended };
-#if ENABLE(DEVICE_ORIENTATION)
-    std::optional<WebCore::DeviceOrientationOrMotionPermissionState> deviceOrientationAndMotionAccessState;
-#endif
     WebCore::HTTPSByDefaultMode httpsByDefaultMode { WebCore::HTTPSByDefaultMode::Disabled };
     bool idempotentModeAutosizingOnlyHonorsPercentages { false };
     bool allowPrivacyProxy { true };

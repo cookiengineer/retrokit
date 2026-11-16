@@ -98,7 +98,6 @@ enum class SDKAlignedBehavior {
     SessionCleanupByDefault,
     SiteSpecificQuirksAreEnabledByDefault,
     SnapshotAfterScreenUpdates,
-    SupportsDeviceOrientationAndMotionPermissionAPI,
     SupportsInitConstructors,
     TimerThreadSafetyChecks,
     UIScrollViewDoesNotApplyKeyboardInsetsUnconditionally,

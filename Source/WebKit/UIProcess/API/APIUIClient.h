@@ -193,9 +193,6 @@ public:
     virtual void didLosePointerLock(WebKit::WebPageProxy*) { }
 #endif
 
-#if ENABLE(DEVICE_ORIENTATION)
-    virtual void shouldAllowDeviceOrientationAndMotionAccess(WebKit::WebPageProxy&, WebKit::WebFrameProxy& webFrameProxy, WebKit::FrameInfoData&&, CompletionHandler<void(bool)>&& completionHandler) { completionHandler(false); }
-#endif
 
     virtual void didClickAutoFillButton(WebKit::WebPageProxy&, Object*) { }
 

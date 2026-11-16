@@ -46,12 +46,6 @@ typedef NS_OPTIONS(NSUInteger, _WKWebsitePopUpPolicy) {
     _WKWebsitePopUpPolicyBlock,
 } WK_API_AVAILABLE(macos(10.14), ios(12.0));
 
-typedef NS_OPTIONS(NSUInteger, _WKWebsiteDeviceOrientationAndMotionAccessPolicy) {
-    _WKWebsiteDeviceOrientationAndMotionAccessPolicyAsk,
-    _WKWebsiteDeviceOrientationAndMotionAccessPolicyGrant,
-    _WKWebsiteDeviceOrientationAndMotionAccessPolicyDeny,
-} WK_API_AVAILABLE(macos(10.14), ios(12.0));
-
 typedef NS_OPTIONS(NSUInteger, _WKWebsiteMouseEventPolicy) {
     // Indirect pointing devices will generate either touch or mouse events based on WebKit's default policy.
     _WKWebsiteMouseEventPolicyDefault,
@@ -106,7 +100,6 @@ typedef NS_OPTIONS(NSUInteger, _WKWebsiteNetworkConnectionIntegrityPolicy) {
 @property (nonatomic, copy, setter=_setCustomUserAgent:) NSString *_customUserAgent;
 @property (nonatomic, copy, setter=_setCustomUserAgentAsSiteSpecificQuirks:) NSString *_customUserAgentAsSiteSpecificQuirks;
 @property (nonatomic, copy, setter=_setCustomNavigatorPlatform:) NSString *_customNavigatorPlatform;
-@property (nonatomic, setter=_setDeviceOrientationAndMotionAccessPolicy:) _WKWebsiteDeviceOrientationAndMotionAccessPolicy _deviceOrientationAndMotionAccessPolicy;
 @property (nonatomic, setter=_setAllowSiteSpecificQuirksToOverrideCompatibilityMode:) BOOL _allowSiteSpecificQuirksToOverrideCompatibilityMode;
 
 @property (nonatomic, copy, setter=_setApplicationNameForUserAgentWithModernCompatibility:) NSString *_applicationNameForUserAgentWithModernCompatibility;

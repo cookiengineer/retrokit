@@ -140,7 +140,6 @@ typedef void (*WKRequestPointerLockCallback)(WKPageRef page, WKCompletionListene
 typedef void (*WKDidLosePointerLockCallback)(WKPageRef page, const void* clientInfo);
 typedef void (*WKHasVideoInPictureInPictureDidChangeCallback)(WKPageRef page, bool hasVideoInPictureInPicture, const void* clientInfo);
 typedef void (*WKPageDidResignInputElementStrongPasswordAppearanceCallback)(WKPageRef page, WKTypeRef userData, const void *clientInfo);
-typedef bool (*WKPageShouldAllowDeviceOrientationAndMotionAccessCallback)(WKPageRef page, WKSecurityOriginRef securityOrigin, WKFrameInfoRef frame, const void *clientInfo);
 
 typedef void (*WKPageRunWebAuthenticationPanelCallback)(void);
 
@@ -1256,7 +1255,6 @@ typedef struct WKPageUIClientV13 {
     WKPageRequestStorageAccessConfirmCallback                           requestStorageAccessConfirm;
 
     // Version 13.
-    WKPageShouldAllowDeviceOrientationAndMotionAccessCallback           shouldAllowDeviceOrientationAndMotionAccess;
 } WKPageUIClientV13;
 
 typedef struct WKPageUIClientV14 {
@@ -1360,7 +1358,6 @@ typedef struct WKPageUIClientV14 {
     WKPageRequestStorageAccessConfirmCallback                           requestStorageAccessConfirm;
 
     // Version 13.
-    WKPageShouldAllowDeviceOrientationAndMotionAccessCallback           shouldAllowDeviceOrientationAndMotionAccess;
 
     // Version 14.
     WKPageRunWebAuthenticationPanelCallback                             runWebAuthenticationPanel;
@@ -1467,7 +1464,6 @@ typedef struct WKPageUIClientV15 {
     WKPageRequestStorageAccessConfirmCallback                           requestStorageAccessConfirm;
 
     // Version 13.
-    WKPageShouldAllowDeviceOrientationAndMotionAccessCallback           shouldAllowDeviceOrientationAndMotionAccess;
 
     // Version 14.
     WKPageRunWebAuthenticationPanelCallback                             runWebAuthenticationPanel;
@@ -1578,7 +1574,6 @@ typedef struct WKPageUIClientV16 {
     WKPageRequestStorageAccessConfirmCallback                           requestStorageAccessConfirm;
 
     // Version 13.
-    WKPageShouldAllowDeviceOrientationAndMotionAccessCallback           shouldAllowDeviceOrientationAndMotionAccess;
 
     // Version 14.
     WKPageRunWebAuthenticationPanelCallback                             runWebAuthenticationPanel;
@@ -1692,7 +1687,6 @@ typedef struct WKPageUIClientV17 {
     WKPageRequestStorageAccessConfirmCallback                           requestStorageAccessConfirm;
 
     // Version 13.
-    WKPageShouldAllowDeviceOrientationAndMotionAccessCallback           shouldAllowDeviceOrientationAndMotionAccess;
 
     // Version 14.
     WKPageRunWebAuthenticationPanelCallback                             runWebAuthenticationPanel;
@@ -1806,7 +1800,6 @@ typedef struct WKPageUIClientV18 {
     WKPageRequestStorageAccessConfirmCallback                           requestStorageAccessConfirm;
 
     // Version 13.
-    WKPageShouldAllowDeviceOrientationAndMotionAccessCallback           shouldAllowDeviceOrientationAndMotionAccess;
 
     // Version 14.
     WKPageRunWebAuthenticationPanelCallback                             runWebAuthenticationPanel;
@@ -1922,7 +1915,6 @@ typedef struct WKPageUIClientV19 {
     WKPageRequestStorageAccessConfirmCallback                           requestStorageAccessConfirm;
 
     // Version 13.
-    WKPageShouldAllowDeviceOrientationAndMotionAccessCallback           shouldAllowDeviceOrientationAndMotionAccess;
 
     // Version 14.
     WKPageRunWebAuthenticationPanelCallback                             runWebAuthenticationPanel;

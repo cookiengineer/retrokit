@@ -36,7 +36,6 @@
 #include <WebCore/ContentFilterClient.h>
 #include <WebCore/ContentSecurityPolicyClient.h>
 #include <WebCore/CrossOriginOpenerPolicy.h>
-#include <WebCore/DeviceOrientationOrMotionPermissionState.h>
 #include <WebCore/DocumentEnums.h>
 #include <WebCore/DocumentLoadTiming.h>
 #include <WebCore/DocumentWriter.h>
@@ -356,10 +355,6 @@ public:
     const Vector<TargetedElementSelectors>& visibilityAdjustmentSelectors() const LIFETIME_BOUND { return m_visibilityAdjustmentSelectors; }
     void setVisibilityAdjustmentSelectors(Vector<TargetedElementSelectors>&& selectors) { m_visibilityAdjustmentSelectors = WTF::move(selectors); }
 
-#if ENABLE(DEVICE_ORIENTATION)
-    DeviceOrientationOrMotionPermissionState deviceOrientationAndMotionAccessState() const { return m_deviceOrientationAndMotionAccessState; }
-    void setDeviceOrientationAndMotionAccessState(DeviceOrientationOrMotionPermissionState state) { m_deviceOrientationAndMotionAccessState = state; }
-#endif
 
     AutoplayPolicy autoplayPolicy() const { return m_autoplayPolicy; }
     void setAutoplayPolicy(AutoplayPolicy policy) { m_autoplayPolicy = policy; }
@@ -761,9 +756,6 @@ private:
 
     std::unique_ptr<ServiceWorkerRegistrationData> m_serviceWorkerRegistrationData;
 
-#if ENABLE(DEVICE_ORIENTATION)
-    DeviceOrientationOrMotionPermissionState m_deviceOrientationAndMotionAccessState { DeviceOrientationOrMotionPermissionState::Prompt };
-#endif
 
     OptionSet<AdvancedPrivacyProtections> m_advancedPrivacyProtections;
     std::optional<OptionSet<AdvancedPrivacyProtections>> m_originatorAdvancedPrivacyProtections;

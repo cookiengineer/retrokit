@@ -168,8 +168,6 @@ list(APPEND WebKitLegacy_SOURCES
 
     mac/WebView/WebArchive.mm
     mac/WebView/WebDelegateImplementationCaching.mm
-    mac/WebView/WebDeviceOrientation.mm
-    mac/WebView/WebDeviceOrientationProviderMock.mm
     mac/WebView/WebDocumentLoaderMac.mm
     mac/WebView/WebFeature.m
     mac/WebView/WebFormDelegate.m
@@ -543,11 +541,6 @@ set(WebKitLegacy_LEGACY_FORWARDING_HEADERS_FILES
     mac/WebView/WebDataSourceInternal.h
     mac/WebView/WebDataSourcePrivate.h
     mac/WebView/WebDelegateImplementationCaching.h
-    mac/WebView/WebDeviceOrientation.h
-    mac/WebView/WebDeviceOrientationInternal.h
-    mac/WebView/WebDeviceOrientationProvider.h
-    mac/WebView/WebDeviceOrientationProviderMock.h
-    mac/WebView/WebDeviceOrientationProviderMockInternal.h
     mac/WebView/WebDocument.h
     mac/WebView/WebDocumentInternal.h
     mac/WebView/WebDocumentLoaderMac.h
@@ -744,11 +737,6 @@ list(APPEND WebKitLegacy_PUBLIC_FRAMEWORK_HEADERS
     mac/WebView/WebDataSourceInternal.h
     mac/WebView/WebDataSourcePrivate.h
     mac/WebView/WebDelegateImplementationCaching.h
-    mac/WebView/WebDeviceOrientation.h
-    mac/WebView/WebDeviceOrientationInternal.h
-    mac/WebView/WebDeviceOrientationProvider.h
-    mac/WebView/WebDeviceOrientationProviderMock.h
-    mac/WebView/WebDeviceOrientationProviderMockInternal.h
     mac/WebView/WebDocument.h
     mac/WebView/WebDocumentInternal.h
     mac/WebView/WebDocumentLoaderMac.h
@@ -899,8 +887,6 @@ set(_wkl_excluded_for_ios
     WebDefaultEditingDelegate.h
     WebDefaultUIDelegate.h
     WebDelegateImplementationCaching.h
-    WebDeviceOrientationInternal.h
-    WebDeviceOrientationProviderMockInternal.h
     WebDocumentInternal.h
     WebDocumentLoaderMac.h
     WebDragClient.h

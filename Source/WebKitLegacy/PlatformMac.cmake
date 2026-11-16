@@ -261,9 +261,6 @@ set(WebKitLegacy_FORWARDED_PRIVATE_HEADERS
 
     mac/WebView/WebAllowDenyPolicyListener.h
     mac/WebView/WebDataSourcePrivate.h
-    mac/WebView/WebDeviceOrientation.h
-    mac/WebView/WebDeviceOrientationProvider.h
-    mac/WebView/WebDeviceOrientationProviderMock.h
     mac/WebView/WebDocumentPrivate.h
     mac/WebView/WebDynamicScrollBarsView.h
     mac/WebView/WebEditingDelegatePrivate.h
@@ -467,8 +464,6 @@ set(WebKitLegacy_PROJECT_HEADERS
     mac/WebView/WebClipView.h
     mac/WebView/WebDataSourceInternal.h
     mac/WebView/WebDelegateImplementationCaching.h
-    mac/WebView/WebDeviceOrientationInternal.h
-    mac/WebView/WebDeviceOrientationProviderMockInternal.h
     mac/WebView/WebDocumentInternal.h
     mac/WebView/WebDocumentLoaderMac.h
     mac/WebView/WebDynamicScrollBarsViewInternal.h

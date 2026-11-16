@@ -111,9 +111,6 @@ private:
 
     bool showDataDetectorsUIForElement(const WebCore::Element&, const WebCore::Event&) final { return false; }
 
-#if ENABLE(ORIENTATION_EVENTS)
-    WebCore::IntDegrees deviceOrientation() const final;
-#endif
 
     int m_formNotificationSuppressions { 0 };
 };

@@ -52,7 +52,6 @@
 @class UIImage;
 @class NSError;
 @class WebFrame;
-@class WebDeviceOrientation;
 @class WebGeolocationPosition;
 @class WebInspector;
 @class WebNotification;
@@ -66,7 +65,6 @@
 
 @protocol WebCaretChangeListener;
 #endif
-@protocol WebDeviceOrientationProvider;
 @protocol WebFormDelegate;
 
 #if TARGET_OS_IPHONE
@@ -934,11 +932,6 @@ typedef struct WebEdgeInsets {
 - (BOOL)_selectionIsAll;
 - (void)_simplifyMarkup:(DOMNode *)startNode endNode:(DOMNode *)endNode;
 
-@end
-
-@interface WebView (WebViewDeviceOrientation)
-- (void)_setDeviceOrientationProvider:(id<WebDeviceOrientationProvider>)deviceOrientationProvider;
-- (id<WebDeviceOrientationProvider>)_deviceOrientationProvider;
 @end
 
 #if TARGET_OS_IPHONE

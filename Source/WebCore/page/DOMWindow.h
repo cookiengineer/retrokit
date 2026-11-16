@@ -79,10 +79,6 @@ class WebKitNamespace;
 class WebKitPoint;
 class WindowProxy;
 
-#if ENABLE(DEVICE_ORIENTATION)
-class DeviceMotionController;
-class DeviceOrientationController;
-#endif
 
 struct IdleRequestOptions;
 struct ImageBitmapOptions;
@@ -210,9 +206,6 @@ public:
     ExceptionOr<void> clearTimeout(int timeoutId);
     ExceptionOr<int> setInterval(std::unique_ptr<ScheduledAction>, int timeout, FixedVector<JSC::Strong<JSC::Unknown>>&& arguments);
     ExceptionOr<void> clearInterval(int timeoutId);
-#if ENABLE(ORIENTATION_EVENTS)
-    ExceptionOr<IntDegrees> orientation() const;
-#endif
 
     ExceptionOr<void> reportError(JSDOMGlobalObject&, JSC::JSValue);
     ExceptionOr<JSC::JSValue> structuredClone(JSDOMGlobalObject& lexicalGlobalObject, JSDOMGlobalObject& relevantGlobalObject, JSC::JSValue, StructuredSerializeOptions&&);

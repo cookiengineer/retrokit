@@ -171,9 +171,6 @@ void UIDelegate::setDelegate(id<WKUIDelegate> delegate)
     m_delegateMethods.webViewDidAttachLocalInspector = [delegate respondsToSelector:@selector(_webView:didAttachLocalInspector:)];
     m_delegateMethods.webViewWillCloseLocalInspector = [delegate respondsToSelector:@selector(_webView:willCloseLocalInspector:)];
 #endif
-#if ENABLE(DEVICE_ORIENTATION)
-    m_delegateMethods.webViewRequestDeviceOrientationAndMotionPermissionForOriginDecisionHandler = [delegate respondsToSelector:@selector(webView:requestDeviceOrientationAndMotionPermissionForOrigin:initiatedByFrame:decisionHandler:)];
-#endif
     m_delegateMethods.webViewDecideDatabaseQuotaForSecurityOriginCurrentQuotaCurrentOriginUsageCurrentDatabaseUsageExpectedUsageDecisionHandler = [delegate respondsToSelector:@selector(_webView:decideDatabaseQuotaForSecurityOrigin:currentQuota:currentOriginUsage:currentDatabaseUsage:expectedUsage:decisionHandler:)];
     m_delegateMethods.webViewDecideDatabaseQuotaForSecurityOriginDatabaseNameDisplayNameCurrentQuotaCurrentOriginUsageCurrentDatabaseUsageExpectedUsageDecisionHandler = [delegate respondsToSelector:@selector(_webView:decideDatabaseQuotaForSecurityOrigin:databaseName:displayName:currentQuota:currentOriginUsage:currentDatabaseUsage:expectedUsage:decisionHandler:)];
     m_delegateMethods.webViewPrintFrame = [delegate respondsToSelector:@selector(_webView:printFrame:)];
@@ -1205,41 +1202,6 @@ void UIDelegate::UIClient::willCloseLocalInspector(WebPageProxy&, WebInspectorUI
 
 #endif
 
-#if ENABLE(DEVICE_ORIENTATION)
-void UIDelegate::UIClient::shouldAllowDeviceOrientationAndMotionAccess(WebKit::WebPageProxy& page, WebFrameProxy& webFrameProxy, FrameInfoData&& frameInfo, CompletionHandler<void(bool)>&& completionHandler)
-{
-    Ref securityOrigin = frameInfo.topOrigin.securityOrigin();
-    RefPtr uiDelegate = m_uiDelegate.get();
-    if (!uiDelegate || !uiDelegate->m_delegate.get() || !uiDelegate->m_delegateMethods.webViewRequestDeviceOrientationAndMotionPermissionForOriginDecisionHandler) {
-        alertForPermission(page, MediaPermissionReason::DeviceOrientation, securityOrigin->data(), WTF::move(completionHandler));
-        return;
-    }
-
-    RetainPtr delegate = uiDelegatePrivate();
-    auto checker = CompletionHandlerCallChecker::create(delegate.get(), @selector(webView:requestDeviceOrientationAndMotionPermissionForOrigin:initiatedByFrame:decisionHandler:));
-    auto decisionHandler = makeBlockPtr([completionHandler = WTF::move(completionHandler), securityOrigin = securityOrigin->data(), checker = WTF::move(checker), page = WeakPtr { page }](WKPermissionDecision decision) mutable {
-        if (checker->completionHandlerHasBeenCalled())
-            return;
-        checker->didCallCompletionHandler();
-        if (!page) {
-            completionHandler(false);
-            return;
-        }
-        switch (decision) {
-        case WKPermissionDecisionPrompt:
-            alertForPermission(*page, MediaPermissionReason::DeviceOrientation, securityOrigin, WTF::move(completionHandler));
-            break;
-        case WKPermissionDecisionGrant:
-            completionHandler(true);
-            break;
-        case WKPermissionDecisionDeny:
-            completionHandler(false);
-            break;
-        }
-    });
-    [delegate webView:uiDelegate->m_webView.get().get() requestDeviceOrientationAndMotionPermissionForOrigin:wrapper(API::SecurityOrigin::create(securityOrigin.get())).get() initiatedByFrame:wrapper(API::FrameInfo::create(WTF::move(frameInfo))).get() decisionHandler:decisionHandler.get()];
-}
-#endif
 
 void UIDelegate::UIClient::didChangeFontAttributes(const WebCore::FontAttributes& fontAttributes)
 {

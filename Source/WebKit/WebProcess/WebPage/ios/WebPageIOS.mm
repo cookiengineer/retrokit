@@ -2878,10 +2878,6 @@ void WebPage::setDeviceOrientation(IntDegrees deviceOrientation)
     if (deviceOrientation == m_deviceOrientation)
         return;
     m_deviceOrientation = deviceOrientation;
-#if ENABLE(ORIENTATION_EVENTS)
-    if (RefPtr localMainFrame = protect(m_page)->localMainFrame())
-        localMainFrame->orientationChanged();
-#endif
 }
 
 void WebPage::setOverrideViewportArguments(const std::optional<WebCore::ViewportArguments>& arguments)

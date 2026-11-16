@@ -62,10 +62,6 @@ public:
     WebKit::WebsiteAutoplayPolicy autoplayPolicy() const { return m_data.autoplayPolicy; }
     void setAutoplayPolicy(WebKit::WebsiteAutoplayPolicy policy) { m_data.autoplayPolicy = policy; }
 
-#if ENABLE(DEVICE_ORIENTATION)
-    std::optional<WebCore::DeviceOrientationOrMotionPermissionState> deviceOrientationAndMotionAccessState() const { return m_data.deviceOrientationAndMotionAccessState; }
-    void setDeviceOrientationAndMotionAccessState(WebCore::DeviceOrientationOrMotionPermissionState state) { m_data.deviceOrientationAndMotionAccessState = state; }
-#endif
 
     const Vector<WebCore::CustomHeaderFields>& customHeaderFields() const LIFETIME_BOUND { return m_data.customHeaderFields; }
     void setCustomHeaderFields(Vector<WebCore::CustomHeaderFields>&& fields) { m_data.customHeaderFields = WTF::move(fields); }

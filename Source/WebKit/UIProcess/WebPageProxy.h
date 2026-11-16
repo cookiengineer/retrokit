@@ -197,7 +197,6 @@ enum class DOMPasteAccessCategory : uint8_t;
 enum class DOMPasteAccessResponse : uint8_t;
 enum class DataDetectorType : uint8_t;
 enum class DataOwnerType : uint8_t;
-enum class DeviceOrientationOrMotionPermissionState : uint8_t;
 enum class DiagnosticLoggingDomain : uint8_t;
 enum class DragControllerAction : uint8_t;
 enum class DragEventHandled : bool;
@@ -572,7 +571,6 @@ class WebColorPickerClient;
 class WebContextMenuItemData;
 class WebContextMenuProxy;
 class WebDateTimePicker;
-class WebDeviceOrientationUpdateProviderProxy;
 class WebEditCommandProxy;
 class WebExtensionController;
 class WebFramePolicyListenerProxy;
@@ -991,9 +989,6 @@ public:
     void createIconDataFromImageData(Ref<WebCore::SharedBuffer>&&, const Vector<unsigned>&, CompletionHandler<void(RefPtr<WebCore::SharedBuffer>&&)>&&);
     void decodeImageData(Ref<WebCore::SharedBuffer>&&, std::optional<WebCore::FloatSize>, CompletionHandler<void(RefPtr<WebCore::ShareableBitmap>&&)>&&);
 #endif
-
-    void simulateDeviceMotionChange(double xAcceleration, double yAcceleration, double zAcceleration, double xAccelerationIncludingGravity, double yAccelerationIncludingGravity, double zAccelerationIncludingGravity, double xRotationRate, double yRotationRate, double zRotationRate);
-    void simulateDeviceOrientationChange(double alpha, double beta, double gamma);
 
     void stopLoading();
     RefPtr<API::Navigation> reload(OptionSet<WebCore::ReloadOption>);
@@ -2222,9 +2217,6 @@ public:
     void setWaitingForPostLayoutEditorStateUpdateAfterFocusingElement(bool waitingForPostLayoutEditorStateUpdateAfterFocusingElement) { m_waitingForPostLayoutEditorStateUpdateAfterFocusingElement = waitingForPostLayoutEditorStateUpdateAfterFocusingElement; }
     bool waitingForPostLayoutEditorStateUpdateAfterFocusingElement() const { return m_waitingForPostLayoutEditorStateUpdateAfterFocusingElement; }
 
-    const Function<bool()>& deviceOrientationUserPermissionHandlerForTesting() const LIFETIME_BOUND { return m_deviceOrientationUserPermissionHandlerForTesting; };
-    void setDeviceOrientationUserPermissionHandlerForTesting(Function<bool()>&& handler) { m_deviceOrientationUserPermissionHandlerForTesting = WTF::move(handler); }
-
     void statusBarWasTapped();
 #endif
 
@@ -2287,9 +2279,6 @@ public:
     void getLoadedSubresourceDomains(CompletionHandler<void(Vector<WebCore::RegistrableDomain>&&)>&&);
     void clearLoadedSubresourceDomains();
 
-#if ENABLE(DEVICE_ORIENTATION)
-    void shouldAllowDeviceOrientationAndMotionAccess(IPC::Connection&, WebCore::FrameIdentifier, FrameInfoData&&, bool mayPrompt, CompletionHandler<void(WebCore::DeviceOrientationOrMotionPermissionState)>&&);
-#endif
 
 #if ENABLE(IMAGE_ANALYSIS)
     void requestTextRecognition(const URL& imageURL, WebCore::ShareableBitmapHandle&& imageData, const String& sourceLanguageIdentifier, const String& targetLanguageIdentifier, CompletionHandler<void(WebCore::TextRecognitionResult&&)>&&);
@@ -2998,9 +2987,6 @@ public:
     void didCreateRemotePage(RemotePageProxy&);
     void willDestroyRemotePage(RemotePageProxy&);
 
-#if PLATFORM(IOS_FAMILY) && ENABLE(DEVICE_ORIENTATION)
-    RefPtr<WebDeviceOrientationUpdateProviderProxy> NODELETE webDeviceOrientationUpdateProviderProxy();
-#endif
 
     friend class TextExtractionAssertionScope;
     UniqueRef<TextExtractionAssertionScope> NODELETE createTextExtractionAssertionScope();
@@ -4121,7 +4107,6 @@ private:
 #endif
 
 #if PLATFORM(IOS_FAMILY)
-    Function<bool()> m_deviceOrientationUserPermissionHandlerForTesting;
     bool m_waitingForPostLayoutEditorStateUpdateAfterFocusingElement { false };
     bool m_lastObservedStateWasBackground { false };
     HashSet<String> m_performActionOnElementAuthTokens;
@@ -4200,9 +4185,6 @@ private:
     };
     Vector<InjectedBundleMessage> m_pendingInjectedBundleMessages;
         
-#if PLATFORM(IOS_FAMILY) && ENABLE(DEVICE_ORIENTATION)
-    RefPtr<WebDeviceOrientationUpdateProviderProxy> m_webDeviceOrientationUpdateProviderProxy;
-#endif
 
     RefPtr<WebScreenOrientationManagerProxy> m_screenOrientationManager;
 

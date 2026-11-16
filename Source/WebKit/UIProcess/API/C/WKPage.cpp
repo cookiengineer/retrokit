@@ -2074,17 +2074,6 @@ void WKPageSetPageUIClient(WKPageRef pageRef, const WKPageUIClientBase* wkClient
             m_client.requestStorageAccessConfirm(toAPI(&page), toAPI(frame), toAPI(requestingDomain.string().impl()), toAPI(currentDomain.string().impl()), toAPI(listener.ptr()), m_client.base.clientInfo);
         }
 
-#if ENABLE(DEVICE_ORIENTATION)
-        void shouldAllowDeviceOrientationAndMotionAccess(WebPageProxy& page, WebFrameProxy& frame, FrameInfoData&& frameInfo, CompletionHandler<void(bool)>&& completionHandler) final
-        {
-            if (!m_client.shouldAllowDeviceOrientationAndMotionAccess)
-                return completionHandler(false);
-
-            Ref origin = API::SecurityOrigin::create(SecurityOrigin::create(page.pageLoadState().activeURL()).get());
-            auto apiFrameInfo = API::FrameInfo::create(WTF::move(frameInfo));
-            completionHandler(m_client.shouldAllowDeviceOrientationAndMotionAccess(toAPI(&page), toAPI(origin.ptr()), toAPI(apiFrameInfo.ptr()), m_client.base.clientInfo));
-        }
-#endif
 
         // Printing.
         float headerHeight(WebPageProxy& page, WebFrameProxy& frame) final

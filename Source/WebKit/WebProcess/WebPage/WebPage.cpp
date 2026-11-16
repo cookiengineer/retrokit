@@ -448,9 +448,6 @@
 #include <WebCore/ExceptionData.h>
 #endif // ENABLE(WEB_AUTHN)
 
-#if PLATFORM(IOS_FAMILY) && ENABLE(DEVICE_ORIENTATION)
-#include "WebDeviceOrientationUpdateProvider.h"
-#endif
 
 #if ENABLE(GPU_PROCESS)
 #include "RemoteMediaPlayerManager.h"
@@ -861,9 +858,6 @@ WebPage::WebPage(PageIdentifier pageID, WebPageCreationParameters&& parameters)
     pageConfiguration.applicationManifest = WTF::move(parameters.applicationManifest);
 #endif
 
-#if PLATFORM(IOS_FAMILY) && ENABLE(DEVICE_ORIENTATION)
-    pageConfiguration.deviceOrientationUpdateProvider = WebDeviceOrientationUpdateProvider::create(*this);
-#endif
 
 #if ENABLE(WK_WEB_EXTENSIONS) && PLATFORM(COCOA)
     if (parameters.webExtensionControllerParameters)
@@ -9080,18 +9074,6 @@ const HashSet<WebCore::RegistrableDomain>& WebPage::loadedSubresourceDomains() c
     return m_internals->loadedSubresourceDomains;
 }
 
-#if ENABLE(DEVICE_ORIENTATION)
-void WebPage::shouldAllowDeviceOrientationAndMotionAccess(FrameIdentifier frameID, FrameInfoData&& frameInfo, bool mayPrompt, CompletionHandler<void(DeviceOrientationOrMotionPermissionState)>&& completionHandler)
-{
-    sendWithAsyncReply(Messages::WebPageProxy::ShouldAllowDeviceOrientationAndMotionAccess(frameID, WTF::move(frameInfo), mayPrompt), WTF::move(completionHandler));
-}
-
-void WebPage::clearDeviceOrientationAndMotionPermissions()
-{
-    if (RefPtr page = corePage())
-        page->clearDeviceOrientationAndMotionPermissions();
-}
-#endif
 
 void WebPage::showShareSheet(ShareDataWithParsedURL&& shareData, WTF::CompletionHandler<void(bool)>&& callback)
 {
@@ -9130,34 +9112,6 @@ WebCore::DOMPasteAccessResponse WebPage::requestDOMPasteAccess(DOMPasteAccessCat
     auto sendResult = sendSyncWithDelayedReply(Messages::WebPageProxy::RequestDOMPasteAccess(pasteAccessCategory, frameID, rectForElementAtInteractionLocation(), originIdentifier));
     auto [response] = sendResult.takeReplyOr(WebCore::DOMPasteAccessResponse::DeniedForGesture);
     return response;
-}
-
-void WebPage::simulateDeviceMotionChange(double xAcceleration, double yAcceleration, double zAcceleration, double xAccelerationIncludingGravity, double yAccelerationIncludingGravity, double zAccelerationIncludingGravity, double xRotationRate, double yRotationRate, double zRotationRate)
-{
-#if ENABLE(DEVICE_ORIENTATION) && PLATFORM(IOS_FAMILY)
-    for (RefPtr frame = mainFrame(); frame; frame = frame->tree().traverseNext()) {
-        RefPtr localFrame = dynamicDowncast<LocalFrame>(frame.get());
-        if (!localFrame)
-            continue;
-
-        if (RefPtr document = localFrame->document())
-            document->simulateDeviceMotionChange(xAcceleration, yAcceleration, zAcceleration, xAccelerationIncludingGravity, yAccelerationIncludingGravity, zAccelerationIncludingGravity, xRotationRate, yRotationRate, zRotationRate);
-    }
-#endif
-}
-
-void WebPage::simulateDeviceOrientationChange(double alpha, double beta, double gamma)
-{
-#if ENABLE(DEVICE_ORIENTATION) && PLATFORM(IOS_FAMILY)
-    for (RefPtr frame = mainFrame(); frame; frame = frame->tree().traverseNext()) {
-        RefPtr localFrame = dynamicDowncast<LocalFrame>(frame.get());
-        if (!localFrame)
-            continue;
-
-        if (RefPtr document = localFrame->document())
-            document->simulateDeviceOrientationChange(alpha, beta, gamma);
-    }
-#endif
 }
 
 #if USE(SYSTEM_PREVIEW)

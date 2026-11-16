@@ -425,7 +425,6 @@ UIProcess/RemotePageProxy.cpp
 UIProcess/RemotePageScreenOrientationManagerProxy.cpp
 UIProcess/RemotePageVideoPresentationManagerProxy.cpp
 UIProcess/RemotePageWebAuthenticatorCoordinatorProxy.cpp
-UIProcess/RemotePageWebDeviceOrientationUpdateProviderProxy.cpp
 UIProcess/ResponsivenessTimer.cpp
 UIProcess/SessionHistoryTraversalQueue.cpp
 UIProcess/SpeechRecognitionRemoteRealtimeMediaSource.cpp
@@ -669,7 +668,6 @@ UIProcess/WebAuthentication/WebAuthenticationRequestData.cpp
 
 UIProcess/WebsiteData/EnhancedSecuritySitesHolder.cpp
 UIProcess/WebsiteData/EnhancedSecuritySitesPersistence.cpp
-UIProcess/WebsiteData/WebDeviceOrientationAndMotionAccessController.cpp
 UIProcess/WebsiteData/WebsiteDataRecord.cpp
 UIProcess/WebsiteData/WebsiteDataStore.cpp @cost:5
 UIProcess/WebsiteData/WebsiteDataStoreConfiguration.cpp

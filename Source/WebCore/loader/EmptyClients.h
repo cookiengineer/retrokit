@@ -208,9 +208,6 @@ class EmptyChromeClient : public ChromeClient {
     void didFinishContentChangeObserving(LocalFrame&, ContentChange) final { }
 #endif
 
-#if ENABLE(ORIENTATION_EVENTS)
-    IntDegrees deviceOrientation() const final { return 0; }
-#endif
 
 #if PLATFORM(IOS_FAMILY)
     bool isStopping() final { return false; }

@@ -85,8 +85,6 @@
 
 - (void)_triggerSystemPreviewActionOnElement:(uint64_t)elementID document:(NSString*)documentID page:(uint64_t)pageID;
 
-- (void)_setDeviceOrientationUserPermissionHandlerForTesting:(BOOL (^)(void))handler;
-
 - (void)_resetObscuredInsetsForTesting;
 - (BOOL)_hasResizeAssertion;
 - (void)_simulateSelectionStart;

@@ -62,7 +62,6 @@
 #include "DatabaseProvider.h"
 #include "DebugOverlayRegions.h"
 #include "DebugPageOverlays.h"
-#include "DeviceOrientationAndMotionAccessController.h"
 #include "DiagnosticLoggingClient.h"
 #include "DiagnosticLoggingKeys.h"
 #include "DisplayRefreshMonitorManager.h"
@@ -455,9 +454,6 @@ Page::Page(PageConfiguration&& pageConfiguration)
 #endif
 #if ENABLE(APPLICATION_MANIFEST)
     , m_applicationManifest(pageConfiguration.applicationManifest)
-#endif
-#if ENABLE(DEVICE_ORIENTATION) && PLATFORM(IOS_FAMILY)
-    , m_deviceOrientationUpdateProvider(WTF::move(pageConfiguration.deviceOrientationUpdateProvider))
 #endif
     , m_corsDisablingPatterns(WTF::move(pageConfiguration.corsDisablingPatterns))
     , m_maskedURLSchemes(WTF::move(pageConfiguration.maskedURLSchemes))
@@ -3476,12 +3472,6 @@ void Page::setIsVisibleInternal(bool isVisible)
 
         resumeScriptedAnimations();
 
-#if PLATFORM(IOS_FAMILY)
-        forEachDocument([] (Document& document) {
-            document.resumeDeviceMotionAndOrientationUpdates();
-        });
-#endif
-
         RefPtr localMainFrame = this->localMainFrame();
         if (RefPtr view = localMainFrame ? localMainFrame->view() : nullptr)
             view->show();
@@ -3518,12 +3508,6 @@ void Page::setIsVisibleInternal(bool isVisible)
             if (CheckedPtr svgExtensions = document.svgExtensionsIfExists())
                 svgExtensions->pauseAnimations();
         });
-
-#if PLATFORM(IOS_FAMILY)
-        forEachDocument([] (Document& document) {
-            document.suspendDeviceMotionAndOrientationUpdates();
-        });
-#endif
 
         suspendScriptedAnimations();
         RefPtr localMainFrame = this->localMainFrame();
@@ -4491,9 +4475,6 @@ void Page::didChangeMainDocument(Document* newDocument)
 
     clearSampledPageTopColor();
 
-#if ENABLE(DEVICE_ORIENTATION)
-    clearDeviceOrientationAndMotionPermissions();
-#endif
 
     m_elementTargetingController->didChangeMainDocument(newDocument);
 
@@ -4532,20 +4513,6 @@ void Page::forEachDocument(NOESCAPE const Function<void(Document&)>& functor) co
     forEachDocumentFromMainFrame(protect(mainFrame()), functor);
 }
 
-#if ENABLE(DEVICE_ORIENTATION)
-DeviceOrientationAndMotionAccessController& Page::deviceOrientationAndMotionAccessController()
-{
-    if (!m_deviceOrientationAndMotionAccessController)
-        m_deviceOrientationAndMotionAccessController = makeUnique<DeviceOrientationAndMotionAccessController>(*this);
-    return *m_deviceOrientationAndMotionAccessController;
-}
-
-void Page::clearDeviceOrientationAndMotionPermissions()
-{
-    if (m_deviceOrientationAndMotionAccessController)
-        protect(m_deviceOrientationAndMotionAccessController)->clearPermissions();
-}
-#endif
 
 bool Page::findMatchingLocalDocument(NOESCAPE const Function<bool(Document&)>& functor) const
 {

@@ -98,7 +98,6 @@ list(APPEND WebKit_SOURCES
 
     UIProcess/RemoteLayerTree/ios/RemoteLayerTreeViews.mm
 
-    UIProcess/ios/WebDeviceOrientationUpdateProviderProxy.mm
     UIProcess/ios/_WKCaptionStyleMenuControllerAVKit.mm
     UIProcess/ios/_WKCaptionStyleMenuControllerIOS.mm
 

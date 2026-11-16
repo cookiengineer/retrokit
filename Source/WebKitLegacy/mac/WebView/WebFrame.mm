@@ -1278,19 +1278,6 @@ static WebFrameLoadType NODELETE toWebFrameLoadType(WebCore::FrameLoadType frame
         frameLoader.client().saveViewStateToItem(*item);
 }
 
-- (void)deviceOrientationChanged
-{
-    WebThreadRun(^{
-#if ENABLE(ORIENTATION_EVENTS)
-        WebView *webView = getWebView(self);
-        [webView _setDeviceOrientation:[[webView _UIKitDelegateForwarder] deviceOrientation]];
-
-        if (auto* frame = core(self))
-            frame->orientationChanged();
-#endif
-    });
-}
-
 - (void)setNeedsLayout
 {
     WebCore::LocalFrame *frame = core(self);

@@ -498,34 +498,48 @@ custom-protocol	method	WebKit::NetworkProcessProxy::unregisterSchemeForLegacyCus
 custom-protocol	namespace	API	Source/WebKit/UIProcess/Network/NetworkProcessProxy.h	removed	source	ac978b970d4ed0721c5bc7f00a6f595c251fe212	line=57
 custom-protocol	flag	WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_LEGACY_CUSTOM_PROTOCOL_MANAGER PRIVATE ON)	Source/cmake/OptionsMac.cmake	removed	source	ac978b970d4ed0721c5bc7f00a6f595c251fe212	line=50; commit=ac978b970d4e
 custom-protocol	flag	WEBKIT_OPTION_DEFINE(ENABLE_LEGACY_CUSTOM_PROTOCOL_MANAGER "Toggle legacy protocol manager support" PRIVATE OFF)	Source/cmake/WebKitFeatures.cmake	removed	source	ac978b970d4ed0721c5bc7f00a6f595c251fe212	line=158; commit=ac978b970d4e
+device-sensors	file	-	Source/WTF/Scripts/Preferences/UnifiedWebPreferences.yaml	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	pref	DeviceOrientationEventEnabled:	Source/WTF/Scripts/Preferences/UnifiedWebPreferences.yaml	removed	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54)
+device-sensors	pref	DeviceOrientationPermissionAPIEnabled:	Source/WTF/Scripts/Preferences/UnifiedWebPreferences.yaml	removed	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54)
 device-sensors	pref	DeviceOrientationEventEnabled:	Source/WTF/Scripts/Preferences/WebPreferences.yaml	removed	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	line=620; commit=a095f6f1d0b6
 device-sensors	pref	DeviceOrientationPermissionAPIEnabled:	Source/WTF/Scripts/Preferences/WebPreferences.yaml	removed	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	line=631; commit=a095f6f1d0b6
 device-sensors	pref	condition: ENABLE(DEVICE_ORIENTATION)	Source/WTF/Scripts/Preferences/WebPreferences.yaml	removed	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	line=622; commit=a095f6f1d0b6; line=633; commit=a095f6f1d0b6
+device-sensors	file	-	Source/WTF/wtf/PlatformEnable.h	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WTF/wtf/PlatformEnableCocoa.h	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WTF/wtf/cocoa/RuntimeApplicationChecksCocoa.h	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WTF/wtf/cocoa/RuntimeApplicationChecksCocoa.mm	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
 device-sensors	build_ref	dom/DeviceMotionEvent.idl	Source/WebCore/CMakeLists.txt	removed	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	line=733; commit=a095f6f1d0b6
 device-sensors	build_ref	dom/DeviceOrientationEvent.idl	Source/WebCore/CMakeLists.txt	removed	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	line=734; commit=a095f6f1d0b6
 device-sensors	build_ref	dom/DeviceOrientationOrMotionPermissionState.idl	Source/WebCore/CMakeLists.txt	removed	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	line=735; commit=a095f6f1d0b6
 device-sensors	build_ref	page/DOMWindow+DeviceMotion.idl	Source/WebCore/CMakeLists.txt	removed	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	line=1015; commit=a095f6f1d0b6
 device-sensors	build_ref	page/DOMWindow+DeviceOrientation.idl	Source/WebCore/CMakeLists.txt	removed	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	line=1016; commit=a095f6f1d0b6
+device-sensors	file	-	Source/WebCore/CMakeLists.txt	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebCore/DerivedSources-input.xcfilelist	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebCore/DerivedSources-output.xcfilelist	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
 device-sensors	build_ref	$(WebCore)/dom/DeviceMotionEvent.idl \	Source/WebCore/DerivedSources.make	removed	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	line=570; commit=a095f6f1d0b6
 device-sensors	build_ref	$(WebCore)/dom/DeviceOrientationEvent.idl \	Source/WebCore/DerivedSources.make	removed	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	line=571; commit=a095f6f1d0b6
 device-sensors	build_ref	$(WebCore)/dom/DeviceOrientationOrMotionPermissionState.idl \	Source/WebCore/DerivedSources.make	removed	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	line=572; commit=a095f6f1d0b6
 device-sensors	build_ref	$(WebCore)/page/DOMWindow+DeviceMotion.idl \	Source/WebCore/DerivedSources.make	removed	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	line=895; commit=a095f6f1d0b6
 device-sensors	build_ref	$(WebCore)/page/DOMWindow+DeviceOrientation.idl \	Source/WebCore/DerivedSources.make	removed	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	line=896; commit=a095f6f1d0b6
+device-sensors	file	-	Source/WebCore/DerivedSources.make	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
 device-sensors	build_ref	dom/DeviceOrientationClient.h	Source/WebCore/Headers.cmake	removed	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	line=427; commit=a095f6f1d0b6
 device-sensors	build_ref	dom/DeviceOrientationData.h	Source/WebCore/Headers.cmake	removed	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	line=428; commit=a095f6f1d0b6
 device-sensors	build_ref	dom/DeviceOrientationOrMotionPermissionState.h	Source/WebCore/Headers.cmake	removed	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	line=429; commit=a095f6f1d0b6
 device-sensors	build_ref	platform/OrientationNotifier.h	Source/WebCore/Headers.cmake	removed	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	line=1059; commit=a095f6f1d0b6
 device-sensors	build_ref	platform/mock/DeviceOrientationClientMock.h	Source/WebCore/Headers.cmake	removed	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	line=1418; commit=a095f6f1d0b6
+device-sensors	file	-	Source/WebCore/Headers.cmake	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
 device-sensors	enum_value	PermissionName::accelerometer	Source/WebCore/Modules/permissions/PermissionName.idl	removed	source	b5f9982ac10e2fbb9f9cbcb5518729d013c5ae6b	line=30
-device-sensors	enum_value	PermissionName::bluetooth	Source/WebCore/Modules/permissions/PermissionName.idl	removed	source	b5f9982ac10e2fbb9f9cbcb5518729d013c5ae6b	line=32
-device-sensors	enum_value	PermissionName::camera	Source/WebCore/Modules/permissions/PermissionName.idl	removed	source	b5f9982ac10e2fbb9f9cbcb5518729d013c5ae6b	line=33
-device-sensors	enum_value	PermissionName::display-capture	Source/WebCore/Modules/permissions/PermissionName.idl	removed	source	b5f9982ac10e2fbb9f9cbcb5518729d013c5ae6b	line=34
-device-sensors	enum_value	PermissionName::geolocation	Source/WebCore/Modules/permissions/PermissionName.idl	removed	source	b5f9982ac10e2fbb9f9cbcb5518729d013c5ae6b	line=35
 device-sensors	enum_value	PermissionName::gyroscope	Source/WebCore/Modules/permissions/PermissionName.idl	removed	source	b5f9982ac10e2fbb9f9cbcb5518729d013c5ae6b	line=36
 device-sensors	enum_value	PermissionName::magnetometer	Source/WebCore/Modules/permissions/PermissionName.idl	removed	source	b5f9982ac10e2fbb9f9cbcb5518729d013c5ae6b	line=37
-device-sensors	enum_value	PermissionName::microphone	Source/WebCore/Modules/permissions/PermissionName.idl	removed	source	b5f9982ac10e2fbb9f9cbcb5518729d013c5ae6b	line=38
-device-sensors	enum_value	PermissionName::speaker-selection	Source/WebCore/Modules/permissions/PermissionName.idl	removed	source	b5f9982ac10e2fbb9f9cbcb5518729d013c5ae6b	line=42
 device-sensors	file	-	Source/WebCore/Modules/permissions/PermissionName.idl	modified	source	b5f9982ac10e2fbb9f9cbcb5518729d013c5ae6b	origin=b5f9982ac10e2fbb9f9cbcb5518729d013c5ae6b :bug: Fixes
+device-sensors	file	-	Source/WebCore/PAL/pal/spi/cocoa/CoreMotionSPI.h	removed	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); deleted file
+device-sensors	file	-	Source/WebCore/PlatformCocoa.cmake	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebCore/SaferCPPExpectations/ForwardDeclCheckerExpectations	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebCore/SaferCPPExpectations/NoUncheckedPtrMemberCheckerExpectations	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebCore/SaferCPPExpectations/NoUnretainedMemberCheckerExpectations	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebCore/SaferCPPExpectations/UncheckedCallArgsCheckerExpectations	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebCore/SaferCPPExpectations/UncountedCallArgsCheckerExpectations	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebCore/SaferCPPExpectations/UnretainedCallArgsCheckerExpectations	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
 device-sensors	build_ref	JSDeviceMotionEvent.cpp	Source/WebCore/Sources.txt	removed	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	line=2882; commit=a095f6f1d0b6
 device-sensors	build_ref	JSDeviceOrientationEvent.cpp	Source/WebCore/Sources.txt	removed	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	line=2883; commit=a095f6f1d0b6
 device-sensors	build_ref	JSDeviceOrientationOrMotionPermissionState.cpp	Source/WebCore/Sources.txt	removed	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	line=2884; commit=a095f6f1d0b6
@@ -537,9 +551,16 @@ device-sensors	build_ref	dom/DeviceOrientationController.cpp	Source/WebCore/Sour
 device-sensors	build_ref	dom/DeviceOrientationData.cpp	Source/WebCore/Sources.txt	removed	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	line=809; commit=a095f6f1d0b6
 device-sensors	build_ref	dom/DeviceOrientationEvent.cpp	Source/WebCore/Sources.txt	removed	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	line=810; commit=a095f6f1d0b6
 device-sensors	build_ref	platform/mock/DeviceOrientationClientMock.cpp	Source/WebCore/Sources.txt	removed	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	line=2019; commit=a095f6f1d0b6
+device-sensors	file	-	Source/WebCore/Sources.txt	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
 device-sensors	build_ref	platform/ios/DeviceMotionClientIOS.mm	Source/WebCore/SourcesCocoa.txt	removed	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	line=338; commit=a095f6f1d0b6
 device-sensors	build_ref	platform/ios/DeviceOrientationClientIOS.mm	Source/WebCore/SourcesCocoa.txt	removed	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	line=339; commit=a095f6f1d0b6
 device-sensors	build_ref	platform/ios/WebCoreMotionManager.mm	Source/WebCore/SourcesCocoa.txt	removed	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	line=370; commit=a095f6f1d0b6
+device-sensors	file	-	Source/WebCore/SourcesCocoa.txt	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	config_line	macro(DeviceMotionEvent)	Source/WebCore/bindings/js/WebCoreBuiltinNames.h	removed	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54)
+device-sensors	config_line	macro(DeviceOrientationEvent)	Source/WebCore/bindings/js/WebCoreBuiltinNames.h	removed	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54)
+device-sensors	config_line	macro(ondevicemotion)	Source/WebCore/bindings/js/WebCoreBuiltinNames.h	removed	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54)
+device-sensors	config_line	macro(ondeviceorientation)	Source/WebCore/bindings/js/WebCoreBuiltinNames.h	removed	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54)
+device-sensors	file	-	Source/WebCore/bindings/js/WebCoreBuiltinNames.h	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
 device-sensors	file	-	Source/WebCore/dom/DeviceMotionClient.h	removed	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	origin=a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7 :unicorn: Device Motion and Device Orientation API
 device-sensors	file	-	Source/WebCore/dom/DeviceMotionController.cpp	removed	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	origin=a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7 :unicorn: Device Motion and Device Orientation API
 device-sensors	file	-	Source/WebCore/dom/DeviceMotionController.h	removed	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	origin=a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7 :unicorn: Device Motion and Device Orientation API
@@ -547,6 +568,7 @@ device-sensors	file	-	Source/WebCore/dom/DeviceMotionData.cpp	removed	source	a09
 device-sensors	file	-	Source/WebCore/dom/DeviceMotionData.h	removed	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	origin=a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7 :unicorn: Device Motion and Device Orientation API
 device-sensors	file	-	Source/WebCore/dom/DeviceMotionEvent.cpp	removed	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	origin=a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7 :unicorn: Device Motion and Device Orientation API
 device-sensors	file	-	Source/WebCore/dom/DeviceMotionEvent.h	removed	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	origin=a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7 :unicorn: Device Motion and Device Orientation API
+device-sensors	behavior	device-motion-orientation-api-removed	Source/WebCore/dom/DeviceMotionEvent.idl	removed	source	manual:device-sensors-2.54	Device Motion and Device Orientation APIs removed; interface/camera orientation plumbing and OrientationNotifier are retained
 device-sensors	file	-	Source/WebCore/dom/DeviceMotionEvent.idl	removed	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	origin=a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7 :unicorn: Device Motion and Device Orientation API
 device-sensors	file	-	Source/WebCore/dom/DeviceOrientationAndMotionAccessController.cpp	removed	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	origin=a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7 :unicorn: Device Motion and Device Orientation API
 device-sensors	file	-	Source/WebCore/dom/DeviceOrientationAndMotionAccessController.h	removed	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	origin=a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7 :unicorn: Device Motion and Device Orientation API
@@ -560,49 +582,180 @@ device-sensors	file	-	Source/WebCore/dom/DeviceOrientationEvent.h	removed	source
 device-sensors	file	-	Source/WebCore/dom/DeviceOrientationEvent.idl	removed	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	origin=a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7 :unicorn: Device Motion and Device Orientation API
 device-sensors	file	-	Source/WebCore/dom/DeviceOrientationOrMotionPermissionState.h	removed	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	origin=a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7 :unicorn: Device Motion and Device Orientation API
 device-sensors	file	-	Source/WebCore/dom/DeviceOrientationOrMotionPermissionState.idl	removed	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	origin=a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7 :unicorn: Device Motion and Device Orientation API
+device-sensors	file	-	Source/WebCore/dom/Document.cpp	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebCore/dom/Document.h	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	config_line	DeviceMotionEvent conditional=DEVICE_ORIENTATION	Source/WebCore/dom/EventInterfaces.in	removed	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54)
+device-sensors	config_line	DeviceOrientationEvent conditional=DEVICE_ORIENTATION	Source/WebCore/dom/EventInterfaces.in	removed	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54)
+device-sensors	config_line	OrientationEvent interfaceName=Event, conditional=ORIENTATION_EVENTS	Source/WebCore/dom/EventInterfaces.in	removed	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54)
+device-sensors	file	-	Source/WebCore/dom/EventInterfaces.in	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
 device-sensors	config_line	DeviceMotionEvent conditional=DEVICE_ORIENTATION	Source/WebCore/dom/EventNames.in	removed	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	line=70; commit=a095f6f1d0b6
 device-sensors	config_line	DeviceOrientationEvent conditional=DEVICE_ORIENTATION	Source/WebCore/dom/EventNames.in	removed	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	line=71; commit=a095f6f1d0b6
 device-sensors	config_line	OrientationEvent interfaceName=Event, conditional=ORIENTATION_EVENTS	Source/WebCore/dom/EventNames.in	removed	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	line=72; commit=a095f6f1d0b6
+device-sensors	config_line	"devicemotion": { },	Source/WebCore/dom/EventNames.json	removed	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54)
+device-sensors	config_line	"deviceorientation": { },	Source/WebCore/dom/EventNames.json	removed	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54)
+device-sensors	config_line	"orientationchange": { },	Source/WebCore/dom/EventNames.json	removed	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54)
+device-sensors	file	-	Source/WebCore/dom/EventNames.json	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
 device-sensors	build_ref	"url": "https://w3c.github.io/deviceorientation/spec-source-orientation.html",	Source/WebCore/features.json	removed	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	line=398; commit=a095f6f1d0b6
 device-sensors	config_line	"keywords": ["device orientation", "devicemotion", "acceleration", "rotation"],	Source/WebCore/features.json	removed	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	line=399; commit=a095f6f1d0b6
 device-sensors	config_line	"name": "DeviceOrientation Events",	Source/WebCore/features.json	removed	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	line=393; commit=a095f6f1d0b6
+device-sensors	file	-	Source/WebCore/features.json	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebCore/history/BackForwardCache.cpp	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
 device-sensors	config_line	onorientationchange	Source/WebCore/html/HTMLAttributeNames.in	removed	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	line=277; commit=a095f6f1d0b6
+device-sensors	file	-	Source/WebCore/html/HTMLAttributeNames.in	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
 device-sensors	file	-	Source/WebCore/html/HTMLBodyElement+Compat.idl	removed	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	origin=a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7 :unicorn: Device Motion and Device Orientation API
-device-sensors	file	-	Source/WebCore/html/HTMLBodyElement.cpp	modified	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	origin=a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7 :unicorn: Device Motion and Device Orientation API
+device-sensors	file	-	Source/WebCore/html/PermissionsPolicy.cpp	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebCore/html/PermissionsPolicy.h	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
 device-sensors	file	-	Source/WebCore/inspector/CommandLineAPIModuleSource.js	modified	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	origin=a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7 :unicorn: Device Motion and Device Orientation API
+device-sensors	field	WebCore::DocumentLoader::m_deviceOrientationAndMotionAccessState	Source/WebCore/loader/DocumentLoader.h	removed	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54)
+device-sensors	file	-	Source/WebCore/loader/DocumentLoader.h	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	method	WebCore::DocumentLoader::deviceOrientationAndMotionAccessState	Source/WebCore/loader/DocumentLoader.h	removed	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54)
+device-sensors	file	-	Source/WebCore/loader/EmptyClients.h	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebCore/page/ChromeClient.h	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	method	WebCore::ChromeClient::shouldAllowDeviceOrientationAndMotionAccess	Source/WebCore/page/ChromeClient.h	removed	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54)
 device-sensors	file	-	Source/WebCore/page/DOMWindow+Compat.idl	removed	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	origin=a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7 :unicorn: Device Motion and Device Orientation API
 device-sensors	file	-	Source/WebCore/page/DOMWindow+DeviceMotion.idl	removed	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	origin=a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7 :unicorn: Device Motion and Device Orientation API
 device-sensors	file	-	Source/WebCore/page/DOMWindow+DeviceOrientation.idl	removed	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	origin=a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7 :unicorn: Device Motion and Device Orientation API
+device-sensors	file	-	Source/WebCore/page/DOMWindow.cpp	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
 device-sensors	file	-	Source/WebCore/page/DOMWindow.h	modified	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	origin=a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7 :unicorn: Device Motion and Device Orientation API
-device-sensors	method	WebCore::DOMWindow::resetAllGeolocationPermission	Source/WebCore/page/DOMWindow.h	removed	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	line=380
-device-sensors	file	-	Source/WebCore/page/Frame.cpp	modified	source	3d4bde5155867aa0c2d2d03d86e3c72d9c543ec0	origin=3d4bde5155867aa0c2d2d03d86e3c72d9c543ec0 :bug: Fixes for Inter Process Communication APIs
-device-sensors	method	WebCore::Frame::arePluginsEnabled	Source/WebCore/page/Frame.cpp	removed	source	3d4bde5155867aa0c2d2d03d86e3c72d9c543ec0	line=1126
-device-sensors	file	-	Source/WebCore/page/Frame.h	modified	source	3d4bde5155867aa0c2d2d03d86e3c72d9c543ec0	origin=3d4bde5155867aa0c2d2d03d86e3c72d9c543ec0 :bug: Fixes for Inter Process Communication APIs
-device-sensors	method	WebCore::Frame::arePluginsEnabled	Source/WebCore/page/Frame.h	removed	source	3d4bde5155867aa0c2d2d03d86e3c72d9c543ec0	line=302
-device-sensors	file	-	Source/WebCore/platform/OrientationNotifier.h	removed	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	origin=a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7 :unicorn: Device Motion and Device Orientation API
+device-sensors	file	-	Source/WebCore/page/DeviceClient.h	removed	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); deleted file
+device-sensors	file	-	Source/WebCore/page/DeviceController.cpp	removed	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); deleted file
+device-sensors	file	-	Source/WebCore/page/DeviceController.h	removed	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); deleted file
+device-sensors	file	-	Source/WebCore/page/LocalDOMWindow.cpp	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebCore/page/LocalDOMWindow.h	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	method	WebCore::LocalDOMWindow::isAllowedToUseDeviceMotion	Source/WebCore/page/LocalDOMWindow.h	removed	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54)
+device-sensors	method	WebCore::LocalDOMWindow::isAllowedToUseDeviceOrientation	Source/WebCore/page/LocalDOMWindow.h	removed	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54)
+device-sensors	method	WebCore::LocalDOMWindow::startListeningForDeviceMotionIfNecessary	Source/WebCore/page/LocalDOMWindow.h	removed	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54)
+device-sensors	method	WebCore::LocalDOMWindow::startListeningForDeviceOrientationIfNecessary	Source/WebCore/page/LocalDOMWindow.h	removed	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54)
+device-sensors	file	-	Source/WebCore/page/LocalFrame.cpp	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebCore/page/LocalFrame.h	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebCore/page/Page.cpp	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	field	WebCore::Page::m_deviceOrientationAndMotionAccessController	Source/WebCore/page/Page.h	removed	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54)
+device-sensors	file	-	Source/WebCore/page/Page.h	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	method	WebCore::Page::clearDeviceOrientationAndMotionPermissions	Source/WebCore/page/Page.h	removed	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54)
+device-sensors	method	WebCore::Page::deviceOrientationAndMotionAccessController	Source/WebCore/page/Page.h	removed	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54)
+device-sensors	field	WebCore::PageConfiguration::deviceOrientationUpdateProvider	Source/WebCore/page/PageConfiguration.h	removed	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54)
+device-sensors	file	-	Source/WebCore/page/PageConfiguration.h	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebCore/platform/Supplementable.h	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebCore/platform/ios/DeviceMotionClientIOS.h	removed	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); deleted file
+device-sensors	file	-	Source/WebCore/platform/ios/DeviceMotionClientIOS.mm	removed	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); deleted file
+device-sensors	file	-	Source/WebCore/platform/ios/DeviceOrientationClientIOS.h	removed	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); deleted file
+device-sensors	file	-	Source/WebCore/platform/ios/DeviceOrientationClientIOS.mm	removed	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); deleted file
+device-sensors	file	-	Source/WebCore/platform/ios/DeviceOrientationUpdateProvider.h	removed	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); deleted file
+device-sensors	file	-	Source/WebCore/platform/ios/MotionManagerClient.h	removed	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); deleted file
+device-sensors	file	-	Source/WebCore/platform/ios/WebCoreMotionManager.h	removed	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); deleted file
+device-sensors	file	-	Source/WebCore/platform/ios/WebCoreMotionManager.mm	removed	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); deleted file
 device-sensors	file	-	Source/WebCore/platform/mock/DeviceOrientationClientMock.cpp	removed	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	origin=a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7 :unicorn: Device Motion and Device Orientation API
 device-sensors	file	-	Source/WebCore/platform/mock/DeviceOrientationClientMock.h	removed	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	origin=a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7 :unicorn: Device Motion and Device Orientation API
+device-sensors	file	-	Source/WebInspectorUI/UserInterface/Models/NativeFunctionParameters.js	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebInspectorUI/UserInterface/Models/ScriptTimelineRecord.js	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebKit/DerivedSources-input.xcfilelist	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebKit/DerivedSources-output.xcfilelist	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
 device-sensors	build_ref	UIProcess/ios/WebDeviceOrientationUpdateProviderProxy \	Source/WebKit/DerivedSources.make	removed	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	line=158; commit=a095f6f1d0b6
 device-sensors	build_ref	WebProcess/WebCoreSupport/WebDeviceOrientationUpdateProvider \	Source/WebKit/DerivedSources.make	removed	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	line=214; commit=a095f6f1d0b6
+device-sensors	file	-	Source/WebKit/DerivedSources.make	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebKit/MigratedHeaders-input.xcfilelist	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebKit/MigratedHeaders-output.xcfilelist	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebKit/Modules/OSX_Private.modulemap	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebKit/Modules/iOS_Private.modulemap	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebKit/PlatformCocoa.cmake	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebKit/PlatformIOS.cmake	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebKit/Shared/WebCoreArgumentCoders.serialization.in	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebKit/Shared/WebPreferencesDefaultValues.cpp	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebKit/Shared/WebPreferencesDefaultValues.h	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	function	WebKit::defaultDeviceOrientationPermissionAPIEnabled	Source/WebKit/Shared/WebPreferencesDefaultValues.h	removed	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54)
+device-sensors	file	-	Source/WebKit/Shared/WebsitePoliciesData.cpp	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebKit/Shared/WebsitePoliciesData.h	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebKit/Shared/WebsitePoliciesData.serialization.in	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
 device-sensors	build_ref	UIProcess/WebsiteData/WebDeviceOrientationAndMotionAccessController.cpp	Source/WebKit/Sources.txt	removed	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	line=497; commit=a095f6f1d0b6
+device-sensors	file	-	Source/WebKit/Sources.txt	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebKit/SourcesCocoa.txt	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebKit/UIProcess/API/APIUIClient.h	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebKit/UIProcess/API/APIWebsitePolicies.h	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebKit/UIProcess/API/C/WKPage.cpp	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebKit/UIProcess/API/C/WKPageUIClient.h	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
 device-sensors	file	-	Source/WebKit/UIProcess/API/C/WKWebsiteDataStoreRef.cpp	modified	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	origin=a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7 :unicorn: Device Motion and Device Orientation API
 device-sensors	function	WKWebsiteDataStoreClearAllDeviceOrientationPermissions	Source/WebKit/UIProcess/API/C/WKWebsiteDataStoreRef.cpp	removed	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	line=813
 device-sensors	file	-	Source/WebKit/UIProcess/API/C/WKWebsiteDataStoreRef.h	modified	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	origin=a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7 :unicorn: Device Motion and Device Orientation API
+device-sensors	function	WKWebsiteDataStoreClearAllDeviceOrientationPermissions	Source/WebKit/UIProcess/API/C/WKWebsiteDataStoreRef.h	removed	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54)
+device-sensors	file	-	Source/WebKit/UIProcess/API/Cocoa/WKPreferences.mm	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebKit/UIProcess/API/Cocoa/WKPreferencesPrivate.h	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebKit/UIProcess/API/Cocoa/WKUIDelegate.h	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebKit/UIProcess/API/Cocoa/WKWebView.mm	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebKit/UIProcess/API/Cocoa/WKWebViewPrivate.h	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebKit/UIProcess/API/Cocoa/WKWebpagePreferences.mm	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebKit/UIProcess/API/Cocoa/WKWebpagePreferencesPrivate.h	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebKit/UIProcess/API/Swift/WebPage+Configuration.swift	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebKit/UIProcess/API/ios/WKWebViewPrivateForTestingIOS.h	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebKit/UIProcess/API/ios/WKWebViewTestingIOS.mm	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebKit/UIProcess/Cocoa/MediaPermissionUtilities.mm	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebKit/UIProcess/Cocoa/UIDelegate.h	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebKit/UIProcess/Cocoa/UIDelegate.mm	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebKit/UIProcess/Cocoa/WKUIDelegateAdapter.swift	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebKit/UIProcess/MediaPermissionUtilities.h	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebKit/UIProcess/RemotePageProxy.cpp	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebKit/UIProcess/RemotePageProxy.h	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebKit/UIProcess/RemotePageWebDeviceOrientationUpdateProviderProxy.cpp	removed	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); deleted file
+device-sensors	file	-	Source/WebKit/UIProcess/RemotePageWebDeviceOrientationUpdateProviderProxy.h	removed	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); deleted file
+device-sensors	file	-	Source/WebKit/UIProcess/WebPageProxy.cpp	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebKit/UIProcess/WebPageProxy.h	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	method	WebKit::WebPageProxy::setDeviceOrientationUserPermissionHandlerForTesting	Source/WebKit/UIProcess/WebPageProxy.h	removed	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54)
 device-sensors	config_line	ShouldAllowDeviceOrientationAndMotionAccess(WebCore::FrameIdentifier frameID, struct WebKit::FrameInfoData frameInfo, bool mayPrompt) -> (enum:uint8_t WebCore::DeviceOrientationOrMotionPermissionState permissionState) Async	Source/WebKit/UIProcess/WebPageProxy.messages.in	removed	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	line=526; commit=a095f6f1d0b6
+device-sensors	file	-	Source/WebKit/UIProcess/WebPageProxy.messages.in	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
 device-sensors	file	-	Source/WebKit/UIProcess/WebsiteData/WebDeviceOrientationAndMotionAccessController.cpp	removed	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	origin=a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7 :unicorn: Device Motion and Device Orientation API
 device-sensors	file	-	Source/WebKit/UIProcess/WebsiteData/WebDeviceOrientationAndMotionAccessController.h	removed	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	origin=a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7 :unicorn: Device Motion and Device Orientation API
+device-sensors	file	-	Source/WebKit/UIProcess/WebsiteData/WebsiteDataStore.cpp	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebKit/UIProcess/WebsiteData/WebsiteDataStore.h	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebKit/UIProcess/ios/WebDeviceOrientationUpdateProviderProxy.h	removed	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); deleted file
+device-sensors	file	-	Source/WebKit/UIProcess/ios/WebDeviceOrientationUpdateProviderProxy.messages.in	removed	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); deleted file
+device-sensors	file	-	Source/WebKit/UIProcess/ios/WebDeviceOrientationUpdateProviderProxy.mm	removed	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); deleted file
 device-sensors	enum_value	DOM_WINDOW_PROP_ORIENTATION	Source/WebKit/WebProcess/InjectedBundle/API/gtk/DOM/WebKitDOMDOMWindow.cpp	removed	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	line=164
 device-sensors	file	-	Source/WebKit/WebProcess/InjectedBundle/API/gtk/DOM/WebKitDOMDOMWindow.cpp	modified	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	origin=a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7 :unicorn: Device Motion and Device Orientation API
 device-sensors	function	webkit_dom_dom_window_get_orientation	Source/WebKit/WebProcess/InjectedBundle/API/gtk/DOM/WebKitDOMDOMWindow.cpp	removed	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	line=1042
 device-sensors	file	-	Source/WebKit/WebProcess/InjectedBundle/API/gtk/DOM/WebKitDOMDOMWindow.h	modified	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	origin=a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7 :unicorn: Device Motion and Device Orientation API
+device-sensors	function	webkit_dom_dom_window_get_orientation	Source/WebKit/WebProcess/InjectedBundle/API/gtk/DOM/WebKitDOMDOMWindow.h	removed	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54)
+device-sensors	file	-	Source/WebKit/WebProcess/WebCoreSupport/WebChromeClient.cpp	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebKit/WebProcess/WebCoreSupport/WebChromeClient.h	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
 device-sensors	file	-	Source/WebKit/WebProcess/WebCoreSupport/WebDeviceOrientationUpdateProvider.cpp	removed	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	origin=a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7 :unicorn: Device Motion and Device Orientation API
 device-sensors	file	-	Source/WebKit/WebProcess/WebCoreSupport/WebDeviceOrientationUpdateProvider.h	removed	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	origin=a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7 :unicorn: Device Motion and Device Orientation API
 device-sensors	file	-	Source/WebKit/WebProcess/WebCoreSupport/WebDeviceOrientationUpdateProvider.messages.in	removed	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	origin=a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7 :unicorn: Device Motion and Device Orientation API
-device-sensors	config_line	SetDeviceOrientation(int32_t deviceOrientation)	Source/WebKit/WebProcess/WebPage/WebPage.messages.in	removed	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	line=53; commit=a095f6f1d0b6
+device-sensors	file	-	Source/WebKit/WebProcess/WebCoreSupport/ios/WebChromeClientIOS.mm	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebKit/WebProcess/WebPage/WebPage.cpp	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebKit/WebProcess/WebPage/WebPage.h	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	method	WebKit::WebPage::simulateDeviceMotionChange	Source/WebKit/WebProcess/WebPage/WebPage.h	removed	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54)
+device-sensors	method	WebKit::WebPage::simulateDeviceOrientationChange	Source/WebKit/WebProcess/WebPage/WebPage.h	removed	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54)
 device-sensors	config_line	SimulateDeviceOrientationChange(double alpha, double beta, double gamma)	Source/WebKit/WebProcess/WebPage/WebPage.messages.in	removed	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	line=574; commit=a095f6f1d0b6
+device-sensors	file	-	Source/WebKit/WebProcess/WebPage/WebPage.messages.in	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebKit/WebProcess/WebPage/ios/WebPageIOS.mm	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebKitLegacy/PlatformIOS.cmake	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebKitLegacy/PlatformMac.cmake	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebKitLegacy/SaferCPPExpectations/NoUnretainedMemberCheckerExpectations	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebKitLegacy/SaferCPPExpectations/RetainPtrCtorAdoptCheckerExpectations	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebKitLegacy/SaferCPPExpectations/UncheckedCallArgsCheckerExpectations	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebKitLegacy/SaferCPPExpectations/UnretainedCallArgsCheckerExpectations	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebKitLegacy/SourcesCMakeCocoa.txt	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebKitLegacy/WebKitLegacy-iOS.exp	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebKitLegacy/ios/DefaultDelegates/WebDefaultUIKitDelegate.m	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebKitLegacy/ios/WebCoreSupport/WebChromeClientIOS.h	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebKitLegacy/ios/WebCoreSupport/WebChromeClientIOS.mm	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebKitLegacy/ios/WebView/WebUIKitDelegate.h	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebKitLegacy/mac/WebKit.exp	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebKitLegacy/mac/WebView/WebDeviceOrientation.h	removed	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); deleted file
+device-sensors	file	-	Source/WebKitLegacy/mac/WebView/WebDeviceOrientation.mm	removed	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); deleted file
+device-sensors	file	-	Source/WebKitLegacy/mac/WebView/WebDeviceOrientationInternal.h	removed	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); deleted file
+device-sensors	file	-	Source/WebKitLegacy/mac/WebView/WebDeviceOrientationProvider.h	removed	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); deleted file
+device-sensors	file	-	Source/WebKitLegacy/mac/WebView/WebDeviceOrientationProviderMock.h	removed	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); deleted file
+device-sensors	file	-	Source/WebKitLegacy/mac/WebView/WebDeviceOrientationProviderMock.mm	removed	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); deleted file
+device-sensors	file	-	Source/WebKitLegacy/mac/WebView/WebDeviceOrientationProviderMockInternal.h	removed	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); deleted file
+device-sensors	file	-	Source/WebKitLegacy/mac/WebView/WebFrame.mm	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebKitLegacy/mac/WebView/WebView.mm	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebKitLegacy/mac/WebView/WebViewData.h	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebKitLegacy/mac/WebView/WebViewInternal.h	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
+device-sensors	file	-	Source/WebKitLegacy/mac/WebView/WebViewPrivate.h	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
 device-sensors	flag	WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_DEVICE_ORIENTATION PRIVATE OFF)	Source/cmake/OptionsFTW.cmake	removed	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	line=132; commit=a095f6f1d0b6
 device-sensors	flag	WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_ORIENTATION_EVENTS PRIVATE OFF)	Source/cmake/OptionsFTW.cmake	removed	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	line=91; commit=a095f6f1d0b6
+device-sensors	file	-	Source/cmake/OptionsWin.cmake	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
 device-sensors	flag	WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_DEVICE_ORIENTATION PUBLIC OFF)	Source/cmake/OptionsWin.cmake	removed	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	line=30; commit=a095f6f1d0b6
+device-sensors	file	-	Source/cmake/WebKitFeatures.cmake	modified	source	manual:device-sensors-2.54	Device Motion/Orientation removal (2.54); removal integration
 device-sensors	flag	WEBKIT_OPTION_DEFINE(ENABLE_DEVICE_ORIENTATION "Toggle Device Orientation support" PRIVATE OFF)	Source/cmake/WebKitFeatures.cmake	removed	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	line=136; commit=a095f6f1d0b6
 device-sensors	flag	WEBKIT_OPTION_DEFINE(ENABLE_ORIENTATION_EVENTS "Toggle Orientation Events support" PRIVATE OFF)	Source/cmake/WebKitFeatures.cmake	removed	source	a095f6f1d0b69fb43c6b48c5e7c9baa7b25267b7	line=183; commit=a095f6f1d0b6
 encrypted-media	file	-	Source/JavaScriptCore/runtime/JSFunction.cpp	modified	source	e39143f750c3526db63090b3af156b14071eb4d5	origin=e39143f750c3526db63090b3af156b14071eb4d5 :unicorn: Remove Encrypted Media API

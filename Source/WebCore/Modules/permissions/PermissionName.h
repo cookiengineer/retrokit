@@ -28,14 +28,11 @@
 namespace WebCore {
 
 enum class PermissionName : uint8_t {
-    Accelerometer,
     BackgroundFetch,
     Bluetooth,
     Camera,
     DisplayCapture,
     Geolocation,
-    Gyroscope,
-    Magnetometer,
     Microphone,
     Midi,
     Nfc,

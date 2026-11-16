@@ -295,7 +295,6 @@ platform/graphics/filters/software/FELightingSoftwareApplier.cpp
 platform/graphics/filters/software/FETurbulenceSoftwareApplier.cpp
 [ Mac ] platform/graphics/mac/PDFDocumentImageMac.mm
 platform/graphics/transforms/TransformOperationsSharedPrimitivesPrefix.h
-[ iOS ] platform/ios/DeviceOrientationClientIOS.mm
 [ iOS ] platform/ios/LegacyTileGrid.mm
 platform/mediastream/RealtimeOutgoingAudioSource.cpp
 platform/mediastream/RealtimeOutgoingAudioSource.h

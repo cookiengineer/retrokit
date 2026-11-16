@@ -561,8 +561,6 @@ platform/image-decoders/jpegxl/JPEGXLImageDecoder.cpp
 platform/image-decoders/ScalableImageDecoder.cpp
 platform/image-decoders/ScalableImageDecoderFrame.cpp
 platform/ios/ColorIOS.mm @nonARC
-platform/ios/DeviceMotionClientIOS.mm @nonARC
-platform/ios/DeviceOrientationClientIOS.mm @nonARC
 platform/ios/DragImageIOS.mm @nonARC
 platform/ios/KeyEventIOS.mm @nonARC
 platform/ios/LegacyTileCache.mm @nonARC
@@ -597,7 +595,6 @@ platform/ios/VideoPresentationInterfaceIOS.mm @nonARC @no-unify
 platform/ios/VideoPresentationInterfaceTVOS.mm @nonARC
 platform/ios/WebAVPlayerController.mm @nonARC
 platform/ios/WebBackgroundTaskController.mm @nonARC
-platform/ios/WebCoreMotionManager.mm @nonARC
 platform/ios/WebEvent.mm @nonARC @no-unify
 platform/ios/WebItemProviderPasteboard.mm @nonARC @no-unify
 platform/ios/WebSQLiteDatabaseTrackerClient.mm @nonARC

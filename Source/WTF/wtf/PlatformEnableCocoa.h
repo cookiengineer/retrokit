@@ -323,10 +323,6 @@
 #define ENABLE_DESTINATION_COLOR_SPACE_EXTENDED_REC_2020 1
 #endif
 
-#if !defined(ENABLE_DEVICE_ORIENTATION)
-#define ENABLE_DEVICE_ORIENTATION 1
-#endif
-
 #if !defined(ENABLE_DRAG_SUPPORT) && (PLATFORM(WATCHOS) || PLATFORM(APPLETV))
 #define ENABLE_DRAG_SUPPORT 0
 #endif
@@ -697,11 +693,6 @@
 // FIXME: Is it intentional that tvOS and macCatalyst are omitted?
 #if !defined(ENABLE_OPUS) && (PLATFORM(MAC) || PLATFORM(IOS) || PLATFORM(VISION))
 #define ENABLE_OPUS 1
-#endif
-
-// ORIENTATION_EVENTS should never get enabled on Desktop, only Mobile.
-#if !defined(ENABLE_ORIENTATION_EVENTS) && PLATFORM(IOS_FAMILY)
-#define ENABLE_ORIENTATION_EVENTS 1
 #endif
 
 #if !defined(ENABLE_OVERLAY_REGIONS_IN_EVENT_REGION) && PLATFORM(VISION)

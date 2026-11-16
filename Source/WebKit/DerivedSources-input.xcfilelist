@@ -597,7 +597,6 @@ $(PROJECT_DIR)/UIProcess/WebProcessProxy.messages.in
 $(PROJECT_DIR)/UIProcess/WebScreenOrientationManagerProxy.messages.in
 $(PROJECT_DIR)/UIProcess/ios/EditableImageController.messages.in
 $(PROJECT_DIR)/UIProcess/ios/SmartMagnificationController.messages.in
-$(PROJECT_DIR)/UIProcess/ios/WebDeviceOrientationUpdateProviderProxy.messages.in
 $(PROJECT_DIR)/UIProcess/mac/SecItemShimProxy.messages.in
 $(PROJECT_DIR)/WebAuthnProcess/WebAuthnConnectionToWebProcess.messages.in
 $(PROJECT_DIR)/WebAuthnProcess/WebAuthnProcess.messages.in
@@ -723,7 +722,6 @@ $(PROJECT_DIR)/WebProcess/WebAuthentication/WebAuthenticatorCoordinator.messages
 $(PROJECT_DIR)/WebProcess/WebAuthentication/WebAuthnProcessConnection.messages.in
 $(PROJECT_DIR)/WebProcess/WebCoreSupport/RemoteWebLockRegistry.messages.in
 $(PROJECT_DIR)/WebProcess/WebCoreSupport/WebBroadcastChannelRegistry.messages.in
-$(PROJECT_DIR)/WebProcess/WebCoreSupport/WebDeviceOrientationUpdateProvider.messages.in
 $(PROJECT_DIR)/WebProcess/WebCoreSupport/WebFileSystemStorageConnection.messages.in
 $(PROJECT_DIR)/WebProcess/WebCoreSupport/WebPermissionController.messages.in
 $(PROJECT_DIR)/WebProcess/WebCoreSupport/WebScreenOrientationManager.messages.in

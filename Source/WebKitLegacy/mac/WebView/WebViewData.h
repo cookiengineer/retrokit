@@ -64,7 +64,6 @@ class PlaybackSessionModelMediaElement;
 @class WebPreferences;
 @class WebTextCompletionController;
 @protocol WebFormDelegate;
-@protocol WebDeviceOrientationProvider;
 @protocol WebGeolocationProvider;
 @protocol WebNotificationProvider;
 #if ENABLE(VIDEO)
@@ -180,9 +179,6 @@ class WebSelectionServiceController;
     BOOL closed;
 #if PLATFORM(IOS_FAMILY)
     BOOL closing;
-#if ENABLE(ORIENTATION_EVENTS)
-    NSUInteger deviceOrientation;
-#endif
 #endif
     BOOL shouldCloseWithWindow;
     BOOL mainFrameDocumentReady;
@@ -277,7 +273,6 @@ class WebSelectionServiceController;
 #endif
 
     id<WebGeolocationProvider> _geolocationProvider;
-    id<WebDeviceOrientationProvider> m_deviceOrientationProvider;
     id<WebNotificationProvider> _notificationProvider;
 
 #if ENABLE(SERVICE_CONTROLS)

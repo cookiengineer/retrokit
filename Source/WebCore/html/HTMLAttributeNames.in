@@ -294,7 +294,6 @@ onmouseup
 onmousewheel
 onoffline
 ononline
-onorientationchange
 onpagehide
 onpagereveal
 onpageshow

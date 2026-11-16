@@ -1266,9 +1266,6 @@ set(WebCore_PRIVATE_FRAMEWORK_HEADERS
     dom/DOMRectList.h
     dom/DOMRectReadOnly.h
     dom/DataTransfer.h
-    dom/DeviceOrientationClient.h
-    dom/DeviceOrientationData.h
-    dom/DeviceOrientationOrMotionPermissionState.h
     dom/Document.h
     dom/DocumentSecurityPolicy.h
     dom/DocumentClasses.h
@@ -1968,7 +1965,6 @@ set(WebCore_PRIVATE_FRAMEWORK_HEADERS
     page/DebugOverlayRegions.h
     page/DebugPageOverlays.h
     page/DeprecatedGlobalSettings.h
-    page/DeviceClient.h
     page/DiagnosticLoggingClient.h
     page/DiagnosticLoggingDomain.h
     page/DiagnosticLoggingKeys.h
@@ -2870,7 +2866,6 @@ set(WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/mediastream/libwebrtc/LibWebRTCVideoFrameUtilities.h
     platform/mediastream/libwebrtc/VideoFrameLibWebRTC.h
 
-    platform/mock/DeviceOrientationClientMock.h
     platform/mock/MediaPlaybackTargetMock.h
     platform/mock/MediaPlaybackTargetPickerMock.h
     platform/mock/MockMediaDevice.h

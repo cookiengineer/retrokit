@@ -131,7 +131,6 @@ static SDKAlignedBehaviors computeSDKAlignedBehaviors()
     if (linkedBefore(dyld_fall_2019_os_versions, DYLD_IOS_VERSION_13_0, DYLD_MACOSX_VERSION_10_15)) {
         disableBehavior(SDKAlignedBehavior::NoUnconditionalUniversalSandboxExtension);
         disableBehavior(SDKAlignedBehavior::SnapshotAfterScreenUpdates);
-        disableBehavior(SDKAlignedBehavior::SupportsDeviceOrientationAndMotionPermissionAPI);
         disableBehavior(SDKAlignedBehavior::DecidesPolicyBeforeLoadingQuickLookPreview);
         disableBehavior(SDKAlignedBehavior::ExceptionsForRelatedWebViewsUsingDifferentDataStores);
         disableBehavior(SDKAlignedBehavior::ModernCompabilityModeByDefault);

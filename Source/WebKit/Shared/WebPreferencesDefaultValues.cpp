@@ -332,16 +332,6 @@ bool defaultBuiltInNotificationsEnabled()
 }
 #endif
 
-#if ENABLE(DEVICE_ORIENTATION)
-SUPPRESS_NODELETE bool defaultDeviceOrientationPermissionAPIEnabled()
-{
-#if PLATFORM(IOS_FAMILY)
-    return linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::SupportsDeviceOrientationAndMotionPermissionAPI);
-#else
-    return false;
-#endif
-}
-#endif
 
 #if ENABLE(REQUIRES_PAGE_VISIBILITY_FOR_NOW_PLAYING)
 bool defaultRequiresPageVisibilityForVideoToBeNowPlaying()

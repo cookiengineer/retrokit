@@ -43,14 +43,11 @@ enum class WebCore::IPAddressSpace : uint8_t {
 enum class WebCore::NotificationEventType : bool;
 
 enum class WebCore::PermissionName : uint8_t {
-    Accelerometer,
     BackgroundFetch,
     Bluetooth,
     Camera,
     DisplayCapture,
     Geolocation,
-    Gyroscope,
-    Magnetometer,
     Microphone,
     Midi,
     Nfc,
@@ -2645,13 +2642,6 @@ enum class WebCore::DOMPasteAccessResponse : uint8_t {
     DeniedForGesture,
     GrantedForCommand,
     GrantedForGesture
-};
-
-header: <WebCore/DeviceOrientationOrMotionPermissionState.h>
-enum class WebCore::DeviceOrientationOrMotionPermissionState : uint8_t {
-    Granted,
-    Denied,
-    Prompt
 };
 
 header: <WebCore/ExceptionDetails.h>
@@ -6711,11 +6701,6 @@ struct WebCore::OwnerPermissionsPolicyData {
     SyncXHR,
     Fullscreen,
     WebShare,
-#if ENABLE(DEVICE_ORIENTATION)
-    Gyroscope,
-    Accelerometer,
-    Magnetometer,
-#endif
 #if ENABLE(WEB_AUTHN)
     PublickeyCredentialsGetRule,
     DigitalCredentialsGetRule,

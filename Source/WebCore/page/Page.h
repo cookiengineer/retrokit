@@ -113,8 +113,6 @@ class Document;
 class DOMRectList;
 class DOMWrapperWorld;
 class DatabaseProvider;
-class DeviceOrientationAndMotionAccessController;
-class DeviceOrientationUpdateProvider;
 class DiagnosticLoggingClient;
 class DocumentSyncData;
 class CredentialRequestCoordinator;
@@ -1145,14 +1143,7 @@ public:
     WEBCORE_EXPORT void setInteractionRegionsEnabled(bool);
 #endif
 
-#if ENABLE(DEVICE_ORIENTATION) && PLATFORM(IOS_FAMILY)
-    DeviceOrientationUpdateProvider* deviceOrientationUpdateProvider() const { return m_deviceOrientationUpdateProvider.get(); }
-#endif
 
-#if ENABLE(DEVICE_ORIENTATION)
-    DeviceOrientationAndMotionAccessController& deviceOrientationAndMotionAccessController();
-    WEBCORE_EXPORT void clearDeviceOrientationAndMotionPermissions();
-#endif
 
     WEBCORE_EXPORT void forEachDocument(NOESCAPE const Function<void(Document&)>&) const;
     bool findMatchingLocalDocument(NOESCAPE const Function<bool(Document&)>&) const;
@@ -1723,13 +1714,7 @@ private:
 
     std::unique_ptr<ViewportArguments> m_overrideViewportArguments;
 
-#if ENABLE(DEVICE_ORIENTATION) && PLATFORM(IOS_FAMILY)
-    RefPtr<DeviceOrientationUpdateProvider> m_deviceOrientationUpdateProvider;
-#endif
 
-#if ENABLE(DEVICE_ORIENTATION)
-    std::unique_ptr<DeviceOrientationAndMotionAccessController> m_deviceOrientationAndMotionAccessController;
-#endif
 
 #if ENABLE(MEDIA_SESSION_COORDINATOR)
     RefPtr<MediaSessionCoordinatorPrivate> m_mediaSessionCoordinator;

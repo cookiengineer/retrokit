@@ -8,7 +8,6 @@ platform/graphics/cg/ImageDecoderCG.cpp
 platform/graphics/cg/PatternCG.cpp
 [ iOS ] platform/ios/QuickLook.mm
 [ iOS ] platform/ios/ValidationBubbleIOS.mm
-[ iOS ] platform/ios/WebCoreMotionManager.mm
 [ iOS ] platform/ios/wak/WKView.mm
 [ iOS ] platform/ios/wak/WebCoreThread.mm
 platform/mediastream/cocoa/AVVideoCaptureSource.mm

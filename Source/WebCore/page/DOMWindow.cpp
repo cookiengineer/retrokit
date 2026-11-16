@@ -892,15 +892,6 @@ ExceptionOr<void> DOMWindow::clearInterval(int timeoutId)
     return { };
 }
 
-#if ENABLE(ORIENTATION_EVENTS)
-ExceptionOr<IntDegrees> DOMWindow::orientation() const
-{
-    auto* localThis = dynamicDowncast<LocalDOMWindow>(*this);
-    if (!localThis)
-        return Exception { ExceptionCode::SecurityError };
-    return localThis->orientation();
-}
-#endif
 
 ExceptionOr<void> DOMWindow::reportError(JSDOMGlobalObject& globalObject, JSC::JSValue error)
 {

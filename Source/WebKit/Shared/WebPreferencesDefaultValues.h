@@ -161,9 +161,6 @@ bool NODELETE defaultBuiltInNotificationsEnabled();
 bool defaultHorizontalBannerViewOverlaysEnabled();
 #endif
 
-#if ENABLE(DEVICE_ORIENTATION)
-bool NODELETE defaultDeviceOrientationPermissionAPIEnabled();
-#endif
 
 #if ENABLE(REQUIRES_PAGE_VISIBILITY_FOR_NOW_PLAYING)
 bool defaultRequiresPageVisibilityForVideoToBeNowPlaying();

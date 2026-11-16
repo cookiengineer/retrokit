@@ -213,9 +213,6 @@ private:
     void didFinishContentChangeObserving(WebCore::LocalFrame&, WebCore::ContentChange) final;
 #endif
 
-#if ENABLE(ORIENTATION_EVENTS)
-    WebCore::IntDegrees deviceOrientation() const final;
-#endif
 
     void runOpenPanel(WebCore::LocalFrame&, WebCore::FileChooser&) final;
     void transcodeChosenFiles(Vector<String>&&, String&& destinationUTI, String&& destinationExtension, CompletionHandler<void(Vector<String>&&)>&&) final;
@@ -474,9 +471,6 @@ private:
     void setLoginStatus(WebCore::RegistrableDomain&&, WebCore::IsLoggedIn, WTF::CompletionHandler<void()>&&) final;
     void isLoggedIn(WebCore::RegistrableDomain&&, WTF::CompletionHandler<void(bool)>&&) final;
 
-#if ENABLE(DEVICE_ORIENTATION)
-    void shouldAllowDeviceOrientationAndMotionAccess(WebCore::LocalFrame&, bool mayPrompt, CompletionHandler<void(WebCore::DeviceOrientationOrMotionPermissionState)>&&) final;
-#endif
 
     void configureLoggingChannel(const String&, WTFLogChannelState, WTFLogLevel) final;
 

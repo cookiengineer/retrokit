@@ -2652,35 +2652,6 @@ DeviceHeight:
     WebCore:
       default: 0
 
-DeviceOrientationEventEnabled:
-  type: bool
-  status: embedder
-  condition: ENABLE(DEVICE_ORIENTATION)
-  defaultValue:
-    WebKitLegacy:
-      default: true
-    WebKit:
-      default: true
-    WebCore:
-      default: true
-  sharedPreferenceForWebProcess: true
-  richJavaScript: true
-
-
-DeviceOrientationPermissionAPIEnabled:
-  type: bool
-  status: embedder
-  condition: ENABLE(DEVICE_ORIENTATION)
-  defaultValue:
-    WebKitLegacy:
-      default: false
-    WebKit:
-      default: defaultDeviceOrientationPermissionAPIEnabled()
-    WebCore:
-      default: false
-  sharedPreferenceForWebProcess: true
-  richJavaScript: true
-
 DeviceWidth:
   type: uint32_t
   status: embedder

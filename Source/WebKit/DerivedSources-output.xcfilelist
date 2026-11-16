@@ -397,10 +397,6 @@ $(BUILT_PRODUCTS_DIR)/DerivedSources/WebKit/IPC/WebBroadcastChannelRegistryMessa
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebKit/IPC/WebCacheStorageConnectionMessages.h
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebKit/IPC/WebCookieManagerMessageReceiver.cpp
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebKit/IPC/WebCookieManagerMessages.h
-$(BUILT_PRODUCTS_DIR)/DerivedSources/WebKit/IPC/WebDeviceOrientationUpdateProviderMessageReceiver.cpp
-$(BUILT_PRODUCTS_DIR)/DerivedSources/WebKit/IPC/WebDeviceOrientationUpdateProviderMessages.h
-$(BUILT_PRODUCTS_DIR)/DerivedSources/WebKit/IPC/WebDeviceOrientationUpdateProviderProxyMessageReceiver.cpp
-$(BUILT_PRODUCTS_DIR)/DerivedSources/WebKit/IPC/WebDeviceOrientationUpdateProviderProxyMessages.h
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebKit/IPC/WebExtensionContextMessageReceiver.cpp
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebKit/IPC/WebExtensionContextMessages.h
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebKit/IPC/WebExtensionContextProxyMessageReceiver.cpp

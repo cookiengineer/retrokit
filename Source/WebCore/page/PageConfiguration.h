@@ -47,9 +47,6 @@
 #include <WebCore/ApplicationManifest.h>
 #endif
 
-#if PLATFORM(IOS_FAMILY) && ENABLE(DEVICE_ORIENTATION)
-#include <WebCore/DeviceOrientationUpdateProvider.h>
-#endif
 
 #if ENABLE(IMAGE_ANALYSIS)
 #include <WebCore/ImageAnalysisQueue.h>
@@ -202,9 +199,6 @@ public:
     Ref<BroadcastChannelRegistry> broadcastChannelRegistry;
     WeakPtr<ScreenOrientationManager> screenOrientationManager;
 
-#if ENABLE(DEVICE_ORIENTATION) && PLATFORM(IOS_FAMILY)
-    RefPtr<DeviceOrientationUpdateProvider> deviceOrientationUpdateProvider;
-#endif
     Vector<UserContentURLPattern> corsDisablingPatterns;
     HashSet<String> maskedURLSchemes;
     UniqueRef<SpeechRecognitionProvider> speechRecognitionProvider;

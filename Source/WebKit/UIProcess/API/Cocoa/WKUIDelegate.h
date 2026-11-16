@@ -164,13 +164,6 @@ WK_SWIFT_UI_ACTOR
  */
 - (void)webView:(WKWebView *)webView requestMediaCapturePermissionForOrigin:(WKSecurityOrigin *)origin initiatedByFrame:(WKFrameInfo *)frame type:(WKMediaCaptureType)type decisionHandler:(WK_SWIFT_UI_ACTOR void (^)(WKPermissionDecision decision))decisionHandler WK_SWIFT_ASYNC_NAME(webView(_:decideMediaCapturePermissionsFor:initiatedBy:type:)) WK_SWIFT_ASYNC(5) WK_API_AVAILABLE(macos(12.0), ios(15.0));
 
-/*! @abstract Allows your app to determine whether or not the given security origin should have access to the device's orientation and motion.
- @param securityOrigin The security origin which requested access to the device's orientation and motion.
- @param frame The frame that initiated the request.
- @param decisionHandler The decision handler to call once the app has made its decision.
- */
-- (void)webView:(WKWebView *)webView requestDeviceOrientationAndMotionPermissionForOrigin:(WKSecurityOrigin *)origin initiatedByFrame:(WKFrameInfo *)frame decisionHandler:(WK_SWIFT_UI_ACTOR void (^)(WKPermissionDecision decision))decisionHandler WK_API_AVAILABLE(ios(15.0)) WK_API_UNAVAILABLE(macos);
-
 #if TARGET_OS_IPHONE
 
 /*! @abstract Allows your app to determine whether or not the given element should show a preview.

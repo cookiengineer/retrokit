@@ -125,8 +125,6 @@ mac/WebInspector/WebNodeHighlightView.mm @nonARC
 
 mac/WebView/WebArchive.mm @nonARC
 mac/WebView/WebDelegateImplementationCaching.mm @nonARC
-mac/WebView/WebDeviceOrientation.mm @nonARC
-mac/WebView/WebDeviceOrientationProviderMock.mm @nonARC
 mac/WebView/WebDocumentLoaderMac.mm @nonARC
 mac/WebView/WebDynamicScrollBarsView.mm @nonARC
 mac/WebView/WebGeolocationPosition.mm @nonARC

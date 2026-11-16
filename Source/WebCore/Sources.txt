@@ -1236,13 +1236,6 @@ dom/DataTransferItem.cpp
 dom/DataTransferItemList.cpp
 dom/DatasetDOMStringMap.cpp
 dom/DecodedDataDocumentParser.cpp
-dom/DeviceMotionController.cpp
-dom/DeviceMotionData.cpp
-dom/DeviceMotionEvent.cpp
-dom/DeviceOrientationAndMotionAccessController.cpp
-dom/DeviceOrientationController.cpp
-dom/DeviceOrientationData.cpp
-dom/DeviceOrientationEvent.cpp
 dom/Document.cpp @header:RenderStyleGetters @cost:22
 dom/DocumentFontLoader.cpp
 dom/DocumentFragment.cpp
@@ -2147,7 +2140,6 @@ page/DOMWindowExtension.cpp
 page/DatabaseProvider.cpp
 page/DebugPageOverlays.cpp @header:RenderStyleGetters @cost:6
 page/DeprecatedGlobalSettings.cpp
-page/DeviceController.cpp
 page/DiagnosticLoggingKeys.cpp
 page/DisabledAdaptations.cpp
 page/DragController.cpp @header:RenderStyleGetters @cost:8
@@ -2779,7 +2771,6 @@ platform/mediastream/RealtimeOutgoingAudioSource.cpp
 platform/mediastream/RealtimeOutgoingVideoSource.cpp
 platform/mediastream/RealtimeVideoCaptureSource.cpp
 platform/mediastream/WebRTCProvider.cpp
-platform/mock/DeviceOrientationClientMock.cpp
 platform/mock/GeolocationClientMock.cpp
 platform/mock/MockRealtimeAudioSource.cpp
 platform/mock/MockRealtimeMediaSourceCenter.cpp
@@ -4099,9 +4090,6 @@ JSDeprecationReportBody.cpp
 JSDetectedBarcode.cpp
 JSDetectedFace.cpp
 JSDetectedText.cpp
-JSDeviceMotionEvent.cpp
-JSDeviceOrientationEvent.cpp
-JSDeviceOrientationOrMotionPermissionState.cpp
 JSDigitalCredential.cpp
 JSDigitalCredentialGetRequest.cpp
 JSDigitalCredentialRequestOptions.cpp

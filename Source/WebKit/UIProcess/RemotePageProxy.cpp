@@ -41,7 +41,6 @@
 #include "RemotePageScreenOrientationManagerProxy.h"
 #include "RemotePageVisitedLinkStoreRegistration.h"
 #include "RemotePageWebAuthenticatorCoordinatorProxy.h"
-#include "RemotePageWebDeviceOrientationUpdateProviderProxy.h"
 #include "UserMediaProcessManager.h"
 #include "WebAuthenticatorCoordinatorProxy.h"
 #include "WebBackForwardList.h"
@@ -73,9 +72,6 @@
 #include "RemotePagePlaybackSessionManagerProxy.h"
 #endif
 
-#if PLATFORM(IOS_FAMILY) && ENABLE(DEVICE_ORIENTATION)
-#include "WebDeviceOrientationUpdateProviderProxy.h"
-#endif
 
 #if PLATFORM(IOS_FAMILY) || (PLATFORM(MAC) && ENABLE(VIDEO_PRESENTATION_MODE))
 #include "PlaybackSessionManagerProxy.h"
@@ -148,9 +144,6 @@ void RemotePageProxy::disconnect()
 #if ENABLE(VIDEO_PRESENTATION_MODE)
     m_videoPresentationManager = nullptr;
 #endif
-#if PLATFORM(IOS_FAMILY) && ENABLE(DEVICE_ORIENTATION)
-    m_webDeviceOrientationUpdateProvider = nullptr;
-#endif
 #if PLATFORM(IOS_FAMILY) || (PLATFORM(MAC) && ENABLE(VIDEO_PRESENTATION_MODE))
     m_playbackSessionManager = nullptr;
 #endif
@@ -184,9 +177,6 @@ void RemotePageProxy::injectPageIntoNewProcess()
 #endif
 #if ENABLE(VIDEO_PRESENTATION_MODE)
     m_videoPresentationManager = RemotePageVideoPresentationManagerProxy::create(pageID(), m_process, protect(page->videoPresentationManager()));
-#endif
-#if PLATFORM(IOS_FAMILY) && ENABLE(DEVICE_ORIENTATION)
-    m_webDeviceOrientationUpdateProvider = RemotePageWebDeviceOrientationUpdateProviderProxy::create(pageID(), m_process, page->webDeviceOrientationUpdateProviderProxy());
 #endif
 #if PLATFORM(IOS_FAMILY) || (PLATFORM(MAC) && ENABLE(VIDEO_PRESENTATION_MODE))
     m_playbackSessionManager = RemotePagePlaybackSessionManagerProxy::create(pageID(), protect(page->playbackSessionManager()), m_process);
@@ -378,12 +368,6 @@ void RemotePageProxy::setCurrentOrientation(WebCore::ScreenOrientationType orien
         manager->setCurrentOrientation(orientation);
 }
 
-#if ENABLE(DEVICE_ORIENTATION)
-void RemotePageProxy::clearDeviceOrientationAndMotionPermissions()
-{
-    m_process->send(Messages::WebPage::ClearDeviceOrientationAndMotionPermissions(), m_webPageID);
-}
-#endif
 
 #if HAVE(VISIBILITY_PROPAGATION_VIEW)
 void RemotePageProxy::didCreateContextInWebProcessForVisibilityPropagation(LayerHostingContextID contextID)

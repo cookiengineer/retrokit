@@ -64,8 +64,6 @@ dom/CollectionIndexCacheInlines.h
 dom/ComposedTreeIterator.h
 dom/ContentVisibilityDocumentState.cpp
 dom/CurrentScriptIncrementer.h
-[ iOS ] dom/DeviceMotionController.cpp
-[ iOS ] dom/DeviceOrientationController.cpp
 dom/Document.cpp
 dom/DocumentFullscreen.cpp
 dom/Element.cpp
@@ -272,8 +270,6 @@ platform/graphics/ca/TileCoverageMap.cpp
 platform/graphics/ca/cocoa/WebTiledBackingLayer.mm
 platform/graphics/cg/CGSubimageCacheWithTimer.cpp
 platform/graphics/cocoa/TextTrackRepresentationCocoa.mm
-[ iOS ] platform/ios/DeviceMotionClientIOS.mm
-[ iOS ] platform/ios/DeviceOrientationClientIOS.mm
 platform/ios/PlaybackSessionInterfaceIOS.mm
 [ iOS ] platform/ios/TileControllerMemoryHandlerIOS.cpp
 [ iOS ] platform/ios/VideoPresentationInterfaceIOS.mm

@@ -834,14 +834,8 @@ $(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSDOMWindow+CSSOM.cpp
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSDOMWindow+CSSOM.h
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSDOMWindow+CSSOMView.cpp
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSDOMWindow+CSSOMView.h
-$(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSDOMWindow+Compat.cpp
-$(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSDOMWindow+Compat.h
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSDOMWindow+CookieStore.cpp
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSDOMWindow+CookieStore.h
-$(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSDOMWindow+DeviceMotion.cpp
-$(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSDOMWindow+DeviceMotion.h
-$(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSDOMWindow+DeviceOrientation.cpp
-$(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSDOMWindow+DeviceOrientation.h
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSDOMWindow+MediaControls.cpp
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSDOMWindow+MediaControls.h
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSDOMWindow+RequestIdleCallback.cpp
@@ -899,12 +893,6 @@ $(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSDetectedFace.cpp
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSDetectedFace.h
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSDetectedText.cpp
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSDetectedText.h
-$(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSDeviceMotionEvent.cpp
-$(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSDeviceMotionEvent.h
-$(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSDeviceOrientationEvent.cpp
-$(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSDeviceOrientationEvent.h
-$(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSDeviceOrientationOrMotionPermissionState.cpp
-$(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSDeviceOrientationOrMotionPermissionState.h
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSDigitalCredential.cpp
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSDigitalCredential.h
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSDigitalCredentialGetRequest.cpp
@@ -1501,8 +1489,6 @@ $(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSHTMLBRElement.cpp
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSHTMLBRElement.h
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSHTMLBaseElement.cpp
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSHTMLBaseElement.h
-$(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSHTMLBodyElement+Compat.cpp
-$(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSHTMLBodyElement+Compat.h
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSHTMLBodyElement.cpp
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSHTMLBodyElement.h
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSHTMLButtonElement.cpp

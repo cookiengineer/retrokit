@@ -126,10 +126,6 @@ class LocalDOMWindow;
 class DOMWrapperWorld;
 class Database;
 class DatabaseThread;
-class DeviceMotionClient;
-class DeviceMotionController;
-class DeviceOrientationClient;
-class DeviceOrientationController;
 class DocumentFontLoader;
 class DocumentFragment;
 class DocumentFullscreen;
@@ -829,9 +825,6 @@ public:
 
     inline const SettingsValues& settingsValues() const final; // Defined in DocumentSettingsValues.h.
 
-    void NODELETE suspendDeviceMotionAndOrientationUpdates();
-    void NODELETE resumeDeviceMotionAndOrientationUpdates();
-
     void suspendFontLoading();
 
     RenderView* renderView() const { return m_renderView.get(); }
@@ -1510,13 +1503,6 @@ public:
 #pragma clang diagnostic pop
 #endif
 
-#if ENABLE(DEVICE_ORIENTATION) && PLATFORM(IOS_FAMILY)
-    DeviceMotionController& NODELETE deviceMotionController() const;
-    WEBCORE_EXPORT void simulateDeviceMotionChange(double xAcceleration, double yAcceleration, double zAcceleration, double xAccelerationIncludingGravity, double yAccelerationIncludingGravity, double zAccelerationIncludingGravity, double xRotationRate, double yRotationRate, double zRotationRate);
-
-    DeviceOrientationController& NODELETE deviceOrientationController() const;
-    WEBCORE_EXPORT void simulateDeviceOrientationChange(double alpha, double beta, double gamma);
-#endif
 
     WEBCORE_EXPORT double monotonicTimestamp() const;
     const DocumentEventTiming& eventTiming() const LIFETIME_BOUND { return m_eventTiming; }
@@ -2532,12 +2518,6 @@ private:
 
     std::unique_ptr<IdleCallbackController> m_idleCallbackController;
 
-#if ENABLE(DEVICE_ORIENTATION) && PLATFORM(IOS_FAMILY)
-    std::unique_ptr<DeviceMotionClient> m_deviceMotionClient;
-    std::unique_ptr<DeviceMotionController> m_deviceMotionController;
-    std::unique_ptr<DeviceOrientationClient> m_deviceOrientationClient;
-    std::unique_ptr<DeviceOrientationController> m_deviceOrientationController;
-#endif
 
     Timer m_pendingTasksTimer;
     Vector<Task> m_pendingTasks;
@@ -2798,8 +2778,6 @@ private:
     bool m_isSuspended { false };
 
     bool m_scheduledTasksAreSuspended { false };
-
-    bool m_areDeviceMotionAndOrientationUpdatesSuspended { false };
 
     bool m_didEnqueueFirstContentfulPaint { false };
 

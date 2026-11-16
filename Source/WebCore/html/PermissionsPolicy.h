@@ -56,11 +56,6 @@ public:
         SyncXHR,
         Fullscreen,
         WebShare,
-#if ENABLE(DEVICE_ORIENTATION)
-        Gyroscope,
-        Accelerometer,
-        Magnetometer,
-#endif
 #if ENABLE(WEB_AUTHN)
         PublickeyCredentialsGetRule,
         DigitalCredentialsGetRule,

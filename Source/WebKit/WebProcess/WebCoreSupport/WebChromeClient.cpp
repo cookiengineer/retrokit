@@ -2142,25 +2142,7 @@ bool WebChromeClient::hasPageLevelStorageAccess(const WebCore::RegistrableDomain
     return page && page->hasPageLevelStorageAccess(topLevelDomain, resourceDomain);
 }
 
-#if ENABLE(DEVICE_ORIENTATION)
-void WebChromeClient::shouldAllowDeviceOrientationAndMotionAccess(LocalFrame& frame, bool mayPrompt, CompletionHandler<void(DeviceOrientationOrMotionPermissionState)>&& callback)
-{
-    RefPtr webFrame = WebFrame::fromCoreFrame(frame);
-    ASSERT(webFrame);
-    if (RefPtr page = m_page.get())
-        page->shouldAllowDeviceOrientationAndMotionAccess(webFrame->frameID(), webFrame->info(), mayPrompt, WTF::move(callback));
-    else
-        callback(DeviceOrientationOrMotionPermissionState::Denied);
-}
-#endif
 
-#if ENABLE(ORIENTATION_EVENTS) && !PLATFORM(IOS_FAMILY)
-IntDegrees WebChromeClient::deviceOrientation() const
-{
-    notImplemented();
-    return 0;
-}
-#endif
 
 void WebChromeClient::configureLoggingChannel(const String& channelName, WTFLogChannelState state, WTFLogLevel level)
 {

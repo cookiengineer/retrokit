@@ -1064,9 +1064,6 @@ JS_BINDING_IDLS := \
     $(WebCore)/dom/DataTransfer.idl \
     $(WebCore)/dom/DataTransferItem.idl \
     $(WebCore)/dom/DataTransferItemList.idl \
-    $(WebCore)/dom/DeviceMotionEvent.idl \
-    $(WebCore)/dom/DeviceOrientationEvent.idl \
-    $(WebCore)/dom/DeviceOrientationOrMotionPermissionState.idl \
     $(WebCore)/dom/Document.idl \
     $(WebCore)/dom/Document+CSSOMView.idl \
     $(WebCore)/dom/Document+CaretPositionFromPoint.idl \
@@ -1220,7 +1217,6 @@ JS_BINDING_IDLS := \
     $(WebCore)/html/HTMLAudioElement.idl \
     $(WebCore)/html/HTMLBRElement.idl \
     $(WebCore)/html/HTMLBaseElement.idl \
-    $(WebCore)/html/HTMLBodyElement+Compat.idl \
     $(WebCore)/html/HTMLBodyElement.idl \
     $(WebCore)/html/HTMLButtonElement.idl \
     $(WebCore)/html/HTMLCanvasElement.idl \
@@ -1466,9 +1462,6 @@ JS_BINDING_IDLS := \
     $(WebCore)/page/DOMWindow.idl \
     $(WebCore)/page/DOMWindow+CSSOM.idl \
     $(WebCore)/page/DOMWindow+CSSOMView.idl \
-    $(WebCore)/page/DOMWindow+Compat.idl \
-    $(WebCore)/page/DOMWindow+DeviceMotion.idl \
-    $(WebCore)/page/DOMWindow+DeviceOrientation.idl \
     $(WebCore)/page/DOMWindow+RequestIdleCallback.idl \
     $(WebCore)/page/DOMWindow+Selection.idl \
     $(WebCore)/page/DOMWindow+VisualViewport.idl \

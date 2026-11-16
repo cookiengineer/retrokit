@@ -123,8 +123,6 @@
 .objc_class_name_WebDatabaseManager
 .objc_class_name_WebDatabaseQuotaManager
 .objc_class_name_WebDefaultPolicyDelegate
-.objc_class_name_WebDeviceOrientation
-.objc_class_name_WebDeviceOrientationProviderMock
 .objc_class_name_WebDownload
 .objc_class_name_WebFeature
 .objc_class_name_WebFormDelegate

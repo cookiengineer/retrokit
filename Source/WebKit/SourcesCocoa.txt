@@ -1016,8 +1016,6 @@ WebAuthenticatorCoordinatorProxyMessageReceiver.cpp @cost:4
 WebAutomationSessionProxyMessageReceiver.cpp @cost:3
 WebBackForwardListMessageReceiver.cpp
 WebCookieManagerMessageReceiver.cpp @cost:3
-WebDeviceOrientationUpdateProviderMessageReceiver.cpp
-WebDeviceOrientationUpdateProviderProxyMessageReceiver.cpp
 WebExtensionContextMessageReceiver.cpp @cost:11
 WebExtensionContextProxyMessageReceiver.cpp @cost:7
 WebExtensionControllerMessageReceiver.cpp @cost:6

@@ -235,7 +235,6 @@ list(APPEND WebKit_MESSAGES_IN_FILES
     UIProcess/WebAuthentication/WebAuthenticatorCoordinatorProxy
 
     UIProcess/ios/SmartMagnificationController
-    UIProcess/ios/WebDeviceOrientationUpdateProviderProxy
 
     UIProcess/mac/SecItemShimProxy
 
@@ -247,7 +246,6 @@ list(APPEND WebKit_MESSAGES_IN_FILES
 
     WebProcess/Inspector/WebInspectorUIExtensionController
 
-    WebProcess/WebCoreSupport/WebDeviceOrientationUpdateProvider
 
     WebProcess/WebPage/ViewGestureGeometryCollector
     WebProcess/WebPage/ViewUpdateDispatcher

@@ -261,12 +261,6 @@ static WebDefaultUIKitDelegate *sharedDelegate = nil;
 {
 }
 
-#if ENABLE(ORIENTATION_EVENTS)
-- (int)deviceOrientation
-{
-    return 0;
-}
-#endif
 
 - (BOOL)shouldSuppressPasswordEcho
 {

@@ -11,7 +11,6 @@ mac/Misc/WebNSObjectExtras.mm
 mac/Plugins/WebPluginController.mm
 mac/Storage/WebDatabaseManager.mm
 mac/Storage/WebStorageManager.mm
-mac/WebView/WebDeviceOrientationProviderMock.mm
 mac/WebView/WebFormDelegate.m
 [ Mac ] mac/WebView/WebHTMLView.mm
 [ Mac ] mac/WebView/WebVideoFullscreenController.mm

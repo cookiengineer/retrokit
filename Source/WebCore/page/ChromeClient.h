@@ -25,7 +25,6 @@
 #include <WebCore/ContactInfo.h>
 #include <WebCore/CornerRadii.h>
 #include <WebCore/DatabaseDetails.h>
-#include <WebCore/DeviceOrientationOrMotionPermissionState.h>
 #include <WebCore/DisabledAdaptations.h>
 #include <WebCore/DocumentStorageAccess.h>
 #include <WebCore/ExceptionData.h>
@@ -402,9 +401,6 @@ public:
     virtual void didFinishContentChangeObserving(LocalFrame&, ContentChange) = 0;
 #endif
 
-#if ENABLE(ORIENTATION_EVENTS)
-    virtual IntDegrees deviceOrientation() const = 0;
-#endif
 
     virtual RefPtr<ColorChooser> createColorChooser(ColorChooserClient&, const Color&) = 0;
 
@@ -690,9 +686,6 @@ public:
     virtual void setLoginStatus(RegistrableDomain&&, IsLoggedIn, CompletionHandler<void()>&&) { }
     virtual void isLoggedIn(RegistrableDomain&&, CompletionHandler<void(bool)>&&) { }
 
-#if ENABLE(DEVICE_ORIENTATION)
-    virtual void shouldAllowDeviceOrientationAndMotionAccess(LocalFrame&, bool /* mayPrompt */, CompletionHandler<void(DeviceOrientationOrMotionPermissionState)>&& callback) { callback(DeviceOrientationOrMotionPermissionState::Denied); }
-#endif
 
     virtual void configureLoggingChannel(const String&, WTFLogChannelState, WTFLogLevel) { }
 

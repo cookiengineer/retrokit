@@ -29,7 +29,6 @@
 #include "FrameInfoData.h"
 #include "NetworkActivityTracker.h"
 #include "NetworkSessionCreationParameters.h"
-#include "WebDeviceOrientationAndMotionAccessController.h"
 #include "WebFramePolicyListenerProxy.h"
 #include "WebPageProxyIdentifier.h"
 #include "WebPreferences.h"
@@ -37,7 +36,6 @@
 #include "WebsiteDataStoreClient.h"
 #include "WebsiteDataStoreConfiguration.h"
 #include <WebCore/Cookie.h>
-#include <WebCore/DeviceOrientationOrMotionPermissionState.h>
 #include <WebCore/PageIdentifier.h>
 #include <WebCore/RegistrableDomain.h>
 #include <WebCore/SecurityOriginData.h>
@@ -368,9 +366,6 @@ public:
 
     bool networkProcessHasEntitlementForTesting(const String&);
 
-#if ENABLE(DEVICE_ORIENTATION)
-    WebDeviceOrientationAndMotionAccessController& deviceOrientationAndMotionAccessController() { return m_deviceOrientationAndMotionAccessController; }
-#endif
 
 #if HAVE(APP_SSO)
     SOAuthorizationCoordinator& soAuthorizationCoordinator(const WebPageProxy&);
@@ -662,9 +657,6 @@ private:
     Ref<AuthenticatorManager> m_authenticatorManager;
 #endif
 
-#if ENABLE(DEVICE_ORIENTATION)
-    WebDeviceOrientationAndMotionAccessController m_deviceOrientationAndMotionAccessController;
-#endif
 
     UniqueRef<WebsiteDataStoreClient> m_client;
 

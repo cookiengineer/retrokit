@@ -134,10 +134,6 @@ typedef NS_ENUM(NSInteger, WebMediaCaptureType) {
 
 - (BOOL)shouldSuppressPasswordEcho;
 
-#if defined(ENABLE_ORIENTATION_EVENTS) && ENABLE_ORIENTATION_EVENTS
-- (int)deviceOrientation;
-#endif
-
 - (void)webView:(WebView *)webView addMessageToConsole:(NSDictionary *)message withSource:(NSString *)source;
 @end
 

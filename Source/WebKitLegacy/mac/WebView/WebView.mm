@@ -59,7 +59,6 @@
 #import "WebDefaultPolicyDelegate.h"
 #import "WebDefaultUIDelegate.h"
 #import "WebDelegateImplementationCaching.h"
-#import "WebDeviceOrientationProvider.h"
 #import "WebDocument.h"
 #import "WebDocumentInternal.h"
 #import "WebDownload.h"
@@ -1265,9 +1264,6 @@ static bool didOneTimeInitialization = false;
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(_wakWindowScreenScaleChanged:) name:WAKWindowScreenScaleDidChangeNotification object:nil];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(_wakWindowVisibilityChanged:) name:WAKWindowVisibilityDidChangeNotification object:nil];
     _private->_fixedPositionContent = adoptNS([[WebFixedPositionContent alloc] initWithWebView:self]);
-#if ENABLE(ORIENTATION_EVENTS)
-    _private->deviceOrientation = [[self _UIKitDelegateForwarder] deviceOrientation];
-#endif
 #endif
 
     if ([[NSUserDefaults standardUserDefaults] objectForKey:WebSmartInsertDeleteEnabled])
@@ -3551,17 +3547,6 @@ IGNORE_WARNINGS_END
     return _private->closing;
 }
 
-#if ENABLE(ORIENTATION_EVENTS)
-- (void)_setDeviceOrientation:(NSUInteger)orientation
-{
-    _private->deviceOrientation = orientation;
-}
-
-- (NSUInteger)_deviceOrientation
-{
-    return _private->deviceOrientation;
-}
-#endif
 
 + (NSArray *)_productivityDocumentMIMETypes
 {
@@ -8858,23 +8843,6 @@ FORWARD(toggleUnderline)
 - (LegacyWebPageInspectorController *)inspectorController
 {
     return _private->inspectorController.get();
-}
-
-@end
-
-@implementation WebView (WebViewDeviceOrientation)
-
-- (void)_setDeviceOrientationProvider:(id<WebDeviceOrientationProvider>)deviceOrientationProvider
-{
-    if (_private)
-        _private->m_deviceOrientationProvider = deviceOrientationProvider;
-}
-
-- (id<WebDeviceOrientationProvider>)_deviceOrientationProvider
-{
-    if (_private)
-        return _private->m_deviceOrientationProvider;
-    return nil;
 }
 
 @end

@@ -1133,9 +1133,6 @@ set(WebCore_NON_SVG_IDL_FILES
     dom/DataTransfer.idl
     dom/DataTransferItem.idl
     dom/DataTransferItemList.idl
-    dom/DeviceMotionEvent.idl
-    dom/DeviceOrientationEvent.idl
-    dom/DeviceOrientationOrMotionPermissionState.idl
     dom/Document.idl
     dom/DocumentFragment.idl
     dom/DocumentType.idl
@@ -1964,7 +1961,6 @@ set(WebCore_SUPPLEMENTAL_IDL_FILES
     dom/ViewTransition+Types.idl
     dom/WindowOrWorkerGlobalScope+TrustedTypes.idl
 
-    html/HTMLBodyElement+Compat.idl
     html/HTMLElement+CSSOMView.idl
     html/HTMLHyperlinkElementUtils.idl
     html/HTMLImageElement+CSSOMView.idl
@@ -1996,9 +1992,6 @@ set(WebCore_SUPPLEMENTAL_IDL_FILES
 
     page/DOMWindow+CSSOM.idl
     page/DOMWindow+CSSOMView.idl
-    page/DOMWindow+Compat.idl
-    page/DOMWindow+DeviceMotion.idl
-    page/DOMWindow+DeviceOrientation.idl
     page/DOMWindow+RequestIdleCallback.idl
     page/DOMWindow+Selection.idl
     page/DOMWindow+VisualViewport.idl

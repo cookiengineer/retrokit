@@ -1339,21 +1339,6 @@ framework module WebKit_Private [system] {
     export *
   }
 
-  explicit module WebDeviceOrientation {
-    header "WebDeviceOrientation.h"
-    export *
-  }
-
-  explicit module WebDeviceOrientationProvider {
-    header "WebDeviceOrientationProvider.h"
-    export *
-  }
-
-  explicit module WebDeviceOrientationProviderMock {
-    header "WebDeviceOrientationProviderMock.h"
-    export *
-  }
-
   explicit module WebDocumentPrivate {
     header "WebDocumentPrivate.h"
     export *

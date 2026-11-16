@@ -67,14 +67,6 @@ static ASCIILiteral toFeatureNameForLogging(PermissionsPolicy::Feature feature)
         return "Fullscreen"_s;
     case PermissionsPolicy::Feature::WebShare:
         return "WebShare"_s;
-#if ENABLE(DEVICE_ORIENTATION)
-    case PermissionsPolicy::Feature::Gyroscope:
-        return "Gyroscope"_s;
-    case PermissionsPolicy::Feature::Accelerometer:
-        return "Accelerometer"_s;
-    case PermissionsPolicy::Feature::Magnetometer:
-        return "Magnetometer"_s;
-#endif
 #if ENABLE(WEB_AUTHN)
     case PermissionsPolicy::Feature::PublickeyCredentialsGetRule:
         return "PublickeyCredentialsGet"_s;
@@ -110,11 +102,6 @@ static std::pair<PermissionsPolicy::Feature, StringView> readFeatureIdentifier(S
     constexpr auto syncXHRToken { "sync-xhr"_s };
     constexpr auto fullscreenToken { "fullscreen"_s };
     constexpr auto webShareToken { "web-share"_s };
-#if ENABLE(DEVICE_ORIENTATION)
-    constexpr auto gyroscopeToken { "gyroscope"_s };
-    constexpr auto accelerometerToken { "accelerometer"_s };
-    constexpr auto magnetometerToken { "magnetometer"_s };
-#endif
 #if ENABLE(WEB_AUTHN)
     constexpr auto publickeyCredentialsGetRuleToken { "publickey-credentials-get"_s };
     constexpr auto digitalCredentialsGetRuleToken { "digital-credentials-get"_s };
@@ -152,17 +139,6 @@ static std::pair<PermissionsPolicy::Feature, StringView> readFeatureIdentifier(S
     } else if (value.startsWith(webShareToken)) {
         feature = PermissionsPolicy::Feature::WebShare;
         remainingValue = value.substring(webShareToken.length());
-#if ENABLE(DEVICE_ORIENTATION)
-    } else if (value.startsWith(gyroscopeToken)) {
-        feature = PermissionsPolicy::Feature::Gyroscope;
-        remainingValue = value.substring(gyroscopeToken.length());
-    } else if (value.startsWith(accelerometerToken)) {
-        feature = PermissionsPolicy::Feature::Accelerometer;
-        remainingValue = value.substring(accelerometerToken.length());
-    } else if (value.startsWith(magnetometerToken)) {
-        feature = PermissionsPolicy::Feature::Magnetometer;
-        remainingValue = value.substring(magnetometerToken.length());
-#endif
 #if ENABLE(WEB_AUTHN)
     } else if (value.startsWith(publickeyCredentialsGetRuleToken)) {
         feature = PermissionsPolicy::Feature::PublickeyCredentialsGetRule;
@@ -203,11 +179,6 @@ static ASCIILiteral defaultAllowlistValue(PermissionsPolicy::Feature feature)
     case PermissionsPolicy::Feature::ScreenWakeLock:
     case PermissionsPolicy::Feature::Fullscreen:
     case PermissionsPolicy::Feature::WebShare:
-#if ENABLE(DEVICE_ORIENTATION)
-    case PermissionsPolicy::Feature::Gyroscope:
-    case PermissionsPolicy::Feature::Accelerometer:
-    case PermissionsPolicy::Feature::Magnetometer:
-#endif
 #if ENABLE(WEB_AUTHN)
     case PermissionsPolicy::Feature::PublickeyCredentialsGetRule:
     case PermissionsPolicy::Feature::DigitalCredentialsGetRule:

@@ -91,7 +91,6 @@ CommandLineAPI.methods["getEventListeners"] = function(target) {
 
 function normalizeEventTypes(types) {
     if (types === @undefined)
-        types = @createArrayWithoutPrototype("mouse", "key", "touch", "control", "abort", "blur", "change", "devicemotion", "deviceorientation", "error", "focus", "load", "reset", "resize", "scroll", "search", "select", "submit", "unload");
     else if (typeof types === "string")
         types = @createArrayWithoutPrototype(types);
 

@@ -35,8 +35,6 @@ mac/WebInspector/WebNodeHighlightView.h
 mac/WebInspector/WebNodeHighlighter.h
 mac/WebView/WebArchive.h
 [ iOS ] mac/WebView/WebDataSource.mm
-mac/WebView/WebDeviceOrientation.h
-mac/WebView/WebDeviceOrientationProviderMock.h
 mac/WebView/WebDocumentLoaderMac.h
 mac/WebView/WebFrame.h
 mac/WebView/WebFrameView.h

@@ -454,21 +454,6 @@ void LocalFrame::invalidateContentEventRegionsIfNeeded(InvalidateContentEventReg
         protect(ownerElement->document())->invalidateEventRegionsForFrame(*ownerElement);
 }
 
-#if ENABLE(ORIENTATION_EVENTS)
-void LocalFrame::orientationChanged()
-{
-    Page::forEachDocumentFromMainFrame(*this, [newOrientation = orientation()] (Document& document) {
-        document.orientationChanged(newOrientation);
-    });
-}
-
-IntDegrees LocalFrame::orientation() const
-{
-    if (RefPtr page = this->page())
-        return page->chrome().client().deviceOrientation();
-    return 0;
-}
-#endif // ENABLE(ORIENTATION_EVENTS)
 
 static JSC::Yarr::RegularExpression createRegExpForLabels(const Vector<String>& labels)
 {

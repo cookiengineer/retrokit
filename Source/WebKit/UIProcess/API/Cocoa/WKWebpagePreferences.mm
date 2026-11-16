@@ -316,53 +316,6 @@ WK_OBJECT_DISABLE_DISABLE_KVC_IVAR_ACCESS;
     }
 }
 
-#if ENABLE(DEVICE_ORIENTATION)
-static WebCore::DeviceOrientationOrMotionPermissionState NODELETE toDeviceOrientationOrMotionPermissionState(_WKWebsiteDeviceOrientationAndMotionAccessPolicy policy)
-{
-    switch (policy) {
-    case _WKWebsiteDeviceOrientationAndMotionAccessPolicyAsk:
-        return WebCore::DeviceOrientationOrMotionPermissionState::Prompt;
-    case _WKWebsiteDeviceOrientationAndMotionAccessPolicyGrant:
-        return WebCore::DeviceOrientationOrMotionPermissionState::Granted;
-    case _WKWebsiteDeviceOrientationAndMotionAccessPolicyDeny:
-        break;
-    }
-    return WebCore::DeviceOrientationOrMotionPermissionState::Denied;
-}
-#endif
-
-- (void)_setDeviceOrientationAndMotionAccessPolicy:(_WKWebsiteDeviceOrientationAndMotionAccessPolicy)policy
-{
-#if ENABLE(DEVICE_ORIENTATION)
-    _websitePolicies->setDeviceOrientationAndMotionAccessState(toDeviceOrientationOrMotionPermissionState(policy));
-#endif
-}
-
-#if ENABLE(DEVICE_ORIENTATION)
-static _WKWebsiteDeviceOrientationAndMotionAccessPolicy NODELETE toWKWebsiteDeviceOrientationAndMotionAccessPolicy(WebCore::DeviceOrientationOrMotionPermissionState state)
-{
-    switch (state) {
-    case WebCore::DeviceOrientationOrMotionPermissionState::Prompt:
-        return _WKWebsiteDeviceOrientationAndMotionAccessPolicyAsk;
-    case WebCore::DeviceOrientationOrMotionPermissionState::Granted:
-        return _WKWebsiteDeviceOrientationAndMotionAccessPolicyGrant;
-    case WebCore::DeviceOrientationOrMotionPermissionState::Denied:
-        break;
-    }
-    return _WKWebsiteDeviceOrientationAndMotionAccessPolicyDeny;
-}
-#endif
-
-- (_WKWebsiteDeviceOrientationAndMotionAccessPolicy)_deviceOrientationAndMotionAccessPolicy
-{
-#if ENABLE(DEVICE_ORIENTATION)
-    if (auto state = _websitePolicies->deviceOrientationAndMotionAccessState())
-        return toWKWebsiteDeviceOrientationAndMotionAccessPolicy(*state);
-    return _WKWebsiteDeviceOrientationAndMotionAccessPolicyAsk;
-#else
-    return _WKWebsiteDeviceOrientationAndMotionAccessPolicyDeny;
-#endif
-}
 
 - (void)_setPopUpPolicy:(_WKWebsitePopUpPolicy)policy
 {

@@ -47,10 +47,6 @@ void WebsitePoliciesData::applyToDocumentLoader(WebsitePoliciesData&& websitePol
     documentLoader.setCustomNavigatorPlatform(WTF::move(websitePolicies.customNavigatorPlatform));
     documentLoader.setAllowPrivacyProxy(websitePolicies.allowPrivacyProxy);
 
-#if ENABLE(DEVICE_ORIENTATION)
-    if (auto state = websitePolicies.deviceOrientationAndMotionAccessState)
-        documentLoader.setDeviceOrientationAndMotionAccessState(*state);
-#endif
 
     // Only disable content blockers if it hasn't already been disabled by reloading without content blockers.
     auto& [defaultEnablement, exceptions] = documentLoader.contentExtensionEnablement();

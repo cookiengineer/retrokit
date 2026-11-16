@@ -99,18 +99,6 @@ final class WKUIDelegateAdapter: NSObject, WKUIDelegatePrivate {
 
     func webView(
         _ webView: WKWebView,
-        requestDeviceOrientationAndMotionPermissionFor origin: WKSecurityOrigin,
-        initiatedByFrame frame: WKFrameInfo
-    ) async -> WKPermissionDecision {
-        guard let owner else {
-            return .prompt
-        }
-
-        return await owner.configuration.deviceSensorAuthorization.decisionHandler(.deviceOrientationAndMotion, .init(frame), origin)
-    }
-
-    func webView(
-        _ webView: WKWebView,
         decideMediaCapturePermissionsFor origin: WKSecurityOrigin,
         initiatedBy frame: WKFrameInfo,
         type: WKMediaCaptureType

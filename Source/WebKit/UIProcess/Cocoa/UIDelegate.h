@@ -149,9 +149,6 @@ private:
         void didAttachLocalInspector(WebPageProxy&, WebInspectorUIProxy&) final;
         void willCloseLocalInspector(WebPageProxy&, WebInspectorUIProxy&) final;
 #endif
-#if ENABLE(DEVICE_ORIENTATION)
-        void shouldAllowDeviceOrientationAndMotionAccess(WebKit::WebPageProxy&, WebFrameProxy&, FrameInfoData&&, CompletionHandler<void(bool)>&&) final;
-#endif
         bool needsFontAttributes() const final { return m_uiDelegate && m_uiDelegate->m_delegateMethods.webViewDidChangeFontAttributes; }
         void didChangeFontAttributes(const WebCore::FontAttributes&) final;
         void decidePolicyForUserMediaPermissionRequest(WebPageProxy&, WebFrameProxy&, API::SecurityOrigin&, API::SecurityOrigin&, UserMediaPermissionRequestProxy&) final;
@@ -255,9 +252,6 @@ private:
         bool webViewConfigurationForLocalInspector : 1;
         bool webViewDidAttachLocalInspector : 1;
         bool webViewWillCloseLocalInspector : 1;
-#endif
-#if ENABLE(DEVICE_ORIENTATION)
-        bool webViewRequestDeviceOrientationAndMotionPermissionForOriginDecisionHandler : 1;
 #endif
         bool webViewDecideDatabaseQuotaForSecurityOriginCurrentQuotaCurrentOriginUsageCurrentDatabaseUsageExpectedUsageDecisionHandler : 1;
         bool webViewDecideDatabaseQuotaForSecurityOriginDatabaseNameDisplayNameCurrentQuotaCurrentOriginUsageCurrentDatabaseUsageExpectedUsageDecisionHandler : 1;

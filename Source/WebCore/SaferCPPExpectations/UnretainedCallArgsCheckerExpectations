@@ -89,8 +89,6 @@ platform/graphics/coreimage/SourceGraphicCoreImageApplier.mm
 [ Mac ] platform/graphics/mac/controls/ToggleButtonMac.mm
 [ Mac ] platform/graphics/mac/controls/WebControlView.mm
 [ iOS ] platform/ios/ColorIOS.mm
-[ iOS ] platform/ios/DeviceMotionClientIOS.mm
-[ iOS ] platform/ios/DeviceOrientationClientIOS.mm
 [ iOS ] platform/ios/LegacyTileCache.mm
 [ iOS ] platform/ios/LegacyTileGrid.mm
 [ iOS ] platform/ios/LegacyTileGridTile.mm

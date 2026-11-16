@@ -758,13 +758,6 @@ messages -> WebPage WantsAsyncDispatchMessage {
 
     UpdateCurrentModifierState(OptionSet<WebCore::PlatformEventModifier> modifiers)
 
-    SimulateDeviceMotionChange(double xAcceleration, double yAcceleration, double zAcceleration, double xAccelerationIncludingGravity, double yAccelerationIncludingGravity, double zAccelerationIncludingGravity, double xRotationRate, double yRotationRate, double zRotationRate)
-    SimulateDeviceOrientationChange(double alpha, double beta, double gamma)
-
-#if ENABLE(DEVICE_ORIENTATION)
-    ClearDeviceOrientationAndMotionPermissions()
-#endif
-
 #if ENABLE(SPEECH_SYNTHESIS)
     SpeakingErrorOccurred()
     BoundaryEventOccurred(bool wordBoundary, unsigned charIndex, unsigned charLength)

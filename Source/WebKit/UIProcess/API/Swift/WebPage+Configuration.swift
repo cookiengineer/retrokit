@@ -188,9 +188,6 @@ extension WebPage {
     public struct DeviceSensorAuthorization {
         /// The kind of sensor permission a web resource may request to access.
         public enum Permission: Hashable, Sendable {
-            /// The orientation and motion of the device.
-            case deviceOrientationAndMotion
-
             /// A media capture device, like a microphone or camera.
             case mediaCapture(WKMediaCaptureType)
         }

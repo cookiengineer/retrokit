@@ -246,8 +246,6 @@ WI.ScriptTimelineRecord.EventType.displayName = function(eventType, details, inc
         nameMap.set("cuechange", "Cue Change");
         nameMap.set("datachannel", "Data Channel");
         nameMap.set("dblclick", "Double Click");
-        nameMap.set("devicemotion", "Device Motion");
-        nameMap.set("deviceorientation", "Device Orientation");
         nameMap.set("dischargingtimechange", "Discharging Time Change");
         nameMap.set("dragend", "Drag End");
         nameMap.set("dragenter", "Drag Enter");

@@ -303,10 +303,6 @@ WebLayoutMilestones kitLayoutMilestones(OptionSet<WebCore::LayoutMilestone>);
 
 - (void)_documentScaleChanged;
 - (BOOL)_fetchCustomFixedPositionLayoutRect:(NSRect*)rect;
-#if ENABLE(ORIENTATION_EVENTS)
-- (void)_setDeviceOrientation:(NSUInteger)orientation;
-- (NSUInteger)_deviceOrientation;
-#endif
 #endif
 
 #if PLATFORM(IOS_FAMILY) && ENABLE(DRAG_SUPPORT) && defined(__cplusplus)

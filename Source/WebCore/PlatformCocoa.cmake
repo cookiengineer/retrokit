@@ -1192,12 +1192,10 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/graphics/cv/PixelBufferConformerCV.h
     platform/graphics/cv/VideoFrameCV.h
 
-    platform/ios/DeviceOrientationUpdateProvider.h
     platform/ios/KeyEventCodesIOS.h
     platform/ios/LegacyTileCache.h
     platform/ios/LocalCurrentTraitCollection.h
     platform/ios/LocalizedDeviceModel.h
-    platform/ios/MotionManagerClient.h
     platform/ios/PlatformEventFactoryIOS.h
     platform/ios/PlaybackSessionInterfaceAVKitLegacy.h
     platform/ios/PlaybackSessionInterfaceIOS.h
@@ -1210,7 +1208,6 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/ios/VideoPresentationInterfaceTVOS.h
     platform/ios/WebAVPlayerController.h
     platform/ios/WebBackgroundTaskController.h
-    platform/ios/WebCoreMotionManager.h
     platform/ios/WebEvent.h
     platform/ios/WebEventPrivate.h
     platform/ios/WebItemProviderPasteboard.h

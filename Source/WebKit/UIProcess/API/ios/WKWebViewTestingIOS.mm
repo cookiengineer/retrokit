@@ -490,14 +490,6 @@ static void dumpUIView(TextStream& ts, UIView *view, bool traverse)
 #endif
 }
 
-- (void)_setDeviceOrientationUserPermissionHandlerForTesting:(BOOL (^)())handler
-{
-    Function<bool()> handlerWrapper;
-    if (handler)
-        handlerWrapper = [handler = makeBlockPtr(handler)] { return handler(); };
-    _page->setDeviceOrientationUserPermissionHandlerForTesting(WTF::move(handlerWrapper));
-}
-
 - (void)_resetObscuredInsetsForTesting
 {
     if (self._haveSetObscuredInsets)

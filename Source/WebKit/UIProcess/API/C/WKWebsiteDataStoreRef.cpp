@@ -37,7 +37,6 @@
 #include "WKRetainPtr.h"
 #include "WKSecurityOriginRef.h"
 #include "WKString.h"
-#include "WebDeviceOrientationAndMotionAccessController.h"
 #include "WebPageProxy.h"
 #include "WebResourceLoadStatisticsStore.h"
 #include "WebsiteData.h"
@@ -677,13 +676,6 @@ void WKWebsiteDataStoreGetFetchCacheSizeForOrigin(WKWebsiteDataStoreRef dataStor
 
 void WKWebsiteDataStoreSetPerOriginStorageQuota(WKWebsiteDataStoreRef, uint64_t)
 {
-}
-
-void WKWebsiteDataStoreClearAllDeviceOrientationPermissions(WKWebsiteDataStoreRef dataStoreRef)
-{
-#if ENABLE(DEVICE_ORIENTATION)
-    protect(WebKit::toImpl(dataStoreRef)->deviceOrientationAndMotionAccessController())->clearPermissions();
-#endif
 }
 
 void WKWebsiteDataStoreClearPrivateClickMeasurementsThroughWebsiteDataRemoval(WKWebsiteDataStoreRef dataStoreRef, void* context, WKWebsiteDataStoreClearPrivateClickMeasurementsThroughWebsiteDataRemovalFunction callback)

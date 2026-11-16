@@ -405,12 +405,6 @@
 #include "AppHighlightStorage.h"
 #endif
 
-#if ENABLE(DEVICE_ORIENTATION)
-#include "DeviceMotionData.h"
-#include "DeviceMotionEvent.h"
-#include "DeviceOrientationData.h"
-#include "DeviceOrientationEvent.h"
-#endif
 
 #if ENABLE(CONTENT_CHANGE_OBSERVER)
 #include "ContentChangeObserver.h"
@@ -418,10 +412,6 @@
 #endif
 
 #if PLATFORM(IOS_FAMILY)
-#include "DeviceMotionClientIOS.h"
-#include "DeviceMotionController.h"
-#include "DeviceOrientationClientIOS.h"
-#include "DeviceOrientationController.h"
 #include "Geolocation.h"
 #include "NavigatorGeolocation.h"
 #endif
@@ -664,12 +654,6 @@ auto Document::allDocuments() -> DocumentsMap::ValuesIteratorRange
 
 static inline IntDegrees NODELETE currentOrientation(LocalFrame* frame)
 {
-#if ENABLE(ORIENTATION_EVENTS)
-    if (frame)
-        return frame->orientation();
-#else
-    UNUSED_PARAM(frame);
-#endif
     return 0;
 }
 
@@ -694,12 +678,6 @@ Document::Document(LocalFrame* frame, const Settings& settings, const URL& url, 
     , m_xmlVersion("1.0"_s)
     , m_intersectionObserversInitialUpdateTimer(*this, &Document::intersectionObserversInitialUpdateTimerFired)
     , m_loadEventDelayTimer(*this, &Document::loadEventDelayTimerFired)
-#if PLATFORM(IOS_FAMILY) && ENABLE(DEVICE_ORIENTATION)
-    , m_deviceMotionClient(makeUnique<DeviceMotionClientIOS>(page() ? page()->deviceOrientationUpdateProvider() : nullptr))
-    , m_deviceMotionController(makeUnique<DeviceMotionController>(*m_deviceMotionClient))
-    , m_deviceOrientationClient(makeUnique<DeviceOrientationClientIOS>(page() ? page()->deviceOrientationUpdateProvider() : nullptr))
-    , m_deviceOrientationController(makeUnique<DeviceOrientationController>(*m_deviceOrientationClient))
-#endif
     , m_pendingTasksTimer(*this, &Document::pendingTasksTimerFired)
     , m_visualUpdatesSuppressionTimer(*this, &Document::visualUpdatesSuppressionTimerFired)
     , m_sharedObjectPoolClearTimer(*this, &Document::clearSharedObjectPool)
@@ -839,10 +817,6 @@ Document::~Document()
     ASSERT(m_ranges.isEmpty());
     ASSERT(m_inDocumentShadowRoots.isEmptyIgnoringNullReferences());
 
-#if ENABLE(DEVICE_ORIENTATION) && PLATFORM(IOS_FAMILY)
-    m_deviceMotionClient->deviceMotionControllerDestroyed();
-    m_deviceOrientationClient->deviceOrientationControllerDestroyed();
-#endif
 
     if (m_templateDocument)
         m_templateDocument->setTemplateDocumentHost(nullptr); // balanced in templateDocument().
@@ -3791,32 +3765,6 @@ void Document::removeAllEventListeners()
         node->removeAllEventListeners();
 }
 
-void Document::suspendDeviceMotionAndOrientationUpdates()
-{
-    if (m_areDeviceMotionAndOrientationUpdatesSuspended)
-        return;
-    m_areDeviceMotionAndOrientationUpdatesSuspended = true;
-#if ENABLE(DEVICE_ORIENTATION) && PLATFORM(IOS_FAMILY)
-    if (m_deviceMotionController)
-        m_deviceMotionController->suspendUpdates();
-    if (m_deviceOrientationController)
-        m_deviceOrientationController->suspendUpdates();
-#endif
-}
-
-void Document::resumeDeviceMotionAndOrientationUpdates()
-{
-    if (!m_areDeviceMotionAndOrientationUpdatesSuspended)
-        return;
-    m_areDeviceMotionAndOrientationUpdatesSuspended = false;
-#if ENABLE(DEVICE_ORIENTATION) && PLATFORM(IOS_FAMILY)
-    if (m_deviceMotionController)
-        m_deviceMotionController->resumeUpdates();
-    if (m_deviceOrientationController)
-        m_deviceOrientationController->resumeUpdates();
-#endif
-}
-
 void Document::suspendFontLoading()
 {
     if (RefPtr fontLoader = m_fontLoader.get())
@@ -3843,7 +3791,6 @@ void Document::suspendActiveDOMObjects(ReasonForSuspension why)
     if (m_documentTaskGroup)
         m_documentTaskGroup->suspend();
     ScriptExecutionContext::suspendActiveDOMObjects(why);
-    suspendDeviceMotionAndOrientationUpdates();
     platformSuspendOrStopActiveDOMObjects();
 }
 
@@ -3852,8 +3799,6 @@ void Document::resumeActiveDOMObjects(ReasonForSuspension why)
     if (m_documentTaskGroup)
         m_documentTaskGroup->resume();
     ScriptExecutionContext::resumeActiveDOMObjects(why);
-    resumeDeviceMotionAndOrientationUpdates();
-    // FIXME: For iOS, do we need to add content change observers that were removed in Document::suspendActiveDOMObjects()?
 }
 
 void Document::stopActiveDOMObjects()
@@ -7231,12 +7176,6 @@ ExceptionOr<Ref<Event>> Document::createEvent(const String& type)
 
     // FIXME: Consider including support for these event classes even when device orientation
     // support is not enabled.
-#if ENABLE(DEVICE_ORIENTATION)
-    if (equalLettersIgnoringASCIICase(type, "devicemotionevent"_s))
-        return Ref<Event> { DeviceMotionEvent::createForBindings() };
-    if (equalLettersIgnoringASCIICase(type, "deviceorientationevent"_s))
-        return Ref<Event> { DeviceOrientationEvent::createForBindings() };
-#endif
 
 #if ENABLE(TOUCH_EVENTS)
     if (equalLettersIgnoringASCIICase(type, "touchevent"_s))
@@ -9180,32 +9119,6 @@ const DocumentImmersive& Document::immersive() const
 }
 #endif
 
-#if ENABLE(DEVICE_ORIENTATION) && PLATFORM(IOS_FAMILY)
-
-DeviceMotionController& Document::deviceMotionController() const
-{
-    return *m_deviceMotionController;
-}
-
-void Document::simulateDeviceMotionChange(double xAcceleration, double yAcceleration, double zAcceleration, double xAccelerationIncludingGravity, double yAccelerationIncludingGravity, double zAccelerationIncludingGravity, double xRotationRate, double yRotationRate, double zRotationRate)
-{
-    Ref motion = DeviceMotionData::create(DeviceMotionData::Acceleration::create(xAcceleration, yAcceleration, zAcceleration), DeviceMotionData::Acceleration::create(xAccelerationIncludingGravity, yAccelerationIncludingGravity, zAccelerationIncludingGravity), DeviceMotionData::RotationRate::create(xRotationRate, yRotationRate, zRotationRate), std::nullopt);
-
-    deviceMotionController().didChangeDeviceMotion(motion.ptr());
-}
-
-DeviceOrientationController& Document::deviceOrientationController() const
-{
-    return *m_deviceOrientationController;
-}
-
-void Document::simulateDeviceOrientationChange(double alpha, double beta, double gamma)
-{
-    Ref orientation = DeviceOrientationData::create(alpha, beta, gamma, std::nullopt, std::nullopt);
-    deviceOrientationController().didChangeDeviceOrientation(orientation.ptr());
-}
-
-#endif
 
 #if ENABLE(POINTER_LOCK)
 
@@ -10719,7 +10632,6 @@ ConstantPropertyMap& Document::constantProperties() const
 void Document::orientationChanged(IntDegrees orientation)
 {
     LOG(Events, "Document %p orientationChanged - orientation %d", this, orientation);
-    dispatchWindowEvent(Event::create(eventNames().orientationchangeEvent, Event::CanBubble::No, Event::IsCancelable::No));
     if (m_orientationNotifier)
         m_orientationNotifier->orientationChanged(orientation);
 }

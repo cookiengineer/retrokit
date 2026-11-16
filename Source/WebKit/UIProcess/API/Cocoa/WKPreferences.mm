@@ -1419,22 +1419,6 @@ static WebCore::EditableLinkBehavior NODELETE toEditableLinkBehavior(_WKEditable
     return protect(*_preferences)->videoQualityIncludesDisplayCompositingEnabled();
 }
 
-- (void)_setDeviceOrientationEventEnabled:(BOOL)enabled
-{
-#if ENABLE(DEVICE_ORIENTATION)
-    protect(*_preferences)->setDeviceOrientationEventEnabled(enabled);
-#endif
-}
-
-- (BOOL)_deviceOrientationEventEnabled
-{
-#if ENABLE(DEVICE_ORIENTATION)
-    return protect(*_preferences)->deviceOrientationEventEnabled();
-#else
-    return false;
-#endif
-}
-
 - (void)_setAccessibilityIsolatedTreeEnabled:(BOOL)accessibilityIsolatedTreeEnabled
 {
 #if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
