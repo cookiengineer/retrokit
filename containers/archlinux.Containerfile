@@ -17,6 +17,7 @@ RUN pacman -Syu --noconfirm --needed \
     base-devel \
     clang \
     lld \
+    ccache \
     cmake \
     ninja \
     ruby \
@@ -104,7 +105,7 @@ RUN pacman -Syu --noconfirm --needed \
     dbus \
     xorg-server-xvfb \
     xorg-xauth \
-  && pacman -Scc --noconfirm
+  && rm -rf /var/cache/pacman/pkg/* /var/lib/pacman/sync/*
 
 RUN useradd --create-home --uid 1000 --shell /bin/bash builder \
   && git config --system --add safe.directory /work
