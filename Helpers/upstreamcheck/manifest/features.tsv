@@ -28,6 +28,7 @@ quick-look	Quick Look Integration	removed	SECURITY.md#library-dependencies	QUICK
 quirks	Site-specific Quirks	removed	SECURITY.md#legacy-quirks	needsSiteSpecificQuirks,shouldAutoplayForArbitraryUserGesture
 sleep-disablers	Sleep Disablers	removed	SECURITY.md#legacy-hacks	SleepDisabler,shouldDisableSleep
 systemd	SystemD Integration	removed	SECURITY.md#library-dependencies	USE_SYSTEMD,JOURNALD,libsystemd
+tooling	Maintenance Tooling	maintenance		
 touch-bar	Touch Bar Support	removed	SECURITY.md#target-platforms	TOUCH_BAR,TouchBarMenu
 translation-ui	Translation UI Services	removed	SECURITY.md#legacy-plugins	TRANSLATION_UI_SERVICES
 translations	Translation Catalogs	removed	SECURITY.md#legacy-quirks	

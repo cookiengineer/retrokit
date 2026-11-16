@@ -84,7 +84,10 @@ func Run(repo *gitx.Repo, cfg *config.Config, baseRef, forkRef string) (*Result,
 					info = &pathInfo{feature: feature, title: title}
 					paths[p] = info
 				}
-				if isTranslationPath(p) {
+				if specialFeature, specialTitle, ok := specialFeatureForPath(p); ok {
+					info.feature = specialFeature
+					info.title = specialTitle
+				} else if isTranslationPath(p) {
 					info.feature = "translations"
 					info.title = "Translation Catalogs"
 				} else if feature != "maintenance" && feature != "misc" && feature != "docs" {
@@ -124,7 +127,10 @@ func Run(repo *gitx.Repo, cfg *config.Config, baseRef, forkRef string) (*Result,
 			info = &pathInfo{feature: "misc", title: "Miscellaneous divergence"}
 		}
 		feature := info.feature
-		if isTranslationPath(path) {
+		if specialFeature, specialTitle, ok := specialFeatureForPath(path); ok {
+			feature = specialFeature
+			info.title = specialTitle
+		} else if isTranslationPath(path) {
 			feature = "translations"
 			info.title = "Translation Catalogs"
 		}
@@ -229,34 +235,25 @@ func Run(repo *gitx.Repo, cfg *config.Config, baseRef, forkRef string) (*Result,
 			if err != nil {
 				continue
 			}
-			baseLines := index.LinesSet(index.BuildLines(baseContent))
-			forkLines := index.LinesSet(index.BuildLines(forkContent))
-			limit := 0
-			for text, line := range baseLines {
-				if _, ok := forkLines[text]; ok {
-					continue
-				}
-				if limit >= 300 {
+			baseLines := index.BuildLines(baseContent)
+			forkLines := index.BuildLines(forkContent)
+			removedLines, addedLines := index.DiffLines(baseLines, forkLines)
+			for i, line := range removedLines {
+				if i >= 300 {
 					break
 				}
-				limit++
 				result.Entries = append(result.Entries, manifest.Entry{
-					Feature: feature, Kind: buildKind(forkPath, text), Symbol: truncate(text, 300),
+					Feature: feature, Kind: buildKind(forkPath, line.Text), Symbol: truncate(line.Text, 300),
 					Path: forkPath, Disposition: "removed", Scope: scope, Origin: origin,
 					Notes: fmt.Sprintf("line=%d", line.Number),
 				})
 			}
-			limit = 0
-			for text, line := range forkLines {
-				if _, ok := baseLines[text]; ok {
-					continue
-				}
-				if limit >= 300 {
+			for i, line := range addedLines {
+				if i >= 300 {
 					break
 				}
-				limit++
 				result.Entries = append(result.Entries, manifest.Entry{
-					Feature: feature, Kind: buildKind(forkPath, text), Symbol: truncate(text, 300),
+					Feature: feature, Kind: buildKind(forkPath, line.Text), Symbol: truncate(line.Text, 300),
 					Path: forkPath, Disposition: "added", Scope: scope, Origin: origin,
 					Notes: fmt.Sprintf("line=%d", line.Number),
 				})
@@ -307,6 +304,20 @@ func isSourcePath(path string) bool {
 func isTranslationPath(path string) bool {
 	path = strings.ReplaceAll(path, "\\", "/")
 	return strings.HasSuffix(path, ".po") || strings.Contains(path, "/platform/gtk/po/")
+}
+
+func specialFeatureForPath(path string) (string, string, bool) {
+	path = strings.ReplaceAll(path, "\\", "/")
+	if strings.HasPrefix(path, "Helpers/") {
+		return "tooling", "Maintenance Tooling", true
+	}
+	switch path {
+	case "README.md", "SECURITY.md", "TODO.md", "NOTES.md":
+		return "docs", "Documentation", true
+	case ".gitignore", "build.sh", "clean.sh", "search.sh":
+		return "tooling", "Maintenance Tooling", true
+	}
+	return "", "", false
 }
 
 func diffSymbols(base, fork []index.Symbol) (removed, added []index.Symbol) {
@@ -489,6 +500,7 @@ func defaultFeatureMap() map[string]manifest.Feature {
 		{ID: "maintenance", Title: "Maintenance and build fixes", Status: "maintenance", Tokens: []string{}},
 		{ID: "misc", Title: "Miscellaneous divergence", Status: "maintenance", Tokens: []string{}},
 		{ID: "docs", Title: "Documentation", Status: "maintenance", Tokens: []string{}},
+		{ID: "tooling", Title: "Maintenance Tooling", Status: "maintenance", Tokens: []string{}},
 	}
 	result := make(map[string]manifest.Feature, len(values))
 	for _, feature := range values {
