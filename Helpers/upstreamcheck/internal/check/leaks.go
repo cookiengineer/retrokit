@@ -2,6 +2,7 @@ package check
 
 import (
 	"fmt"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -32,6 +33,29 @@ type LeakResult struct {
 }
 
 var identRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+// preprocessorRE matches C/C++ preprocessor directives. Those lines begin with
+// '#' but are compiled code, not comments, so leak scans must see them.
+var preprocessorRE = regexp.MustCompile(`^#\s*(?:include|include_next|import|define|undef|if|ifdef|ifndef|elif|else|endif|pragma|error|warning|line)\b`)
+
+// preprocessorExtensions lists source types where a leading '#' can introduce a
+// preprocessor directive. Files such as CMakeLists.txt, shell scripts or YAML
+// use '#' only for comments and are intentionally absent.
+var preprocessorExtensions = map[string]bool{
+	".c":     true,
+	".cc":    true,
+	".cpp":   true,
+	".cxx":   true,
+	".h":     true,
+	".hh":    true,
+	".hpp":   true,
+	".hxx":   true,
+	".in":    true,
+	".inc":   true,
+	".m":     true,
+	".mm":    true,
+	".swift": true,
+}
 
 // Leaks scans the tracked source for feature tokens. It intentionally ignores
 // comment-only lines: the goal is to find residual compiled code and build
@@ -79,7 +103,7 @@ func Leaks(repo *gitx.Repo, cfg *config.Config, forkRef, onlyFeature string, lim
 					continue
 				}
 				path, number, content, ok := parseGrepLine(line)
-				if !ok || isCommentLine(content) || ignoredLeakPath(path) {
+				if !ok || isCommentLine(path, content) || ignoredLeakPath(path) {
 					continue
 				}
 				key := path + ":" + fmt.Sprint(number) + ":" + content
@@ -146,14 +170,21 @@ func ignoredLeakPath(path string) bool {
 	return false
 }
 
-func isCommentLine(content string) bool {
+func isCommentLine(path, content string) bool {
 	trimmed := strings.TrimSpace(content)
 	if trimmed == "" {
 		return true
 	}
 	if strings.HasPrefix(trimmed, "//") || strings.HasPrefix(trimmed, "/*") ||
-		strings.HasPrefix(trimmed, "*") || strings.HasPrefix(trimmed, "#") ||
-		strings.HasPrefix(trimmed, "--") {
+		strings.HasPrefix(trimmed, "*") || strings.HasPrefix(trimmed, "--") {
+		return true
+	}
+	if strings.HasPrefix(trimmed, "#") {
+		// Preprocessor directives and #include lines are compiled input. Only
+		// treat '#' as a comment marker when the file type uses it that way.
+		if preprocessorExtensions[strings.ToLower(filepath.Ext(path))] && preprocessorRE.MatchString(trimmed) {
+			return false
+		}
 		return true
 	}
 	return false

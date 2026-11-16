@@ -329,7 +329,7 @@ func Plan(repo *gitx.Repo, cfg *config.Config, baseRef, targetRef string) (*Plan
 			}
 			if entry.Kind == "build_ref" || entry.Kind == "flag" || entry.Kind == "pref" || entry.Kind == "config_line" {
 				lines := index.LinesSet(idx.Lines)
-				if _, ok := lines[entry.Symbol]; ok {
+				if lineEntryPresent(entry.Kind, lines, entry.Symbol) {
 					plan.Status = "pending"
 					plan.Detail = "line still present"
 				} else {
@@ -443,4 +443,36 @@ func containsSymbol(symbols []index.Symbol, name string) bool {
 		}
 	}
 	return false
+}
+
+// lineEntryPresent reports whether a build/config line recorded in the manifest
+// is still present in the target file. Build lists such as SourcesCocoa.txt
+// annotate source entries with flags (for example "@nonARC" or "@cost:3"), but
+// the manifest stores the bare path. Fall back to comparing the first token so
+// those entries are not reported as already removed.
+func lineEntryPresent(kind string, lines map[string]index.Line, symbol string) bool {
+	if _, ok := lines[symbol]; ok {
+		return true
+	}
+	if kind != "build_ref" {
+		return false
+	}
+	want := buildRefToken(symbol)
+	if want == "" {
+		return false
+	}
+	for text := range lines {
+		if buildRefToken(text) == want {
+			return true
+		}
+	}
+	return false
+}
+
+func buildRefToken(line string) string {
+	fields := strings.Fields(strings.TrimSpace(line))
+	if len(fields) == 0 {
+		return ""
+	}
+	return strings.TrimSuffix(fields[0], "\\")
 }
