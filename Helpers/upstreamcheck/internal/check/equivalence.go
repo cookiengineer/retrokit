@@ -65,17 +65,8 @@ func Equivalence(repo *gitx.Repo, cfg *config.Config, forkRef, onlyFeature strin
 				continue
 			}
 			if entry.Kind == "build_ref" || entry.Kind == "flag" || entry.Kind == "pref" || entry.Kind == "config_line" {
-				content, err := repo.ShowFile(forkRef, entry.Path)
-				if err != nil {
-					continue
-				}
-				if _, ok := index.LinesSet(index.BuildLines(content))[entry.Symbol]; ok {
-					result.Errors = append(result.Errors, LintIssue{
-						Kind:    "removal-missing",
-						Message: fmt.Sprintf("%s still contains removed line %q", entry.Path, entry.Symbol),
-						Entry:   entry,
-					})
-				}
+				// See check.Lint: line entries are guidance, not unique
+				// declarations.
 				continue
 			}
 			if idx, ok := getIndex(entry.Path); ok && containsSymbol(idx.Symbols, entry.Symbol) {

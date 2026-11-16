@@ -237,18 +237,9 @@ func Lint(repo *gitx.Repo, cfg *config.Config, baseRef, forkRef string) (*LintRe
 		}
 
 		if entry.Kind == "build_ref" || entry.Kind == "flag" || entry.Kind == "pref" || entry.Kind == "config_line" {
-			content, err := repo.ShowFile(forkRef, entry.Path)
-			if err != nil {
-				continue
-			}
-			lines := index.LinesSet(index.BuildLines(content))
-			if _, ok := lines[entry.Symbol]; ok {
-				result.Errors = append(result.Errors, LintIssue{
-					Kind:    "reappeared-build-ref",
-					Message: fmt.Sprintf("%s still contains removed line %q", entry.Path, entry.Symbol),
-					Entry:   entry,
-				})
-			}
+			// Build/config lines are guidance for migration, not a unique
+			// declaration. Identical lines can legitimately remain elsewhere
+			// in the same file, so absence is not a valid lint invariant.
 			continue
 		}
 

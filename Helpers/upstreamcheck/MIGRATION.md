@@ -10,9 +10,9 @@
   commit that imports RetroKit's downstream files and `upstreamcheck`).
 - `main` and `legacy/2.34` still point at the 2.34.1 fork; promote
   `migrate/2.54` during cutover.
-- Generated manifest: `manifest/divergence.tsv` (6,748 rows, 38 features).
-- Current target work queue: 4,172 pending, 1,725 already gone in 2.54.2,
-  851 manual review entries.
+- Generated manifest: `manifest/divergence.tsv` (6,860 rows, 39 features).
+- Current target work queue: 4,232 pending, 1,775 already gone in 2.54.2,
+  853 manual review entries.
 
 The vendor snapshots contain only `CMakeLists.txt`, `Source`, and the minimal
 `Tools` closure needed for the build and MiniBrowser:

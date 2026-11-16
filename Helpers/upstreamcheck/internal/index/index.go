@@ -89,6 +89,35 @@ func LinesSet(lines []Line) map[string]Line {
 	return result
 }
 
+// DiffLines returns removed and added lines in stable file order. Duplicate
+// lines are handled as a multiset so the manifest does not depend on map
+// iteration order.
+func DiffLines(base, fork []Line) (removed, added []Line) {
+	forkCount := make(map[string]int, len(fork))
+	for _, line := range fork {
+		forkCount[line.Text]++
+	}
+	for _, line := range base {
+		if forkCount[line.Text] > 0 {
+			forkCount[line.Text]--
+			continue
+		}
+		removed = append(removed, line)
+	}
+	baseCount := make(map[string]int, len(base))
+	for _, line := range base {
+		baseCount[line.Text]++
+	}
+	for _, line := range fork {
+		if baseCount[line.Text] > 0 {
+			baseCount[line.Text]--
+			continue
+		}
+		added = append(added, line)
+	}
+	return removed, added
+}
+
 // SortSymbols orders symbols by position for stable reports.
 func SortSymbols(symbols []Symbol) {
 	sort.SliceStable(symbols, func(i, j int) bool {
