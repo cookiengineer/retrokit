@@ -376,6 +376,7 @@ podman info --format '{{.Host.Security.Rootless}}'
 ## 9. Key references
 
 - [README.md](./README.md) — project overview and host build instructions.
+- [HOW-TO-MIGRATE.md](./HOW-TO-MIGRATE.md) — end-to-end migration runbook and lessons learned.
 - [SECURITY.md](./SECURITY.md) — removed/pending API and dependency policy.
 - [TODO.md](./TODO.md) — remaining removal candidates and legacy concerns.
 - [NOTES.md](./NOTES.md) — architecture and generated-binding notes.

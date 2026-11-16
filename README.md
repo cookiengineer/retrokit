@@ -61,6 +61,9 @@ The fork diverges from upstream WebKit through a large removal layer. The
 of that divergence, verifies that removed APIs do not reappear after an
 upstream update, and generates per-feature migration candidates.
 
+See [HOW-TO-MIGRATE.md](./HOW-TO-MIGRATE.md) for the end-to-end migration
+runbook, verification gates and build/debug workflow.
+
 ```bash
 cd Helpers/upstreamcheck;
 go build -o upstreamcheck ./cmd/upstreamcheck;
