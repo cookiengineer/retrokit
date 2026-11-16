@@ -203,8 +203,6 @@ namespace WebCore {
     macro(ExtendableCookieChangeEvent) \
     macro(ExtendableEvent) \
     macro(ExtendableMessageEvent) \
-    macro(FakeXRDevice) \
-    macro(FakeXRInputController) \
     macro(FaceDetector) \
     macro(FetchEvent) \
     macro(FileSystem) \
@@ -532,50 +530,6 @@ namespace WebCore {
     macro(WritableStreamDefaultController) \
     macro(WritableStreamDefaultWriter) \
     macro(XMLHttpRequest) \
-    macro(XRBoundedReferenceSpace) \
-    macro(XRCompositionLayer) \
-    macro(XRCubeLayer) \
-    macro(XRCylinderLayer) \
-    macro(XREquirectLayer) \
-    macro(XRFrame) \
-    macro(XRGPUBinding) \
-    macro(XRGPULayerInit) \
-    macro(XRGPUProjectionLayerInit) \
-    macro(XRGPUSubImage) \
-    macro(XRHand) \
-    macro(XRHitTestResult) \
-    macro(XRHitTestSource) \
-    macro(XRInputSource) \
-    macro(XRInputSourceArray) \
-    macro(XRInputSourceEvent) \
-    macro(XRInputSourcesChangeEvent) \
-    macro(XRJointPose) \
-    macro(XRJointSpace) \
-    macro(XRLayer) \
-    macro(XRLayerEvent) \
-    macro(XRPose) \
-    macro(XRProjectionLayer) \
-    macro(XRQuadLayer) \
-    macro(XRRay) \
-    macro(XRReferenceSpace) \
-    macro(XRReferenceSpaceEvent) \
-    macro(XRRenderState) \
-    macro(XRRigidTransform) \
-    macro(XRSession) \
-    macro(XRSessionEvent) \
-    macro(XRSpace) \
-    macro(XRSubImage) \
-    macro(XRSystem) \
-    macro(XRTest) \
-    macro(XRTransientInputHitTest) \
-    macro(XRTransientInputHitTestResult) \
-    macro(XRTransientInputHitTestSource) \
-    macro(XRView) \
-    macro(XRViewerPose) \
-    macro(XRViewport) \
-    macro(XRWebGLBinding) \
-    macro(XRWebGLLayer) \
-    macro(XRWebGLSubImage) \
     macro(XSLTProcessor) \
     macro(VideoTrackGenerator) \
     macro(abortAlgorithm) \

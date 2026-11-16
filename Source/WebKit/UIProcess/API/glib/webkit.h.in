@@ -145,7 +145,6 @@
 #include <@API_INCLUDE_PREFIX@/WebKitWebsiteDataAccessPermissionRequest.h>
 #include <@API_INCLUDE_PREFIX@/WebKitWebsiteDataManager.h>
 #include <@API_INCLUDE_PREFIX@/WebKitWindowProperties.h>
-#include <@API_INCLUDE_PREFIX@/WebKitXRPermissionRequest.h>
 
 #include <@API_INCLUDE_PREFIX@/WebKitAutocleanups.h>
 

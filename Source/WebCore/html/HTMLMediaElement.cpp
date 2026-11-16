@@ -9399,14 +9399,6 @@ bool HTMLMediaElement::shouldOverrideBackgroundPlaybackRestriction(PlatformMedia
             return true;
         }
 #endif
-#if PLATFORM(VISION) && ENABLE(WEBXR)
-        if (RefPtr page = document().page()) {
-            if (page->hasActiveImmersiveSession()) {
-                INFO_LOG(LOGIDENTIFIER, "returning true due to active immersive session");
-                return true;
-            }
-        }
-#endif
 #if ENABLE(MEDIA_STREAM)
         if (protect(document())->quirks().shouldEnableCameraBackgroundPlayback() && mediaState().containsAny(MediaProducerMediaState::IsPlayingVideo) && m_mediaStreamSrcObject && m_mediaStreamSrcObject->hasMatchingTrack(isCameraTrack)) {
             INFO_LOG(LOGIDENTIFIER, "returning true because playing a camera MediaStreamTrack");

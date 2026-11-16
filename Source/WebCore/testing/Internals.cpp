@@ -400,11 +400,6 @@
 #include "JSWebCodecsVideoFrame.h"
 #endif
 
-#if ENABLE(WEBXR)
-#include "NavigatorWebXR.h"
-#include "WebXRSystem.h"
-#include "WebXRTest.h"
-#endif
 
 #if PLATFORM(MAC)
 #include "GraphicsChecksMac.h"
@@ -8022,25 +8017,6 @@ bool Internals::destroySleepDisabler(unsigned identifier)
     return m_sleepDisablers.remove(identifier);
 }
 
-#if ENABLE(WEBXR)
-
-ExceptionOr<Ref<WebXRTest>> Internals::xrTest()
-{
-    auto* document = contextDocument();
-    if (!document || !document->window() || !document->settings().webXREnabled())
-        return Exception { ExceptionCode::InvalidAccessError };
-
-    if (!m_xrTest) {
-        auto* navigator = contextDocument()->window()->optionalNavigator();
-        if (!navigator)
-            return Exception { ExceptionCode::InvalidAccessError };
-
-        m_xrTest = WebXRTest::create(NavigatorWebXR::xr(*navigator));
-    }
-    return Ref<WebXRTest> { *m_xrTest };
-}
-
-#endif
 
 #if ENABLE(ENCRYPTED_MEDIA)
 unsigned Internals::mediaKeysInternalInstanceObjectRefCount(const MediaKeys& mediaKeys) const

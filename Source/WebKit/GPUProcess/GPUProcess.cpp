@@ -643,18 +643,6 @@ void GPUProcess::processIsStartingToCaptureAudio(GPUConnectionToWebProcess& proc
 }
 #endif
 
-#if ENABLE(WEBXR)
-std::optional<WebCore::ProcessIdentity> GPUProcess::immersiveModeProcessIdentity() const
-{
-    return m_processIdentity;
-}
-
-void GPUProcess::webXRPromptAccepted(std::optional<WebCore::ProcessIdentity> processIdentity, CompletionHandler<void(bool)>&& completionHandler)
-{
-    m_processIdentity = processIdentity;
-    completionHandler(true);
-}
-#endif
 
 #if HAVE(AUDIT_TOKEN)
 void GPUProcess::setPresentingApplicationAuditToken(WebCore::ProcessIdentifier processIdentifier, WebCore::PageIdentifier pageIdentifier, std::optional<WebKit::CoreIPCAuditToken>&& auditToken)

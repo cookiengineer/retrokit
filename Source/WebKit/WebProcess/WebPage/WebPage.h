@@ -428,9 +428,6 @@ class ModelProcessConnection;
 class NotificationPermissionRequestManager;
 class PDFPluginBase;
 class PageBanner;
-#if ENABLE(WEBXR)
-class PlatformXRSystemProxy;
-#endif
 class PluginView;
 class RemoteLayerTreeTransaction;
 class RemoteMediaSessionCoordinator;
@@ -2037,9 +2034,6 @@ public:
     double baseViewportLayoutSizeScaleFactor() const { return m_baseViewportLayoutSizeScaleFactor; }
 #endif
 
-#if ENABLE(WEBXR)
-    PlatformXRSystemProxy& NODELETE xrSystemProxy() LIFETIME_BOUND;
-#endif
 
     void prepareToRunModalJavaScriptDialog();
 
@@ -3366,9 +3360,6 @@ private:
     std::optional<WebCore::HTMLMediaElementIdentifier> m_elementIsPerformingTextRecognitionInElementFullScreen;
 #endif
 
-#if ENABLE(WEBXR)
-    const std::unique_ptr<PlatformXRSystemProxy> m_xrSystemProxy;
-#endif
 
 #if ENABLE(APP_HIGHLIGHTS)
     WebCore::HighlightVisibility m_appHighlightsVisible { WebCore::HighlightVisibility::Hidden };

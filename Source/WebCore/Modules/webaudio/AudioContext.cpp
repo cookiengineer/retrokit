@@ -63,9 +63,6 @@
 #include "MediaElementAudioSourceOptions.h"
 #endif
 
-#if PLATFORM(VISION) && ENABLE(WEBXR)
-#include "Page.h"
-#endif
 
 namespace WebCore {
 
@@ -728,11 +725,6 @@ bool AudioContext::shouldOverrideBackgroundPlaybackRestriction(PlatformMediaSess
     if (!document)
         return false;
 
-#if PLATFORM(VISION) && ENABLE(WEBXR)
-    RefPtr page = document->page();
-    if (page && page->hasActiveImmersiveSession())
-        return true;
-#endif
 
     return hasPlayBackAudioSession(document.get());
 }

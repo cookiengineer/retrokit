@@ -46,7 +46,6 @@
 #import "NativeWebMouseEvent.h"
 #import "NavigationState.h"
 #import "PageClient.h"
-#import "PlatformXRSystem.h"
 #import "PlaybackSessionManagerProxy.h"
 #import "RemoteLayerTreeCommitBundle.h"
 #import "RemoteLayerTreeTransaction.h"

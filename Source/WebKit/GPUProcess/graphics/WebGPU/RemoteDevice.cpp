@@ -48,7 +48,6 @@
 #include "RemoteShaderModule.h"
 #include "RemoteTexture.h"
 #include "RemoteVideoFrameIdentifier.h"
-#include "RemoteXRBinding.h"
 #include "StreamServerConnection.h"
 #include "WebGPUCommandEncoderDescriptor.h"
 #include "WebGPUObjectHeap.h"
@@ -83,7 +82,6 @@
 #include <WebCore/WebGPUShaderModuleDescriptor.h>
 #include <WebCore/WebGPUTexture.h>
 #include <WebCore/WebGPUTextureDescriptor.h>
-#include <WebCore/WebGPUXRBinding.h>
 #include <wtf/TZoneMallocInlines.h>
 
 #define MESSAGE_CHECK(assertion) MESSAGE_CHECK_BASE(assertion, m_streamConnection)
@@ -125,14 +123,6 @@ void RemoteDevice::destroy()
 void RemoteDevice::destruct()
 {
     protect(m_objectHeap)->removeObject(m_identifier);
-}
-
-void RemoteDevice::createXRBinding(WebGPUIdentifier identifier)
-{
-    Ref objectHeap = m_objectHeap.get();
-    auto binding = m_backing->createXRBinding();
-    auto remoteBinding = RemoteXRBinding::create(*m_gpuConnectionToWebProcess.get(), *binding, objectHeap, protect(m_gpu), protect(m_streamConnection), identifier);
-    objectHeap->addObject(identifier, remoteBinding);
 }
 
 void RemoteDevice::createBuffer(const WebGPU::BufferDescriptor& descriptor, WebGPUIdentifier identifier)

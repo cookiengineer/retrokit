@@ -259,11 +259,6 @@
 #include "WritingToolsController.h"
 #endif
 
-#if ENABLE(WEBXR)
-#include "NavigatorWebXR.h"
-#include "WebXRSession.h"
-#include "WebXRSystem.h"
-#endif
 
 #if PLATFORM(VISION) && ENABLE(GAMEPAD)
 #include "GamepadManager.h"
@@ -4682,18 +4677,10 @@ void Page::applicationWillResignActive()
 
 void NODELETE Page::applicationDidEnterBackground()
 {
-#if ENABLE(WEBXR)
-    if (auto session = this->activeImmersiveXRSession())
-        session->applicationDidEnterBackground();
-#endif
 }
 
 void NODELETE Page::applicationWillEnterForeground()
 {
-#if ENABLE(WEBXR)
-    if (auto session = this->activeImmersiveXRSession())
-        session->applicationWillEnterForeground();
-#endif
 }
 
 void Page::applicationDidBecomeActive()
@@ -5533,33 +5520,6 @@ void Page::setAccessibilityRootObject(AccessibilityRootAtspi* rootObject)
 }
 #endif // USE(ATSPI)
 
-#if ENABLE(WEBXR)
-#if PLATFORM(IOS_FAMILY)
-bool Page::hasActiveImmersiveSession() const
-{
-    return !!activeImmersiveXRSession();
-}
-#endif // PLATFORM(IOS_FAMILY)
-
-RefPtr<WebXRSession> Page::activeImmersiveXRSession() const
-{
-    for (RefPtr frame = m_mainFrame.get(); frame; frame = frame->tree().traverseNext()) {
-        RefPtr localFrame = dynamicDowncast<LocalFrame>(*frame);
-        RefPtr window = localFrame ? localFrame->window() : nullptr;
-        if (!window)
-            continue;
-
-        RefPtr navigator = window->optionalNavigator();
-        if (!navigator)
-            continue;
-
-        if (auto xrSystem = NavigatorWebXR::xrIfExists(*navigator))
-            return xrSystem->activeImmersiveSession();
-    }
-
-    return nullptr;
-}
-#endif //  ENABLE(WEBXR)
 
 #if HAVE(SPATIAL_TRACKING_LABEL)
 void Page::setDefaultSpatialTrackingLabel(const String& label)

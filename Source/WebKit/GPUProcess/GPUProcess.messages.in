@@ -93,9 +93,6 @@ messages -> GPUProcess : AuxiliaryProcess {
 #if USE(EXTENSIONKIT)
     ResolveBookmarkDataForCacheDirectory(std::span<const uint8_t> bookmarkData)
 #endif
-#if ENABLE(WEBXR)
-    WebXRPromptAccepted(std::optional<WebCore::ProcessIdentity> processIdentity) -> (bool accepted)
-#endif
 #if HAVE(AUDIT_TOKEN)
     SetPresentingApplicationAuditToken(WebCore::ProcessIdentifier processIdentifier, WebCore::PageIdentifier pageIdentifier, struct std::optional<WebKit::CoreIPCAuditToken> auditToken);
 #endif

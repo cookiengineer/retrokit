@@ -204,7 +204,6 @@ set(WebKitGTK_HEADER_TEMPLATES
     ${WEBKIT_DIR}/UIProcess/API/glib/WebKitWebsiteDataManager.h.in
     ${WEBKIT_DIR}/UIProcess/API/glib/WebKitWindowProperties.h.in
     ${WEBKIT_DIR}/UIProcess/API/glib/WebKitWebsitePolicies.h.in
-    ${WEBKIT_DIR}/UIProcess/API/glib/WebKitXRPermissionRequest.h.in
     ${WEBKIT_DIR}/UIProcess/API/glib/webkit.h.in
     ${WEBKIT_DIR}/UIProcess/API/gtk/WebKitColorChooserRequest.h.in
     ${WEBKIT_DIR}/UIProcess/API/gtk/WebKitPrintOperation.h.in
@@ -365,9 +364,6 @@ if (GTK_UNIX_PRINT_FOUND)
     list(APPEND WebKit_LIBRARIES GTK::UnixPrint)
 endif ()
 
-if (USE_OPENXR)
-   list(APPEND WebKit_LIBRARIES OpenXR::openxr_loader)
-endif ()
 
 if (USE_LIBWEBRTC)
     list(APPEND WebKit_SYSTEM_INCLUDE_DIRECTORIES

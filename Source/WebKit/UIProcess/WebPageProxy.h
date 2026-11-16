@@ -528,7 +528,6 @@ class NetworkIssueReporter;
 class PageClient;
 class PageLoadState;
 class PageLoadStateObserverBase;
-class PlatformXRSystem;
 class PlaybackSessionManagerProxy;
 class ProcessActivityGroupContext;
 class ProcessAssertion;
@@ -2760,10 +2759,6 @@ public:
 #endif
     String scrollbarStateForScrollingNodeID(std::optional<WebCore::ScrollingNodeID>, bool isVertical);
 
-#if ENABLE(WEBXR)
-    PlatformXRSystem* xrSystem() const;
-    void restartXRSessionActivityOnProcessResumeIfNeeded();
-#endif
 
     WebColorPickerClient& NODELETE colorPickerClient();
 

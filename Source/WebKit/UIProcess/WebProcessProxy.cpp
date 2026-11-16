@@ -44,7 +44,6 @@
 #include "NetworkProcessMessages.h"
 #include "NotificationManagerMessageHandlerMessages.h"
 #include "PageLoadState.h"
-#include "PlatformXRSystem.h"
 #include "ProcessTerminationReason.h"
 #include "ProvisionalFrameProxy.h"
 #include "ProvisionalPageProxy.h"
@@ -816,17 +815,6 @@ WebPageProxy* WebProcessProxy::audioCapturingWebPage()
     return nullptr;
 }
 
-#if ENABLE(WEBXR)
-WebPageProxy* WebProcessProxy::webPageWithActiveXRSession()
-{
-    for (WeakRef weakPage : globalPageMap().values()) {
-        Ref page = weakPage.get();
-        if (page->xrSystem() && page->xrSystem()->hasActiveSession())
-            return weakPage.ptr();
-    }
-    return nullptr;
-}
-#endif
 
 void WebProcessProxy::setThirdPartyCookieBlockingMode(ThirdPartyCookieBlockingMode thirdPartyCookieBlockingMode, CompletionHandler<void()>&& completionHandler)
 {
@@ -3344,12 +3332,6 @@ TextStream& operator<<(TextStream& ts, const WebProcessProxy& process)
     return ts;
 }
 
-#if ENABLE(WEBXR)
-const WebCore::ProcessIdentity& WebProcessProxy::processIdentity()
-{
-    return m_processIdentity;
-}
-#endif
 
 #if ENABLE(CONTENT_EXTENSIONS)
 void WebProcessProxy::requestResourceMonitorRuleLists(bool forTesting)
@@ -3527,4 +3509,3 @@ void WebProcessProxy::takeInvalidMessageStringForTesting(CompletionHandler<void(
 #undef MESSAGE_CHECK_COMPLETION
 #undef WEBPROCESSPROXY_RELEASE_LOG
 #undef WEBPROCESSPROXY_RELEASE_LOG_ERROR
-

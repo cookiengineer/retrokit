@@ -21,8 +21,6 @@ Modules/WebGPU/Implementation/WebGPUSamplerImpl.cpp
 Modules/WebGPU/Implementation/WebGPUShaderModuleImpl.cpp
 Modules/WebGPU/Implementation/WebGPUTextureImpl.cpp
 Modules/WebGPU/Implementation/WebGPUTextureViewImpl.cpp
-Modules/WebGPU/Implementation/WebGPUXRBindingImpl.cpp
-Modules/WebGPU/Implementation/WebGPUXRSubImageImpl.cpp
 Modules/notifications/NotificationController.h
 ReadableStreamInternalsBuiltins.h
 StreamInternalsBuiltins.h

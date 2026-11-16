@@ -74,10 +74,6 @@ using GCGLExternalSync = unsigned;
 typedef unsigned GLuint;
 #endif
 
-#if ENABLE(WEBXR)
-// ANGLE_variable_rasterization_rate_metal
-using GCGLMTLRasterizationRateMapANGLE = void*;
-#endif
 
 // Order in inverse of in GL specification, so that iteration is in GL specification order.
 enum class GCGLErrorCode : uint8_t {

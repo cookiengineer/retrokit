@@ -61,9 +61,6 @@ struct GraphicsContextGLAttributes {
 #if PLATFORM(MAC)
     PlatformGPUID windowGPUID { 0 };
 #endif
-#if ENABLE(WEBXR)
-    bool xrCompatible { false };
-#endif
     using SimulatedCreationFailure = GraphicsContextGLSimulatedCreationFailure;
     SimulatedCreationFailure failContextCreationForTesting { SimulatedCreationFailure::None };
 };

@@ -29,20 +29,12 @@ class GraphicsContextGLTextureMapperAndroid final : public GraphicsContextGLText
 public:
     static RefPtr<GraphicsContextGLTextureMapperAndroid> create(GraphicsContextGLAttributes&&);
 
-#if ENABLE(WEBXR)
-    GCGLExternalImage createExternalImage(ExternalImageSource&&, GCGLenum internalFormat, GCGLint layer) final;
-    void bindExternalImage(GCGLenum target, GCGLExternalImage) final;
-    bool enableRequiredWebXRExtensions() final;
-#endif // ENABLE(WEBXR)
 
 private:
     explicit GraphicsContextGLTextureMapperAndroid(GraphicsContextGLAttributes&& attributes)
         : GraphicsContextGLTextureMapperANGLE(WTF::move(attributes))
     {
     }
-#if ENABLE(WEBXR)
-    bool enableRequiredWebXRExtensionsImpl();
-#endif
 
     bool platformInitializeExtensions() override;
 };

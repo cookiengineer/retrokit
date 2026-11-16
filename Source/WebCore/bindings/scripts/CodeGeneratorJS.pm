@@ -5648,12 +5648,6 @@ sub GenerateImplementation
                 $rootString .= "        return false;\n";
                 $rootString .= "    if (reason) [[unlikely]]\n";
                 $rootString .= "        *reason = \"Reachable from ScriptExecutionContext\"_s;\n";
-            } elsif (GetGenerateIsReachable($interface) eq "ImplWebXRSessionRoot") {
-                $rootString  = "    WebXRSession* owner = WTF::getPtr(js${interfaceName}->wrapped().session());\n";
-                $rootString .= "    if (!owner)\n";
-                $rootString .= "        return false;\n";
-                $rootString .= "    if (reason) [[unlikely]]\n";
-                $rootString .= "        *reason = \"Reachable from WebXRSession\"_s;\n";
             } else {
                 $rootString  = "    auto& owner = js${interfaceName}->wrapped();\n";
                 $rootString .= "    if (reason) [[unlikely]]\n";

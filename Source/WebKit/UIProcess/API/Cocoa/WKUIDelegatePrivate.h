@@ -98,22 +98,8 @@ typedef NS_ENUM(NSInteger, _WKFocusDirection) {
     _WKFocusDirectionForward,
 } WK_API_AVAILABLE(macos(10.13.4), ios(12.2));
 
-typedef NS_ENUM(NSInteger, _WKXRSessionMode) {
-    _WKXRSessionModeInline,
-    _WKXRSessionModeImmersiveVr,
-    _WKXRSessionModeImmersiveAr,
 } WK_API_AVAILABLE(macos(13.0), ios(16.0));
 
-typedef NS_OPTIONS(NSUInteger, _WKXRSessionFeatureFlags) {
-    _WKXRSessionFeatureFlagsNone = 0,
-    _WKXRSessionFeatureFlagsReferenceSpaceTypeViewer = 1 << 0,
-    _WKXRSessionFeatureFlagsReferenceSpaceTypeLocal = 1 << 1,
-    _WKXRSessionFeatureFlagsReferenceSpaceTypeLocalFloor = 1 << 2,
-    _WKXRSessionFeatureFlagsReferenceSpaceTypeBoundedFloor = 1 << 3,
-    _WKXRSessionFeatureFlagsReferenceSpaceTypeUnbounded = 1 << 4,
-    _WKXRSessionFeatureFlagsHandTracking = 1 << 5,
-    _WKXRSessionFeatureFlagsWebGPU = 1 << 6,
-    _WKXRSessionFeatureFlagsLayers = 1 << 7,
 } WK_API_AVAILABLE(macos(13.0), ios(16.0));
 
 typedef NS_ENUM(NSInteger, WKDisplayCapturePermissionDecision) {
@@ -122,10 +108,6 @@ typedef NS_ENUM(NSInteger, WKDisplayCapturePermissionDecision) {
     WKDisplayCapturePermissionDecisionWindowPrompt,
 } WK_API_AVAILABLE(macos(13.0), ios(16.0));
 
-typedef NS_ENUM(NSInteger, _WKXRSessionEndReason) {
-    _WKXRSessionEndReasonNoError,
-    _WKXRSessionEndReasonNoFrameUpdateScheduled,
-    _WKXRSessionEndReasonUnknownError,
 } WK_API_AVAILABLE(macos(15.0), ios(18.0), visionos(2.0));
 
 @protocol WKUIDelegatePrivate <WKUIDelegate>
@@ -207,13 +189,7 @@ struct UIEdgeInsets;
 - (void)_webViewDidEnableInspectorBrowserDomain:(WKWebView *)webView WK_API_AVAILABLE(macos(12.0), ios(15.0));
 - (void)_webViewDidDisableInspectorBrowserDomain:(WKWebView *)webView WK_API_AVAILABLE(macos(12.0), ios(15.0));
 
-- (void)_webView:(WKWebView *)webView requestPermissionForXRSessionOrigin:(NSString *)originString mode:(_WKXRSessionMode)mode grantedFeatures:(_WKXRSessionFeatureFlags)grantedFeatures consentRequiredFeatures:(_WKXRSessionFeatureFlags)consentRequiredFeatures consentOptionalFeatures:(_WKXRSessionFeatureFlags)consentOptionalFeatures completionHandler:(void (^)(_WKXRSessionFeatureFlags))completionHandler WK_API_AVAILABLE(macos(13.0), ios(16.0));
-- (void)_webView:(WKWebView *)webView requestPermissionForXRSessionOrigin:(NSString *)originString mode:(_WKXRSessionMode)mode grantedFeatures:(_WKXRSessionFeatureFlags)grantedFeatures consentRequiredFeatures:(_WKXRSessionFeatureFlags)consentRequiredFeatures consentOptionalFeatures:(_WKXRSessionFeatureFlags)consentOptionalFeatures requiredFeaturesRequested:(_WKXRSessionFeatureFlags)requiredFeaturesRequested optionalFeaturesRequested:(_WKXRSessionFeatureFlags)optionalFeaturesRequested completionHandler:(void (^)(_WKXRSessionFeatureFlags))completionHandler WK_API_AVAILABLE(macos(14.0), ios(17.0));
-- (void)_webView:(WKWebView *)webView supportedXRSessionFeatures:(_WKXRSessionFeatureFlags *)vrFeatures arFeatures:(_WKXRSessionFeatureFlags *)arFeatures WK_API_AVAILABLE(ios(18.0), visionos(2.0));
-- (void)_webView:(WKWebView *)webView startXRSessionWithCompletionHandler:(void (^)(id))completionHandler WK_API_AVAILABLE(macos(12.0), ios(15.0));
 - (void)_webView:(WKWebView *)webView requestNotificationPermissionForSecurityOrigin:(WKSecurityOrigin *)securityOrigin decisionHandler:(void (^)(BOOL))decisionHandler WK_API_AVAILABLE(macos(10.13.4), ios(16.0));
-- (void)_webViewEndXRSession:(WKWebView *)webView WK_API_AVAILABLE(macos(13.0), ios(16.0));
-- (void)_webViewEndXRSession:(WKWebView *)webView withReason:(_WKXRSessionEndReason)endReason WK_API_AVAILABLE(macos(15.0), ios(18.0), visionos(2.0));
 
 - (void)_webView:(WKWebView *)webView updatedAppBadge:(NSNumber *)badge fromSecurityOrigin:(WKSecurityOrigin *)origin WK_API_AVAILABLE(macos(13.3), ios(16.4));
 
@@ -305,9 +281,7 @@ struct UIEdgeInsets;
 - (BOOL)_webView:(WKWebView *)webView gestureRecognizerCanBePreventedByTouchEvents:(UIGestureRecognizer *)gestureRecognizer WK_API_AVAILABLE(ios(16.5));
 
 #if TARGET_OS_WATCH
-- (void)_webView:(WKWebView *)webView startXRSessionWithFeatures:(_WKXRSessionFeatureFlags)features colorFormat:(NSUInteger)pixelFormat depthFormat:(NSUInteger)depthFormat completionHandler:(void (^)(id, UIViewController *))completionHandler WK_API_AVAILABLE(ios(17.4), visionos(1.1));
 #else
-- (void)_webView:(WKWebView *)webView startXRSessionWithFeatures:(_WKXRSessionFeatureFlags)features colorFormat:(MTLPixelFormat)pixelFormat depthFormat:(MTLPixelFormat)depthFormat completionHandler:(void (^)(id, UIViewController *))completionHandler WK_API_AVAILABLE(ios(17.4), visionos(1.1));
 #endif
 
 - (void)_webViewDidEnterStandbyForTesting:(WKWebView *)webView WK_API_AVAILABLE(ios(26.0));

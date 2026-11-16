@@ -45,7 +45,6 @@
 #import "NavigationState.h"
 #import "PDFPluginIdentifier.h"
 #import "PickerDismissalReason.h"
-#import "PlatformXRSystem.h"
 #import "RemoteLayerTreeNode.h"
 #import "RunningBoardServicesSPI.h"
 #import "TapHandlingResult.h"
@@ -187,10 +186,6 @@ bool PageClientImpl::isActiveViewVisible()
     if ([webView _mayAutomaticallyShowVideoPictureInPicture])
         return true;
 
-#if ENABLE(WEBXR) && !USE(OPENXR)
-    if (page && page->xrSystem() && page->xrSystem()->hasActiveSession())
-        return true;
-#endif
 
     return false;
 }

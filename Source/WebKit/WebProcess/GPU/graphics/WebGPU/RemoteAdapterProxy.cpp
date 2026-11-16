@@ -37,12 +37,10 @@ namespace WebKit::WebGPU {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(RemoteAdapterProxy);
 
-RemoteAdapterProxy::RemoteAdapterProxy(String&& name, WebCore::WebGPU::SupportedFeatures& features, WebCore::WebGPU::SupportedLimits& limits, bool isFallbackAdapter, bool xrCompatible, RemoteGPUProxy& parent, ConvertToBackingContext& convertToBackingContext, WebGPUIdentifier identifier, uint32_t subgroupMinSize, uint32_t subgroupMaxSize)
     : Adapter(WTF::move(name), features, limits, isFallbackAdapter, subgroupMinSize, subgroupMaxSize)
     , m_backing(identifier)
     , m_convertToBackingContext(convertToBackingContext)
     , m_parent(parent)
-    , m_xrCompatible(xrCompatible)
 {
 }
 
@@ -113,11 +111,6 @@ void RemoteAdapterProxy::requestDevice(const WebCore::WebGPU::DeviceDescriptor& 
     auto result = RemoteDeviceProxy::create(WTF::move(resultSupportedFeatures), WTF::move(resultSupportedLimits), *this, convertToBackingContext, identifier, queueIdentifier);
     result->setLabel(WTF::move(convertedDescriptor->label));
     callback(WTF::move(result));
-}
-
-bool RemoteAdapterProxy::xrCompatible()
-{
-    return m_xrCompatible;
 }
 
 } // namespace WebKit::WebGPU

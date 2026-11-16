@@ -66,9 +66,6 @@ public:
         PublickeyCredentialsGetRule,
         DigitalCredentialsGetRule,
 #endif
-#if ENABLE(WEBXR)
-        XRSpatialTracking,
-#endif
         PrivateToken,
         StorageAccess,
         Invalid

@@ -90,11 +90,6 @@
 #include "WebGL2RenderingContext.h"
 #endif
 
-#if ENABLE(WEBXR)
-#include "LocalDOMWindow.h"
-#include "NavigatorWebXR.h"
-#include "WebXRSystem.h"
-#endif
 
 #if USE(GSTREAMER)
 #include "VideoFrameGStreamer.h"
@@ -422,18 +417,7 @@ WebGLRenderingContextBase* HTMLCanvasElement::createContextWebGL(WebGLVersion ty
     if (!document().settings().webGLEnabled())
         return nullptr;
 
-#if ENABLE(WEBXR)
-    // https://immersive-web.github.io/webxr/#xr-compatible
-    if (attrs.xrCompatible) {
-        if (RefPtr window = document().window()) {
-            // FIXME: how to make this sync without blocking the main thread?
-            // For reference: https://immersive-web.github.io/webxr/#ref-for-dom-webglcontextattributes-xrcompatible
-            NavigatorWebXR::xr(window->navigator()).ensureImmersiveXRDeviceIsSelected([]() { });
-        }
-    }
-#endif
 
-    // TODO(WEBXR): ensure the context is created in a compatible graphics
     // adapter when there is an active immersive device.
     m_context = WebGLRenderingContextBase::create(*this, attrs, type);
     if (m_context) {
@@ -441,9 +425,6 @@ WebGLRenderingContextBase* HTMLCanvasElement::createContextWebGL(WebGLVersion ty
         invalidateStyleAndLayerComposition();
         if (CheckedPtr box = renderBox())
             box->contentChanged(ContentChangeType::Canvas);
-#if ENABLE(WEBXR)
-        ASSERT(!attrs.xrCompatible || downcast<WebGLRenderingContextBase>(*m_context).isXRCompatible());
-#endif
     }
 
     return downcast<WebGLRenderingContextBase>(m_context.get());

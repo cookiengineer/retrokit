@@ -192,14 +192,6 @@ private:
 
         void addMessageToConsoleForTesting(WebPageProxy&, String&&) final;
 
-#if ENABLE(WEBXR)
-        void requestPermissionOnXRSessionFeatures(WebPageProxy&, const WebCore::SecurityOriginData&, PlatformXR::SessionMode, const PlatformXR::Device::FeatureList& /* granted */, const PlatformXR::Device::FeatureList& /* consentRequired */, const PlatformXR::Device::FeatureList& /* consentOptional */, const PlatformXR::Device::FeatureList& /* requiredFeaturesRequested */, const PlatformXR::Device::FeatureList& /* optionalFeaturesRequested */, CompletionHandler<void(std::optional<PlatformXR::Device::FeatureList>&&)>&&) final;
-        void supportedXRSessionFeatures(PlatformXR::Device::FeatureList&, PlatformXR::Device::FeatureList&) final;
-#if PLATFORM(IOS_FAMILY)
-        void startXRSession(WebPageProxy&, const PlatformXR::Device::FeatureList&, std::optional<WebCore::XRCanvasConfiguration>&&, CompletionHandler<void(RetainPtr<id>, PlatformViewController *)>&&) final;
-        void endXRSession(WebPageProxy&, PlatformXRSessionEndReason) final;
-#endif
-#endif
 
         void updateAppBadge(WebPageProxy&, const WebCore::SecurityOriginData&, std::optional<uint64_t>) final;
 
@@ -318,12 +310,6 @@ private:
 #endif
         bool webViewDidEnableInspectorBrowserDomain : 1;
         bool webViewDidDisableInspectorBrowserDomain : 1;
-#if ENABLE(WEBXR)
-        bool webViewRequestPermissionForXRSessionOriginModeAndFeaturesWithCompletionHandler: 1;
-        bool webViewStartXRSessionWithCompletionHandler : 1;
-        bool webViewEndXRSession : 1;
-        bool webViewSupportedXRSessionFeatures : 1;
-#endif
         bool webViewRequestNotificationPermissionForSecurityOriginDecisionHandler : 1;
         bool webViewUpdatedAppBadge : 1;
         bool webViewDidAdjustVisibilityWithSelectors : 1;

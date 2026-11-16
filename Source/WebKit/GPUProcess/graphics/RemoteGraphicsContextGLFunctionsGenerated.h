@@ -276,16 +276,3 @@
     void polygonOffsetClampEXT(float factor, float units, float clamp);
     void renderbufferStorageMultisampleANGLE(uint32_t target, int32_t samples, uint32_t internalformat, int32_t width, int32_t height);
     void getInternalformativ(uint32_t target, uint32_t internalformat, uint32_t pname, uint64_t paramsSize, CompletionHandler<void(std::span<const int32_t>)>&&);
-#if ENABLE(WEBXR)
-    void createExternalImage(uint32_t name, WebCore::GraphicsContextGL::ExternalImageSource&& arg0, uint32_t internalFormat, int32_t layer);
-    void deleteExternalImage(uint32_t handle);
-    void bindExternalImage(uint32_t target, uint32_t arg1);
-    void createExternalSync(uint32_t name, WebCore::GraphicsContextGL::ExternalSyncSource&& arg0);
-    void deleteExternalSync(uint32_t arg0);
-    void enableRequiredWebXRExtensions(CompletionHandler<void(bool)>&&);
-    void addFoveation(WebCore::IntSize&& physicalSizeLeft, WebCore::IntSize&& physicalSizeRight, WebCore::IntSize&& screenSize, std::span<const float>&& horizontalSamplesLeft, std::span<const float>&& verticalSamples, std::span<const float>&& horizontalSamplesRight, CompletionHandler<void(bool)>&&);
-    void enableFoveation(uint32_t arg0);
-    void disableFoveation();
-    void framebufferResolveRenderbuffer(uint32_t target, uint32_t attachment, uint32_t renderbuffertarget, uint32_t arg3);
-#endif
-

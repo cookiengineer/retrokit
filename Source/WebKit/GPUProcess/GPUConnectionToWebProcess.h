@@ -158,11 +158,6 @@ public:
     const RemoteRenderingBackendMap& remoteRenderingBackendMap() const LIFETIME_BOUND { return m_remoteRenderingBackendMap; }
     void updateSharedPreferencesForWebProcess(SharedPreferencesForWebProcess&&);
 
-#if ENABLE(WEBXR)
-    bool isWebXREnabled() const { return m_sharedPreferencesForWebProcess.webXREnabled; }
-#else
-    bool isWebXREnabled() const { return false; }
-#endif
 
 #if ENABLE(RE_DYNAMIC_CONTENT_SCALING)
     bool isDynamicContentScalingEnabled() const { return m_sharedPreferencesForWebProcess.useCGDisplayListsForDOMRendering; }

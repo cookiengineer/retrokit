@@ -52,9 +52,6 @@ struct WebGLContextAttributes {
     using PowerPreference = WebGLPowerPreference;
     PowerPreference powerPreference { PowerPreference::Default };
     bool failIfMajorPerformanceCaveat { false };
-#if ENABLE(WEBXR)
-    bool xrCompatible { false };
-#endif
     using SimulatedCreationFailure = WebGLContextSimulatedCreationFailure;
     SimulatedCreationFailure failContextCreationForTesting { SimulatedCreationFailure::None };
 };

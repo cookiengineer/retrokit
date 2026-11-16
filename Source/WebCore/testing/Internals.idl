@@ -1467,8 +1467,6 @@ enum ContentsFormat {
 
     readonly attribute sequence<AbstractRange> textExtractionHighlightRanges;
 
-#if defined(ENABLE_WEBXR) && ENABLE_WEBXR
-    [Conditional=WEBXR] readonly attribute WebXRTest xrTest;
 #endif
 
     [Conditional=ENCRYPTED_MEDIA] unsigned long mediaKeysInternalInstanceObjectRefCount(MediaKeys mediaKeys);

@@ -52,10 +52,6 @@
 #include "RemoteShaderModule.h"
 #include "RemoteTexture.h"
 #include "RemoteTextureView.h"
-#include "RemoteXRBinding.h"
-#include "RemoteXRProjectionLayer.h"
-#include "RemoteXRSubImage.h"
-#include "RemoteXRView.h"
 #include <wtf/TZoneMallocInlines.h>
 
 #if HAVE(WEBGPU_IMPLEMENTATION)
@@ -85,10 +81,6 @@
 #include <WebCore/WebGPUShaderModule.h>
 #include <WebCore/WebGPUTexture.h>
 #include <WebCore/WebGPUTextureView.h>
-#include <WebCore/WebGPUXRBinding.h>
-#include <WebCore/WebGPUXRProjectionLayer.h>
-#include <WebCore/WebGPUXRSubImage.h>
-#include <WebCore/WebGPUXRView.h>
 
 namespace WebKit::WebGPU {
 
@@ -236,30 +228,6 @@ void ObjectHeap::addObject(WebGPUIdentifier identifier, RemoteTexture& texture)
 void ObjectHeap::addObject(WebGPUIdentifier identifier, RemoteTextureView& textureView)
 {
     auto result = m_objects.add(identifier, Object { IPC::ScopedActiveMessageReceiveQueue<RemoteTextureView> { protect(textureView) } });
-    ASSERT_UNUSED(result, result.isNewEntry);
-}
-
-void ObjectHeap::addObject(WebGPUIdentifier identifier, RemoteXRBinding& xrBinding)
-{
-    auto result = m_objects.add(identifier, Object { IPC::ScopedActiveMessageReceiveQueue<RemoteXRBinding> { protect(xrBinding) } });
-    ASSERT_UNUSED(result, result.isNewEntry);
-}
-
-void ObjectHeap::addObject(WebGPUIdentifier identifier, RemoteXRSubImage& xrSubImage)
-{
-    auto result = m_objects.add(identifier, Object { IPC::ScopedActiveMessageReceiveQueue<RemoteXRSubImage> { protect(xrSubImage) } });
-    ASSERT_UNUSED(result, result.isNewEntry);
-}
-
-void ObjectHeap::addObject(WebGPUIdentifier identifier, RemoteXRProjectionLayer& layer)
-{
-    auto result = m_objects.add(identifier, Object { IPC::ScopedActiveMessageReceiveQueue<RemoteXRProjectionLayer> { protect(layer) } });
-    ASSERT_UNUSED(result, result.isNewEntry);
-}
-
-void ObjectHeap::addObject(WebGPUIdentifier identifier, RemoteXRView& view)
-{
-    auto result = m_objects.add(identifier, Object { IPC::ScopedActiveMessageReceiveQueue<RemoteXRView> { protect(view) } });
     ASSERT_UNUSED(result, result.isNewEntry);
 }
 
@@ -458,36 +426,24 @@ WeakPtr<WebCore::WebGPU::TextureView> ObjectHeap::convertTextureViewFromBacking(
     return &std::get<IPC::ScopedActiveMessageReceiveQueue<RemoteTextureView>>(iterator->value)->backing();
 }
 
-WeakPtr<WebCore::WebGPU::XRBinding> ObjectHeap::convertXRBindingFromBacking(WebGPUIdentifier identifier)
 {
     auto iterator = m_objects.find(identifier);
-    if (iterator == m_objects.end() || !std::holds_alternative<IPC::ScopedActiveMessageReceiveQueue<RemoteXRBinding>>(iterator->value))
         return nullptr;
-    return &std::get<IPC::ScopedActiveMessageReceiveQueue<RemoteXRBinding>>(iterator->value)->backing();
 }
 
-WeakPtr<WebCore::WebGPU::XRSubImage> ObjectHeap::convertXRSubImageFromBacking(WebGPUIdentifier identifier)
 {
     auto iterator = m_objects.find(identifier);
-    if (iterator == m_objects.end() || !std::holds_alternative<IPC::ScopedActiveMessageReceiveQueue<RemoteXRSubImage>>(iterator->value))
         return nullptr;
-    return &std::get<IPC::ScopedActiveMessageReceiveQueue<RemoteXRSubImage>>(iterator->value)->backing();
 }
 
-WeakPtr<WebCore::WebGPU::XRProjectionLayer> ObjectHeap::convertXRProjectionLayerFromBacking(WebGPUIdentifier identifier)
 {
     auto iterator = m_objects.find(identifier);
-    if (iterator == m_objects.end() || !std::holds_alternative<IPC::ScopedActiveMessageReceiveQueue<RemoteXRProjectionLayer>>(iterator->value))
         return nullptr;
-    return &std::get<IPC::ScopedActiveMessageReceiveQueue<RemoteXRProjectionLayer>>(iterator->value)->backing();
 }
 
-WeakPtr<WebCore::WebGPU::XRView> ObjectHeap::createXRViewFromBacking(WebGPUIdentifier identifier)
 {
     auto iterator = m_objects.find(identifier);
-    if (iterator == m_objects.end() || !std::holds_alternative<IPC::ScopedActiveMessageReceiveQueue<RemoteXRView>>(iterator->value))
         return nullptr;
-    return &std::get<IPC::ScopedActiveMessageReceiveQueue<RemoteXRView>>(iterator->value)->backing();
 }
 
 ObjectHeap::ExistsAndValid ObjectHeap::objectExistsAndValid(const WebCore::WebGPU::GPU& gpu, WebGPUIdentifier identifier) const

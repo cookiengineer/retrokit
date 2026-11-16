@@ -128,8 +128,6 @@ list(APPEND WebKit_PRIVATE_INCLUDE_DIRECTORIES
     "${WEBKIT_DIR}/UIProcess/Launcher/cocoa"
     "${WEBKIT_DIR}/UIProcess/RemoteLayerTree/ios"
     "${WEBKIT_DIR}/UIProcess/RemoteLayerTree/mac"
-    "${WEBKIT_DIR}/UIProcess/XR/ios"
-    "${WEBKIT_DIR}/UIProcess/XR/xros"
     "${WEBKIT_DIR}/UIProcess/ios/forms"
     "${WEBKIT_DIR}/UIProcess/ios/fullscreen"
     "${WEBKIT_DIR}/UIProcess/mac"

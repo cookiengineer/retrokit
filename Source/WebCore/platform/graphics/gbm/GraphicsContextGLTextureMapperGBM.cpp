@@ -112,10 +112,6 @@ bool GraphicsContextGLTextureMapperGBM::platformInitializeExtensions()
     if (!enableExtensionsImpl({ "GL_OES_EGL_image"_s }))
         return false;
 
-#if ENABLE(WEBXR)
-    if (contextAttributes().xrCompatible && !enableRequiredWebXRExtensionsImpl())
-        return false;
-#endif
 
     const auto& eglExtensions = PlatformDisplay::sharedDisplay().eglExtensions();
     return eglExtensions.KHR_image_base && eglExtensions.EXT_image_dma_buf_import;
@@ -256,71 +252,6 @@ void GraphicsContextGLTextureMapperGBM::prepareForDisplayWithFinishedSignal(Func
     }
 }
 
-#if ENABLE(WEBXR)
-GCGLExternalImage GraphicsContextGLTextureMapperGBM::createExternalImage(ExternalImageSource&& source, GCGLenum, GCGLint)
-{
-    GraphicsContextGLExternalImageSource imageSource = WTF::move(source);
-
-    if (m_displayObj == EGL_NO_DISPLAY) {
-        addError(GCGLErrorCode::InvalidOperation);
-        LOG(XR, "invalid display %d", EGL_GetError());
-        return { };
-    }
-
-    DMABufBufferAttributes dmaBufAttributes { imageSource.size, imageSource.fourcc, WTF::move(imageSource.fds), WTF::move(imageSource.offsets), WTF::move(imageSource.strides), imageSource.modifier };
-    auto enableModifiers = PlatformDisplay::sharedDisplay().eglExtensions().EXT_image_dma_buf_import_modifiers
-        ? DMABufBufferAttributes::EnableModifiers::Yes : DMABufBufferAttributes::EnableModifiers::No;
-    auto eglAttributes = DMABufBuffer::buildEGLImageAttributes(dmaBufAttributes, enableModifiers);
-    if (!eglAttributes) {
-        addError(GCGLErrorCode::InvalidOperation);
-        return { };
-    }
-    auto eglImage = EGL_CreateImageKHR(m_displayObj, EGL_NO_CONTEXT, EGL_LINUX_DMA_BUF_EXT, nullptr, eglAttributes->span().data());
-    if (!eglImage) {
-        LOG(XR, "invalid operation importing the image %d", EGL_GetError());
-        addError(GCGLErrorCode::InvalidOperation);
-        return { };
-    }
-    auto newName = ++m_nextExternalImageName;
-    m_eglImages.add(newName, eglImage);
-    return newName;
-}
-
-void GraphicsContextGLTextureMapperGBM::bindExternalImage(GCGLenum target, GCGLExternalImage image)
-{
-    if (!makeContextCurrent())
-        return;
-    EGLImage eglImage = EGL_NO_IMAGE_KHR;
-    if (image) {
-        eglImage = m_eglImages.get(image);
-        if (!eglImage) {
-            addError(GCGLErrorCode::InvalidOperation);
-            return;
-        }
-    }
-    if (target == RENDERBUFFER)
-        GL_EGLImageTargetRenderbufferStorageOES(RENDERBUFFER, eglImage);
-    else
-        GL_EGLImageTargetTexture2DOES(target, eglImage);
-}
-
-bool GraphicsContextGLTextureMapperGBM::enableRequiredWebXRExtensions()
-{
-    if (!makeContextCurrent())
-        return false;
-
-    return enableRequiredWebXRExtensionsImpl();
-}
-
-bool GraphicsContextGLTextureMapperGBM::enableRequiredWebXRExtensionsImpl()
-{
-    return enableExtensionsImpl({
-        "GL_OES_EGL_image"_s,
-        "GL_OES_EGL_image_external"_s,
-        "GL_EXT_discard_framebuffer"_s
-    });
-}
-#endif // ENABLE(WEBXR)
 
 } // namespace WebCore
 

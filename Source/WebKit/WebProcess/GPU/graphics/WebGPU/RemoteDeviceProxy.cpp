@@ -43,7 +43,6 @@
 #include "RemoteSamplerProxy.h"
 #include "RemoteShaderModuleProxy.h"
 #include "RemoteTextureProxy.h"
-#include "RemoteXRBindingProxy.h"
 #include "SharedVideoFrame.h"
 #include "WebGPUCommandEncoderDescriptor.h"
 #include "WebGPUConvertToBackingContext.h"
@@ -113,16 +112,6 @@ void RemoteDeviceProxy::destroy()
 {
     auto sendResult = send(Messages::RemoteDevice::Destroy());
     UNUSED_PARAM(sendResult);
-}
-
-RefPtr<WebCore::WebGPU::XRBinding> RemoteDeviceProxy::createXRBinding()
-{
-    auto identifier = WebGPUIdentifier::generate();
-    auto sendResult = send(Messages::RemoteDevice::CreateXRBinding(identifier));
-    if (sendResult != IPC::Error::NoError)
-        return nullptr;
-
-    return RemoteXRBindingProxy::create(*this, m_convertToBackingContext, identifier);
 }
 
 RefPtr<WebCore::WebGPU::Buffer> RemoteDeviceProxy::createBuffer(const WebCore::WebGPU::BufferDescriptor& descriptor)

@@ -47,11 +47,6 @@ public:
     void prepareForDisplayWithFinishedSignal(Function<void()>&&);
     DMABufBuffer* displayBuffer() { return m_displayBuffer.dmabuf.get(); }
 
-#if ENABLE(WEBXR)
-    GCGLExternalImage createExternalImage(ExternalImageSource&&, GCGLenum internalFormat, GCGLint layer) final;
-    void bindExternalImage(GCGLenum target, GCGLExternalImage) final;
-    bool enableRequiredWebXRExtensions() final;
-#endif
 
 private:
     GraphicsContextGLTextureMapperGBM(GraphicsContextGLAttributes&&, RefPtr<GraphicsLayerContentsDisplayDelegate>&&);
@@ -60,9 +55,6 @@ private:
     bool platformInitializeExtensions() override;
     bool reshapeDrawingBuffer() override;
     void prepareForDisplay() override;
-#if ENABLE(WEBXR)
-    bool enableRequiredWebXRExtensionsImpl();
-#endif
 
     void freeDrawingBuffers();
     bool bindNextDrawingBuffer();

@@ -50,10 +50,6 @@ OBJC_CLASS UIViewController;
 #include "WebAuthenticationFlags.h"
 #endif
 
-#if ENABLE(WEBXR)
-#include "PlatformXRSessionEnums.h"
-#include <WebCore/PlatformXR.h>
-#endif
 
 namespace WebCore {
 class RegistrableDomain;
@@ -233,18 +229,6 @@ public:
 
     virtual void queryPermission(const WTF::String& permissionName, SecurityOrigin& origin, CompletionHandler<void(std::optional<WebCore::PermissionState>)>&& completionHandler) { completionHandler({ }); }
 
-#if ENABLE(WEBXR)
-    virtual void requestPermissionOnXRSessionFeatures(WebKit::WebPageProxy&, const WebCore::SecurityOriginData&, PlatformXR::SessionMode, const PlatformXR::Device::FeatureList& granted, const PlatformXR::Device::FeatureList& /* consentRequired */, const PlatformXR::Device::FeatureList& /* consentOptional */, const PlatformXR::Device::FeatureList& /* requiredFeaturesRequested */, const PlatformXR::Device::FeatureList& /* optionalFeaturesRequested */, CompletionHandler<void(std::optional<PlatformXR::Device::FeatureList>&&)>&& completionHandler) { completionHandler(granted); }
-    virtual void supportedXRSessionFeatures(PlatformXR::Device::FeatureList& vrFeatures, PlatformXR::Device::FeatureList& arFeatures) { }
-
-#if PLATFORM(IOS_FAMILY)
-    virtual void startXRSession(WebKit::WebPageProxy&, const PlatformXR::Device::FeatureList&, std::optional<WebCore::XRCanvasConfiguration>&&, CompletionHandler<void(RetainPtr<id>, PlatformViewController *)>&& completionHandler) { completionHandler(nil, nil); }
-    virtual void endXRSession(WebKit::WebPageProxy&, WebKit::PlatformXRSessionEndReason) { }
-#elif USE(OPENXR)
-    virtual void didStartXRSession(WebKit::WebPageProxy&) { }
-    virtual void didEndXRSession(WebKit::WebPageProxy&) { }
-#endif
-#endif
 
     virtual void updateAppBadge(WebKit::WebPageProxy&, const WebCore::SecurityOriginData&, std::optional<uint64_t>) { }
 

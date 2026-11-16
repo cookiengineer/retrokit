@@ -43,84 +43,11 @@ bool GraphicsContextGLTextureMapperAndroid::platformInitializeExtensions()
     if (!enableExtensionsImpl({ "GL_OES_EGL_image"_s }))
         return false;
 
-#if ENABLE(WEBXR)
-    if (contextAttributes().xrCompatible && !enableRequiredWebXRExtensionsImpl())
-        return false;
-#endif
 
     const auto& eglExtensions = PlatformDisplay::sharedDisplay().eglExtensions();
     return eglExtensions.KHR_image_base && eglExtensions.ANDROID_get_native_client_buffer && eglExtensions.ANDROID_image_native_buffer;
 }
 
-#if ENABLE(WEBXR)
-GCGLExternalImage GraphicsContextGLTextureMapperAndroid::createExternalImage(ExternalImageSource&& source, GCGLenum, GCGLint)
-{
-    if (m_displayObj == EGL_NO_DISPLAY) {
-        addError(GCGLErrorCode::InvalidOperation);
-        RELEASE_LOG_ERROR(XR, "Invalid display %#06x", EGL_GetError());
-        return { };
-    }
-
-    static PFNEGLGETNATIVECLIENTBUFFERANDROIDPROC s_eglGetNativeClientBufferANDROID { nullptr };
-    if (!s_eglGetNativeClientBufferANDROID) [[unlikely]] {
-        s_eglGetNativeClientBufferANDROID = reinterpret_cast<PFNEGLGETNATIVECLIENTBUFFERANDROIDPROC>(EGL_GetProcAddress("eglGetNativeClientBufferANDROID"));
-        RELEASE_ASSERT(s_eglGetNativeClientBufferANDROID);
-    }
-
-    static constexpr EGLint attributes[] = { EGL_IMAGE_PRESERVED, EGL_TRUE, EGL_NONE };
-
-    auto clientBuffer = s_eglGetNativeClientBufferANDROID(source.hardwareBuffer.get());
-    auto eglImage = EGL_CreateImageKHR(m_displayObj, EGL_NO_CONTEXT, EGL_NATIVE_BUFFER_ANDROID, clientBuffer, attributes);
-    if (eglImage == EGL_NO_IMAGE_KHR) {
-        RELEASE_LOG_ERROR(XR, "Failed to bind AHardwareBuffer to an EGLImage (%#06x). This is typically caused by "
-            "a version mismatch between the gralloc implementation and the OpenGL/EGL driver. Please contact your "
-            "GPU vendor to resolve this problem.", EGL_GetError());
-        addError(GCGLErrorCode::InvalidOperation);
-        return { };
-    }
-
-    auto newName = ++m_nextExternalImageName;
-    m_eglImages.add(newName, eglImage);
-    return newName;
-}
-
-void GraphicsContextGLTextureMapperAndroid::bindExternalImage(GCGLenum target, GCGLExternalImage image)
-{
-    if (!makeContextCurrent())
-        return;
-
-    EGLImage eglImage = EGL_NO_IMAGE_KHR;
-    if (image) {
-        eglImage = m_eglImages.get(image);
-        if (eglImage == EGL_NO_IMAGE_KHR) {
-            addError(GCGLErrorCode::InvalidOperation);
-            return;
-        }
-    }
-
-    if (target == RENDERBUFFER)
-        GL_EGLImageTargetRenderbufferStorageOES(RENDERBUFFER, eglImage);
-    else
-        GL_EGLImageTargetTexture2DOES(target, eglImage);
-}
-
-bool GraphicsContextGLTextureMapperAndroid::enableRequiredWebXRExtensions()
-{
-    if (!makeContextCurrent())
-        return false;
-
-    return enableRequiredWebXRExtensionsImpl();
-}
-
-bool GraphicsContextGLTextureMapperAndroid::enableRequiredWebXRExtensionsImpl()
-{
-    return enableExtensionsImpl({
-        "GL_OES_EGL_image"_s,
-        "GL_OES_EGL_image_external"_s,
-        "GL_EXT_discard_framebuffer"_s
-    });
-}
-#endif // ENABLE(WEBXR)
 
 } // namespace WebCore
 

@@ -152,9 +152,6 @@ protected:
     void drawBuffersEXT(std::span<const uint32_t>);
     void invalidateFramebuffer(uint32_t target, std::span<const uint32_t> attachments);
     void invalidateSubFramebuffer(uint32_t target, std::span<const uint32_t> attachments, int32_t x, int32_t y, int32_t width, int32_t height);
-#if ENABLE(WEBXR)
-    void framebufferDiscard(uint32_t target, std::span<const uint32_t> attachments);
-#endif
     void setDrawingBufferColorSpace(WebCore::DestinationColorSpace&&);
 
 #if PLATFORM(COCOA)
@@ -166,10 +163,6 @@ protected:
 #endif
 
 #include "RemoteGraphicsContextGLFunctionsGenerated.h" // NOLINT
-
-private:
-    bool webXREnabled() const;
-    bool webXRPromptAccepted() const;
 
 protected:
     ThreadSafeWeakPtr<GPUConnectionToWebProcess> m_gpuConnectionToWebProcess;

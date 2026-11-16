@@ -81,13 +81,7 @@ class GPUSupportedLimits;
 class GPUTexture;
 struct GPUTextureDescriptor;
 class HTMLVideoElement;
-class WebXRSession;
-class XRGPUBinding;
 template<typename T> struct UniquelyAnnotatedDescriptor;
-
-namespace WebGPU {
-class XRBinding;
-}
 
 class GPUDevice : public RefCounted<GPUDevice>, public ActiveDOMObject, public EventTarget {
     WTF_MAKE_TZONE_ALLOCATED(GPUDevice);
@@ -114,7 +108,6 @@ public:
 
     void destroy(ScriptExecutionContext&);
 
-    RefPtr<WebGPU::XRBinding> createXRBinding(const WebXRSession&);
     ExceptionOr<Ref<GPUBuffer>> createBuffer(GPUBufferDescriptor&&);
     ExceptionOr<Ref<GPUTexture>> createTexture(GPUTextureDescriptor&&);
     std::optional<String> errorValidatingSupportedFormat(GPUTextureFormat) const;

@@ -6746,9 +6746,6 @@ struct WebCore::OwnerPermissionsPolicyData {
     PublickeyCredentialsGetRule,
     DigitalCredentialsGetRule,
 #endif
-#if ENABLE(WEBXR)
-    XRSpatialTracking,
-#endif
     PrivateToken,
     StorageAccess,
     Invalid

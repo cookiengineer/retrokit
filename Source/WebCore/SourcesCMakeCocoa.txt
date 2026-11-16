@@ -132,16 +132,6 @@ workers/service/ServiceWorkerRoute.mm @nonARC
 HTMLNames.cpp
 JSMediaConfiguration.cpp
 JSRTCRtpCodingParameters.cpp
-JSWebXRHitTestResult.cpp
-JSWebXRHitTestSource.cpp
-JSWebXRRay.cpp
-JSWebXRTransientInputHitTestResult.cpp
-JSWebXRTransientInputHitTestSource.cpp
-JSXRHitTestOptionsInit.cpp
-JSXRHitTestTrackableType.cpp
-JSXRLayerInit.cpp
-JSXRRayDirectionInit.cpp
-JSXRTransientInputHitTestOptionsInit.cpp
 MathMLNames.cpp
 Namespace.cpp
 NodeName.cpp

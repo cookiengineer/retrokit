@@ -83,10 +83,6 @@ static ASCIILiteral toFeatureNameForLogging(PermissionsPolicy::Feature feature)
     case PermissionsPolicy::Feature::DigitalCredentialsGetRule:
         return "DigitalCredentialsGet"_s;
 #endif
-#if ENABLE(WEBXR)
-    case PermissionsPolicy::Feature::XRSpatialTracking:
-        return "XRSpatialTracking"_s;
-#endif
     case PermissionsPolicy::Feature::PrivateToken:
         return "PrivateToken"_s;
     case PermissionsPolicy::Feature::StorageAccess:
@@ -125,9 +121,6 @@ static std::pair<PermissionsPolicy::Feature, StringView> readFeatureIdentifier(S
 #if ENABLE(WEB_AUTHN)
     constexpr auto publickeyCredentialsGetRuleToken { "publickey-credentials-get"_s };
     constexpr auto digitalCredentialsGetRuleToken { "digital-credentials-get"_s };
-#endif
-#if ENABLE(WEBXR)
-    constexpr auto xrSpatialTrackingToken { "xr-spatial-tracking"_s };
 #endif
     constexpr auto privateTokenToken { "private-token"_s };
     constexpr auto storageAccessToken { "storage-access"_s };
@@ -184,11 +177,6 @@ static std::pair<PermissionsPolicy::Feature, StringView> readFeatureIdentifier(S
         feature = PermissionsPolicy::Feature::DigitalCredentialsGetRule;
         remainingValue = value.substring(digitalCredentialsGetRuleToken.length());
 #endif
-#if ENABLE(WEBXR)
-    } else if (value.startsWith(xrSpatialTrackingToken)) {
-        feature = PermissionsPolicy::Feature::XRSpatialTracking;
-        remainingValue = value.substring(xrSpatialTrackingToken.length());
-#endif
     } else if (value.startsWith(privateTokenToken)) {
         feature = PermissionsPolicy::Feature::PrivateToken;
         remainingValue = value.substring(privateTokenToken.length());
@@ -230,9 +218,6 @@ static ASCIILiteral defaultAllowlistValue(PermissionsPolicy::Feature feature)
 #if ENABLE(WEB_AUTHN)
     case PermissionsPolicy::Feature::PublickeyCredentialsGetRule:
     case PermissionsPolicy::Feature::DigitalCredentialsGetRule:
-#endif
-#if ENABLE(WEBXR)
-    case PermissionsPolicy::Feature::XRSpatialTracking:
 #endif
     case PermissionsPolicy::Feature::PrivateToken:
         return "'self'"_s;

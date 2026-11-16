@@ -502,9 +502,6 @@
 #include "WebExtensionControllerProxy.h"
 #endif
 
-#if ENABLE(WEBXR)
-#include "PlatformXRSystemProxy.h"
-#endif
 
 #if ENABLE(PDF_HUD)
 #include "PDFPluginBase.h"
@@ -9613,14 +9610,6 @@ void WebPage::textAutosizingUsesIdempotentModeChanged()
 }
 #endif // ENABLE(TEXT_AUTOSIZING)
 
-#if ENABLE(WEBXR)
-PlatformXRSystemProxy& WebPage::xrSystemProxy()
-{
-    if (!m_xrSystemProxy)
-        lazyInitialize(m_xrSystemProxy, makeUniqueWithoutRefCountedCheck<PlatformXRSystemProxy>(*this));
-    return *m_xrSystemProxy;
-}
-#endif
 
 void WebPage::setOverriddenMediaType(const String& mediaType)
 {

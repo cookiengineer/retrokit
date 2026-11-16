@@ -135,29 +135,14 @@ Ref<WebGLFramebuffer> WebGLFramebuffer::create(WebGLRenderingContextBase& contex
     return adoptRef(*new WebGLFramebuffer { context, object, Type::Plain });
 }
 
-#if ENABLE(WEBXR)
-RefPtr<WebGLFramebuffer> WebGLFramebuffer::createOpaque(WebGLRenderingContextBase& context)
-{
-    auto object = protect(context.graphicsContextGL())->createFramebuffer();
-    if (!object)
-        return nullptr;
-    return adoptRef(*new WebGLFramebuffer { context, object, Type::Opaque });
-}
-#endif
 
 WebGLFramebuffer::WebGLFramebuffer(WebGLRenderingContextBase& context, PlatformGLObject object, Type type)
     : WebGLObject(context, object)
-#if ENABLE(WEBXR)
-    , m_isOpaque(type == Type::Opaque)
-#endif
 {
     UNUSED_PARAM(type);
 }
 
 WebGLFramebuffer::WebGLFramebuffer()
-#if ENABLE(WEBXR)
-    : m_isOpaque(false)
-#endif
 {
 }
 

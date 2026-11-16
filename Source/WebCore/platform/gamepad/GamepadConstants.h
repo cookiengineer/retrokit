@@ -60,9 +60,6 @@ inline constexpr size_t numberOfStandardGamepadButtonsWithoutHomeButton = static
 inline constexpr size_t numberOfStandardGamepadButtonsWithHomeButton = numberOfStandardGamepadButtonsWithoutHomeButton + 1;
 
 const String& standardGamepadMappingString();
-#if ENABLE(WEBXR)
-const String& xrStandardGamepadMappingString();
-#endif
 
 } // namespace WebCore
 

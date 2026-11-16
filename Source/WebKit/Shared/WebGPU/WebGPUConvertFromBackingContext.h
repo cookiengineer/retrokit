@@ -137,10 +137,6 @@ class ValidationError;
 struct VertexAttribute;
 struct VertexBufferLayout;
 struct VertexState;
-class XRBinding;
-class XRProjectionLayer;
-class XRSubImage;
-class XRView;
 
 } // namespace WebCore::WebGPU
 
@@ -312,10 +308,6 @@ public:
     virtual WeakPtr<WebCore::WebGPU::PresentationContext> convertPresentationContextFromBacking(WebGPUIdentifier) = 0;
     virtual WeakPtr<WebCore::WebGPU::Texture> convertTextureFromBacking(WebGPUIdentifier) = 0;
     virtual WeakPtr<WebCore::WebGPU::TextureView> convertTextureViewFromBacking(WebGPUIdentifier) = 0;
-    virtual WeakPtr<WebCore::WebGPU::XRBinding> convertXRBindingFromBacking(WebGPUIdentifier) = 0;
-    virtual WeakPtr<WebCore::WebGPU::XRProjectionLayer> convertXRProjectionLayerFromBacking(WebGPUIdentifier) = 0;
-    virtual WeakPtr<WebCore::WebGPU::XRSubImage> convertXRSubImageFromBacking(WebGPUIdentifier) = 0;
-    virtual WeakPtr<WebCore::WebGPU::XRView> createXRViewFromBacking(WebGPUIdentifier) = 0;
 };
 
 } // namespace WebKit::WebGPU

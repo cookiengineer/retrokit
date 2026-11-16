@@ -667,12 +667,6 @@ void GPUProcessProxy::didFinishLaunching(ProcessLauncher* launcher, IPC::Connect
 #endif
 }
 
-#if ENABLE(WEBXR)
-void GPUProcessProxy::webXRPromptAccepted(std::optional<WebCore::ProcessIdentity> processIdentity, CompletionHandler<void(bool)>&& completion)
-{
-    sendWithAsyncReply(Messages::GPUProcess::WebXRPromptAccepted(WTF::move(processIdentity)), WTF::move(completion));
-}
-#endif
 
 
 void GPUProcessProxy::updateProcessAssertion()

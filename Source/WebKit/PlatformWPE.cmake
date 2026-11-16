@@ -226,7 +226,6 @@ set(WPE_API_HEADER_TEMPLATES
     ${WEBKIT_DIR}/UIProcess/API/glib/WebKitWebsiteDataManager.h.in
     ${WEBKIT_DIR}/UIProcess/API/glib/WebKitWindowProperties.h.in
     ${WEBKIT_DIR}/UIProcess/API/glib/WebKitWebsitePolicies.h.in
-    ${WEBKIT_DIR}/UIProcess/API/glib/WebKitXRPermissionRequest.h.in
     ${WEBKIT_DIR}/UIProcess/API/glib/webkit.h.in
 )
 
@@ -488,9 +487,6 @@ if (USE_ATK)
     )
 endif ()
 
-if (USE_OPENXR)
-   list(APPEND WebKit_LIBRARIES OpenXR::openxr_loader)
-endif ()
 
 if (ENABLE_BUBBLEWRAP_SANDBOX)
     list(APPEND WebKit_LIBRARIES Libseccomp::Libseccomp)

@@ -516,18 +516,6 @@ void RemoteGraphicsContextGLProxy::invalidateSubFramebuffer(GCGLenum target, std
     }
 }
 
-#if ENABLE(WEBXR)
-void RemoteGraphicsContextGLProxy::framebufferDiscard(GCGLenum target, std::span<const GCGLenum> attachments)
-{
-    if (isContextLost())
-        return;
-    auto sendResult = send(Messages::RemoteGraphicsContextGL::FramebufferDiscard(target, attachments));
-    if (sendResult != IPC::Error::NoError) {
-        markContextLost();
-        return;
-    }
-}
-#endif
 
 void RemoteGraphicsContextGLProxy::setDrawingBufferColorSpace(const WebCore::DestinationColorSpace& colorSpace)
 {

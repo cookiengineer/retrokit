@@ -103,11 +103,6 @@ MediaEncryptedEvent conditional=ENCRYPTED_MEDIA
 MediaKeyMessageEvent conditional=ENCRYPTED_MEDIA
 PointerEvent
 PictureInPictureEvent conditional=PICTURE_IN_PICTURE_API
-XRInputSourceEvent conditional=WEBXR
-XRInputSourcesChangeEvent conditional=WEBXR
-XRLayerEvent conditional=WEBXR_LAYERS
-XRReferenceSpaceEvent conditional=WEBXR
-XRSessionEvent conditional=WEBXR
 NotificationEvent conditional=NOTIFICATION_EVENT
 ContentVisibilityAutoStateChangeEvent
 GPUUncapturedErrorEvent

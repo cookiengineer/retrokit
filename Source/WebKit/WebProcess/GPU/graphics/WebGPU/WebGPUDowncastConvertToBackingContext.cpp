@@ -52,10 +52,6 @@
 #include "RemoteShaderModuleProxy.h"
 #include "RemoteTextureProxy.h"
 #include "RemoteTextureViewProxy.h"
-#include "RemoteXRBindingProxy.h"
-#include "RemoteXRProjectionLayerProxy.h"
-#include "RemoteXRSubImageProxy.h"
-#include "RemoteXRViewProxy.h"
 #include <wtf/TZoneMallocInlines.h>
 
 namespace WebKit::WebGPU {
@@ -185,26 +181,6 @@ WebGPUIdentifier DowncastConvertToBackingContext::convertToBacking(const WebCore
 WebGPUIdentifier DowncastConvertToBackingContext::convertToBacking(const WebCore::WebGPU::TextureView& textureView)
 {
     return downcast<RemoteTextureViewProxy>(textureView).backing();
-}
-
-WebGPUIdentifier DowncastConvertToBackingContext::convertToBacking(const WebCore::WebGPU::XRBinding& xrBinding)
-{
-    return downcast<RemoteXRBindingProxy>(xrBinding).backing();
-}
-
-WebGPUIdentifier DowncastConvertToBackingContext::convertToBacking(const WebCore::WebGPU::XRProjectionLayer& layer)
-{
-    return downcast<RemoteXRProjectionLayerProxy>(layer).backing();
-}
-
-WebGPUIdentifier DowncastConvertToBackingContext::convertToBacking(const WebCore::WebGPU::XRSubImage& subImage)
-{
-    return downcast<RemoteXRSubImageProxy>(subImage).backing();
-}
-
-WebGPUIdentifier DowncastConvertToBackingContext::convertToBacking(const WebCore::WebGPU::XRView& view)
-{
-    return downcast<RemoteXRViewProxy>(view).backing();
 }
 
 } // namespace WebKit::WebGPU

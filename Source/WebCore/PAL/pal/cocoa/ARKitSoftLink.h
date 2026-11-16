@@ -100,33 +100,6 @@ SOFT_LINK_FUNCTION_FOR_HEADER(PAL, ARKit, ar_world_tracking_provider_create, ar_
 SOFT_LINK_FUNCTION_FOR_HEADER(PAL, ARKit, ar_world_tracking_provider_query_device_anchor_at_timestamp, ar_device_anchor_query_status_t, (ar_world_tracking_provider_t world_tracking_provider, CFTimeInterval timestamp, ar_device_anchor_t device_anchor), (world_tracking_provider, timestamp, device_anchor))
 #define ar_world_tracking_provider_query_device_anchor_at_timestamp PAL::softLink_ARKit_ar_world_tracking_provider_query_device_anchor_at_timestamp
 
-#if ENABLE(WEBXR_HANDS) && !PLATFORM(IOS_FAMILY_SIMULATOR)
-
-SOFT_LINK_FUNCTION_FOR_HEADER(PAL, ARKit, ar_hand_anchor_create, ar_hand_anchor_t, (void), ())
-#define ar_hand_anchor_create PAL::softLink_ARKit_ar_hand_anchor_create
-SOFT_LINK_FUNCTION_FOR_HEADER(PAL, ARKit, ar_hand_anchor_get_chirality, ar_hand_chirality_t, (ar_hand_anchor_t hand_anchor), (hand_anchor))
-#define ar_hand_anchor_get_chirality PAL::softLink_ARKit_ar_hand_anchor_get_chirality
-SOFT_LINK_FUNCTION_FOR_HEADER(PAL, ARKit, ar_hand_anchor_get_hand_skeleton, ar_hand_skeleton_t, (ar_hand_anchor_t hand_anchor), (hand_anchor))
-#define ar_hand_anchor_get_hand_skeleton PAL::softLink_ARKit_ar_hand_anchor_get_hand_skeleton
-
-SOFT_LINK_FUNCTION_FOR_HEADER(PAL, ARKit, ar_hand_skeleton_get_joint_named, ar_skeleton_joint_t, (ar_hand_skeleton_t hand_skeleton, ar_hand_skeleton_joint_name_t joint_name), (hand_skeleton, joint_name))
-#define ar_hand_skeleton_get_joint_named PAL::softLink_ARKit_ar_hand_skeleton_get_joint_named
-
-SOFT_LINK_FUNCTION_FOR_HEADER(PAL, ARKit, ar_hand_tracking_configuration_create, ar_hand_tracking_configuration_t, (void), ())
-#define ar_hand_tracking_configuration_create PAL::softLink_ARKit_ar_hand_tracking_configuration_create
-SOFT_LINK_FUNCTION_FOR_HEADER(PAL, ARKit, ar_hand_tracking_provider_create, ar_hand_tracking_provider_t, (ar_hand_tracking_configuration_t hand_tracking_configuration), (hand_tracking_configuration))
-#define ar_hand_tracking_provider_create PAL::softLink_ARKit_ar_hand_tracking_provider_create
-SOFT_LINK_FUNCTION_FOR_HEADER(PAL, ARKit, ar_hand_tracking_provider_get_latest_anchors, bool, (ar_hand_tracking_provider_t hand_tracking_provider, ar_hand_anchor_t hand_anchor_left, ar_hand_anchor_t hand_anchor_right), (hand_tracking_provider, hand_anchor_left, hand_anchor_right))
-#define ar_hand_tracking_provider_get_latest_anchors PAL::softLink_ARKit_ar_hand_tracking_provider_get_latest_anchors
-SOFT_LINK_FUNCTION_FOR_HEADER(PAL, ARKit, ar_hand_tracking_provider_is_supported, bool, (void), ())
-#define ar_hand_tracking_provider_is_supported PAL::softLink_ARKit_ar_hand_tracking_provider_is_supported
-
-SOFT_LINK_FUNCTION_FOR_HEADER(PAL, ARKit, ar_skeleton_joint_get_anchor_from_joint_transform, simd_float4x4, (ar_skeleton_joint_t joint), (joint))
-#define ar_skeleton_joint_get_anchor_from_joint_transform PAL::softLink_ARKit_ar_skeleton_joint_get_anchor_from_joint_transform
-SOFT_LINK_FUNCTION_FOR_HEADER(PAL, ARKit, ar_skeleton_joint_is_tracked, bool, (ar_skeleton_joint_t joint), (joint))
-#define ar_skeleton_joint_is_tracked PAL::softLink_ARKit_ar_skeleton_joint_is_tracked
-
-#endif // ENABLE(WEBXR_HANDS) && !PLATFORM(IOS_FAMILY_SIMULATOR)
 
 #if HAVE(SPATIAL_CONTROLLERS)
 

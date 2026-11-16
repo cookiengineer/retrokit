@@ -152,9 +152,6 @@ public:
     void processIsStartingToCaptureAudio(GPUConnectionToWebProcess&);
 #endif
 
-#if ENABLE(WEBXR)
-    std::optional<WebCore::ProcessIdentity> NODELETE immersiveModeProcessIdentity() const;
-#endif
 
 #if HAVE(AUDIT_TOKEN)
     void setPresentingApplicationAuditToken(WebCore::ProcessIdentifier, WebCore::PageIdentifier, std::optional<CoreIPCAuditToken>&&);
@@ -258,9 +255,6 @@ private:
 #if HAVE(POWERLOG_TASK_MODE_QUERY)
     void enablePowerLogging(SandboxExtension::Handle&&);
 #endif
-#if ENABLE(WEBXR)
-    void webXRPromptAccepted(std::optional<WebCore::ProcessIdentity>, CompletionHandler<void(bool)>&&);
-#endif
 
     // Connections to WebProcesses.
     HashMap<WebCore::ProcessIdentifier, Ref<GPUConnectionToWebProcess>> m_webProcessConnections;
@@ -309,9 +303,6 @@ private:
 #endif
 #if ENABLE(GPU_PROCESS) && USE(AUDIO_SESSION)
     mutable RefPtr<RemoteAudioSessionProxyManager> m_audioSessionManager;
-#endif
-#if ENABLE(WEBXR)
-    std::optional<WebCore::ProcessIdentity> m_processIdentity;
 #endif
 #if ENABLE(VP9) && PLATFORM(COCOA)
     bool m_haveEnabledVP9Decoder { false };

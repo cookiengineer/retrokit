@@ -59,7 +59,6 @@ private:
 
     WGPUAdapter backing() const { return m_backing.get(); }
     bool isAdapterImpl() const final { return true; }
-    bool xrCompatible() final;
 
     void requestDevice(const DeviceDescriptor&, CompletionHandler<void(RefPtr<Device>&&)>&&) final;
 

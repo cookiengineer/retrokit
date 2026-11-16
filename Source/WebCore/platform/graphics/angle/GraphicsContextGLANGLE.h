@@ -293,14 +293,6 @@ public:
     CString getActiveUniformBlockName(PlatformGLObject program, GCGLuint uniformBlockIndex) final;
     void uniformBlockBinding(PlatformGLObject program, GCGLuint uniformBlockIndex, GCGLuint uniformBlockBinding) final;
     void getActiveUniformBlockiv(PlatformGLObject program, GCGLuint uniformBlockIndex, GCGLenum pname, std::span<GCGLint> params) final;
-#if ENABLE(WEBXR)
-    GCGLExternalImage createExternalImage(ExternalImageSource&&, GCGLenum internalFormat, GCGLint layer) override;
-    void deleteExternalImage(GCGLExternalImage) final;
-    void bindExternalImage(GCGLenum target, GCGLExternalImage) override;
-    GCGLExternalSync createExternalSync(ExternalSyncSource&&) override;
-    void deleteExternalSync(GCGLExternalSync) final;
-    void framebufferDiscard(GCGLenum target, std::span<const GCGLenum> attachments) final;
-#endif
     void multiDrawArraysANGLE(GCGLenum mode, GCGLSpanTuple<const GCGLint, const GCGLsizei> firstsAndCounts) final;
     void multiDrawArraysInstancedANGLE(GCGLenum mode, GCGLSpanTuple<const GCGLint, const GCGLsizei, const GCGLsizei> firstsCountsAndInstanceCounts) final;
     void multiDrawElementsANGLE(GCGLenum mode, GCGLSpanTuple<const GCGLsizei, const GCGLsizei> countsAndOffsets, GCGLenum type) final;

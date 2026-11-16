@@ -34,7 +34,6 @@ enum class TaskSource : uint8_t {
     FileReading,
     FontLoading,
     Gamepad,
-    Geolocation,
     IdleTask,
     ImageCapture,
     IndexedDB,
@@ -54,7 +53,6 @@ enum class TaskSource : uint8_t {
     UserInteraction,
     WebGL,
     WebGPU,
-    WebXR,
     WebSocket,
 
     // Internal to WebCore

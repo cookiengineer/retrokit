@@ -149,9 +149,6 @@ struct WebCore::GraphicsContextGLAttributes {
 #if PLATFORM(MAC)
     uint64_t windowGPUID;
 #endif
-#if ENABLE(WEBXR)
-    bool xrCompatible;
-#endif
     WebCore::GraphicsContextGLSimulatedCreationFailure failContextCreationForTesting;
 };
 

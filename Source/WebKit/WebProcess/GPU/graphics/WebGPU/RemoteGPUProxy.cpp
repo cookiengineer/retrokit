@@ -217,7 +217,6 @@ void RemoteGPUProxy::requestAdapter(const WebCore::WebGPU::RequestAdapterOptions
         response->limits.maxStorageBuffersInVertexStage,
         response->limits.maxStorageTexturesInVertexStage
     );
-    callback(WebGPU::RemoteAdapterProxy::create(WTF::move(response->name), WTF::move(resultSupportedFeatures), WTF::move(resultSupportedLimits), response->isFallbackAdapter, options.xrCompatible, *this, m_convertToBackingContext, identifier, response->subgroupMinSize, response->subgroupMaxSize));
 }
 
 RefPtr<WebKit::Mesh> RemoteGPUProxy::createModelBacking(unsigned width, unsigned height, WebModel::ImageAsset&& diffuseTexture, WebModel::ImageAsset&& specularTexture, bool standardDynamicRange, CompletionHandler<void(Vector<MachSendRight>&&)>&& callback)
@@ -379,23 +378,6 @@ bool RemoteGPUProxy::isValid(const WebCore::WebGPU::TextureView&) const
 {
     RELEASE_ASSERT_NOT_REACHED();
 }
-bool RemoteGPUProxy::isValid(const WebCore::WebGPU::XRBinding&) const
-{
-    RELEASE_ASSERT_NOT_REACHED();
-}
-bool RemoteGPUProxy::isValid(const WebCore::WebGPU::XRSubImage&) const
-{
-    RELEASE_ASSERT_NOT_REACHED();
-}
-bool RemoteGPUProxy::isValid(const WebCore::WebGPU::XRProjectionLayer&) const
-{
-    RELEASE_ASSERT_NOT_REACHED();
-}
-bool RemoteGPUProxy::isValid(const WebCore::WebGPU::XRView&) const
-{
-    RELEASE_ASSERT_NOT_REACHED();
-}
-
 } // namespace WebKit
 
 #endif // ENABLE(GPU_PROCESS)

@@ -136,7 +136,3 @@ guint createContextMenuSignal(WebKitWebViewClass*);
 #if PLATFORM(GTK) || (PLATFORM(WPE) && ENABLE(WPE_PLATFORM))
 WebKit::RendererBufferDescription webkitWebViewGetRendererBufferDescription(WebKitWebView*);
 #endif
-
-#if ENABLE(WEBXR) && USE(OPENXR)
-void webkitWebViewSetIsImmersiveModeEnabled(WebKitWebView*, bool);
-#endif

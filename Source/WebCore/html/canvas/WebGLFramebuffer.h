@@ -44,10 +44,6 @@ namespace WebCore {
 
 class WebGLRenderbuffer;
 class WebGLTexture;
-#if ENABLE(WEBXR)
-class WebGLRenderingContextBase;
-class WebXROpaqueFramebuffer;
-#endif
 
 class WebGLFramebuffer final : public WebGLObject {
 public:
@@ -55,9 +51,6 @@ public:
 
     static Ref<WebGLFramebuffer> createLost();
     static Ref<WebGLFramebuffer> create(WebGLRenderingContextBase&);
-#if ENABLE(WEBXR)
-    static RefPtr<WebGLFramebuffer> createOpaque(WebGLRenderingContextBase&);
-#endif
 
     struct TextureAttachment {
         RefPtr<WebGLTexture> texture;
@@ -92,24 +85,14 @@ public:
 
     void addMembersToOpaqueRoots(const AbstractLocker&, JSC::AbstractSlotVisitor&);
 
-#if ENABLE(WEBXR)
-    bool isOpaque() const { return m_isOpaque; }
-#endif
 
     bool isUsable() const { return object() && !isDeleted(); }
     bool isInitialized() const { return m_hasEverBeenBound; }
 
 private:
-#if ENABLE(WEBXR)
-    friend class WebGLRenderingContextBase;
-    friend class WebXROpaqueFramebuffer;
-#endif
 
     enum class Type : bool {
         Plain,
-#if ENABLE(WEBXR)
-        Opaque
-#endif
     };
     WebGLFramebuffer(WebGLRenderingContextBase&, PlatformGLObject, Type);
     WebGLFramebuffer();
@@ -127,18 +110,10 @@ private:
     // null, remove the attached object.
     void removeAttachmentInternal(const AbstractLocker&, GCGLenum attachment);
 
-#if ENABLE(WEBXR)
-    void setInsideWebXRRAF(bool inside) { m_insideWebXRRAF = inside; }
-    bool isInsideWebXRRAF() const { return m_insideWebXRRAF; }
-#endif
 
     HashMap<GCGLenum, AttachmentEntry> m_attachments;
     bool m_hasEverBeenBound { false };
     Vector<GCGLenum> m_drawBuffers;
-#if ENABLE(WEBXR)
-    const bool m_isOpaque;
-    bool m_insideWebXRRAF { false };
-#endif
 };
 
 } // namespace WebCore

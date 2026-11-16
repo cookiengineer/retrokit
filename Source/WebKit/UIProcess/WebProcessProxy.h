@@ -266,9 +266,6 @@ public:
     static WebPageProxy* NODELETE webPage(WebPageProxyIdentifier);
     static WebPageProxy* NODELETE webPage(WebCore::PageIdentifier);
     static WebPageProxy* NODELETE audioCapturingWebPage();
-#if ENABLE(WEBXR)
-    static WebPageProxy* webPageWithActiveXRSession();
-#endif
     Ref<WebPageProxy> createWebPage(PageClient&, Ref<API::PageConfiguration>&&);
 
     enum class BeginsUsingDataStore : bool { No, Yes };
@@ -590,9 +587,6 @@ public:
     Seconds totalBackgroundTime() const;
     Seconds totalSuspendedTime() const;
 
-#if ENABLE(WEBXR)
-    const WebCore::ProcessIdentity& processIdentity() LIFETIME_BOUND;
-#endif
 
     bool isAlwaysOnLoggingAllowed() const;
 

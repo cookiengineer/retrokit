@@ -3076,62 +3076,6 @@ void GraphicsContextGLANGLE::getActiveUniformBlockiv(PlatformGLObject program, G
     GL_GetActiveUniformBlockivRobustANGLE(program, uniformBlockIndex, pname, params.size(), nullptr, params.data());
 }
 
-#if ENABLE(WEBXR)
-GCGLExternalImage GraphicsContextGLANGLE::createExternalImage(ExternalImageSource&&, GCGLenum, GCGLint)
-{
-    notImplemented();
-    return { };
-}
-
-void GraphicsContextGLANGLE::bindExternalImage(GCGLenum, GCGLExternalImage)
-{
-    notImplemented();
-}
-
-void GraphicsContextGLANGLE::deleteExternalImage(GCGLExternalImage image)
-{
-    if (!image) [[unlikely]]
-        return;
-    auto eglImage = m_eglImages.take(image);
-    if (!eglImage) [[unlikely]] {
-        addError(GCGLErrorCode::InvalidOperation);
-        return;
-    }
-    bool result = EGL_DestroyImageKHR(platformDisplay(), eglImage);
-    ASSERT(result);
-    if (!result) [[unlikely]]
-        addError(GCGLErrorCode::InvalidOperation);
-}
-
-GCGLExternalSync GraphicsContextGLANGLE::createExternalSync(ExternalSyncSource&&)
-{
-    notImplemented();
-    return { };
-}
-
-void GraphicsContextGLANGLE::deleteExternalSync(GCGLExternalSync sync)
-{
-    if (!sync) [[unlikely]]
-        return;
-    EGLSync eglSync = m_eglSyncs.take(sync);
-    if (!eglSync) [[unlikely]] {
-        addError(GCGLErrorCode::InvalidOperation);
-        return;
-    }
-    bool result = EGL_DestroySync(platformDisplay(), eglSync);
-    ASSERT(result);
-    if (!result) [[unlikely]]
-        addError(GCGLErrorCode::InvalidOperation);
-}
-
-void GraphicsContextGLANGLE::framebufferDiscard(GCGLenum target, std::span<const GCGLenum> attachments)
-{
-    if (!makeContextCurrent())
-        return;
-
-    GL_DiscardFramebufferEXT(target, attachments.size(), attachments.data());
-}
-#endif
 
 void GraphicsContextGLANGLE::multiDrawArraysANGLE(GCGLenum mode, GCGLSpanTuple<const GCGLint, const GCGLsizei> firstsAndCounts)
 {

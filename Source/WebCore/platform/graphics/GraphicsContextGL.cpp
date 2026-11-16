@@ -592,12 +592,6 @@ void GraphicsContextGL::framebufferDiscard(GCGLenum, std::span<const GCGLenum>)
     notImplemented();
 }
 
-#if ENABLE(WEBXR)
-void GraphicsContextGL::framebufferResolveRenderbuffer(GCGLenum, GCGLenum, GCGLenum, PlatformGLObject)
-{
-    notImplemented();
-}
-#endif
 
 void GraphicsContextGL::setDrawingBufferColorSpace(const DestinationColorSpace&)
 {

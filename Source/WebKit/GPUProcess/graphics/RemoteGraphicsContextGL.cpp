@@ -244,24 +244,6 @@ void RemoteGraphicsContextGL::surfaceBufferToVideoFrame(WebCore::GraphicsContext
 }
 #endif
 
-bool RemoteGraphicsContextGL::webXREnabled() const
-{
-    RefPtr gpuConnectionToWebProcess = m_gpuConnectionToWebProcess.get();
-    if (gpuConnectionToWebProcess)
-        return gpuConnectionToWebProcess->isWebXREnabled();
-    return false;
-}
-
-bool RemoteGraphicsContextGL::webXRPromptAccepted() const
-{
-#if ENABLE(WEBXR) && PLATFORM(COCOA) && !PLATFORM(IOS_FAMILY_SIMULATOR)
-    auto currentAcceptedValue = GPUProcess::singleton().immersiveModeProcessIdentity();
-    return currentAcceptedValue && m_sharedResourceCache->resourceOwner() == *currentAcceptedValue;
-#else
-    return webXREnabled();
-#endif
-}
-
 void RemoteGraphicsContextGL::simulateEventForTesting(WebCore::GraphicsContextGL::SimulatedEventForTesting event)
 {
     assertIsCurrent(workQueue());
@@ -453,16 +435,6 @@ void RemoteGraphicsContextGL::invalidateSubFramebuffer(uint32_t target, std::spa
     protect(m_context)->invalidateSubFramebuffer(target, Vector(attachments), x, y, width, height);
 }
 
-#if ENABLE(WEBXR)
-
-void RemoteGraphicsContextGL::framebufferDiscard(uint32_t target, std::span<const uint32_t> attachments)
-{
-    assertIsCurrent(workQueue());
-    MESSAGE_CHECK(webXRPromptAccepted());
-    protect(m_context)->framebufferDiscard(target, Vector(attachments));
-}
-
-#endif
 
 void RemoteGraphicsContextGL::setDrawingBufferColorSpace(WebCore::DestinationColorSpace&& colorSpace)
 {

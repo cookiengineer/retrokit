@@ -68,7 +68,6 @@ private:
 
     void destroy() final;
 
-    RefPtr<XRBinding> createXRBinding() final;
     RefPtr<Buffer> createBuffer(const BufferDescriptor&) final;
     RefPtr<Texture> createTexture(const TextureDescriptor&) final;
     RefPtr<Sampler> createSampler(const SamplerDescriptor&) final;

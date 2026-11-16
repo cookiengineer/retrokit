@@ -37,7 +37,6 @@
 #include "WebKitWebViewPrivate.h"
 #include "WebKitWebsiteDataAccessPermissionRequestPrivate.h"
 #include "WebKitWindowPropertiesPrivate.h"
-#include "WebKitXRPermissionRequestPrivate.h"
 #include "WebPageProxy.h"
 #include "WebProcessProxy.h"
 #include "WebsiteDataStore.h"
@@ -375,23 +374,6 @@ private:
         webkit_permission_state_query_unref(query);
     }
 
-#if ENABLE(WEBXR) && USE(OPENXR)
-    void requestPermissionOnXRSessionFeatures(WebKit::WebPageProxy&, const WebCore::SecurityOriginData& origin, PlatformXR::SessionMode mode, const PlatformXR::Device::FeatureList& granted, const PlatformXR::Device::FeatureList& consentRequired, const PlatformXR::Device::FeatureList& consentOptional, const PlatformXR::Device::FeatureList& requiredFeaturesRequested, const PlatformXR::Device::FeatureList& optionalFeaturesRequested, CompletionHandler<void(std::optional<PlatformXR::Device::FeatureList>&&)>&& completionHandler) final
-    {
-        GRefPtr<WebKitXRPermissionRequest> request = webkitXRPermissionRequestCreate(origin, mode, granted, consentRequired, consentOptional, requiredFeaturesRequested, optionalFeaturesRequested, WTF::move(completionHandler));
-        webkitWebViewMakePermissionRequest(m_webView, WEBKIT_PERMISSION_REQUEST(request.get()));
-    }
-
-    void didStartXRSession(WebPageProxy&) final
-    {
-        webkitWebViewSetIsImmersiveModeEnabled(m_webView, true);
-    }
-
-    void didEndXRSession(WebPageProxy&) final
-    {
-        webkitWebViewSetIsImmersiveModeEnabled(m_webView, false);
-    }
-#endif
 
     WebKitWebView* m_webView;
 #if ENABLE(POINTER_LOCK)

@@ -115,7 +115,6 @@
 #include "NotificationPermissionRequestManager.h"
 #include "PageClient.h"
 #include "PlatformPopupMenuData.h"
-#include "PlatformXRSystem.h"
 #include "PolicyDecision.h"
 #include "PrintInfo.h"
 #include "ProcessActivityGroup.h"
@@ -1745,10 +1744,6 @@ void WebPageProxy::didAttachToRunningProcess()
 #endif
     m_screenOrientationManager = WebScreenOrientationManagerProxy::create(*this, currentOrientation);
 
-#if ENABLE(WEBXR)
-    ASSERT(!internals().xrSystem);
-    internals().xrSystem = PlatformXRSystem::create(*this);
-#endif
 
 #if PLATFORM(IOS_FAMILY) && ENABLE(MODEL_PROCESS)
     internals().portalPresentationManagerProxy = PortalPresentationManagerProxy::create(*this);
@@ -11920,18 +11915,6 @@ void WebPageProxy::didChangeIntrinsicContentSize(const IntSize& intrinsicContent
 #endif
 }
 
-#if ENABLE(WEBXR)
-PlatformXRSystem* WebPageProxy::xrSystem() const
-{
-    return internals().xrSystem.get();
-}
-
-void WebPageProxy::restartXRSessionActivityOnProcessResumeIfNeeded()
-{
-    if (RefPtr xrSystem = internals().xrSystem; xrSystem && xrSystem->hasActiveSession())
-        xrSystem->ensureImmersiveSessionActivity();
-}
-#endif
 
 void WebPageProxy::showColorPicker(IPC::Connection& connection, const WebCore::Color& initialColor, const IntRect& elementRect, ColorControlSupportsAlpha supportsAlpha, Vector<WebCore::Color>&& suggestions, std::optional<WebCore::FrameIdentifier>&& rootFrameID)
 {
@@ -13983,12 +13966,6 @@ void WebPageProxy::resetState(ResetStateReason resetStateReason)
 
     m_speechRecognitionPermissionManager = nullptr;
 
-#if ENABLE(WEBXR)
-    if (RefPtr xrSystem = internals().xrSystem) {
-        xrSystem->invalidate();
-        internals().xrSystem = nullptr;
-    }
-#endif
 
 #if ENABLE(MOMENTUM_EVENT_DISPATCHER)
     internals().lastSentScrollingAccelerationCurve = std::nullopt;

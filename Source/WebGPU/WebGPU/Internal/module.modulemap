@@ -172,25 +172,9 @@ module WebGPU_Internal [system] {
         export *
     }
 
-    explicit module XRBinding {
-        header "../XRBinding.h"
-        export *
-    }
 
-    explicit module XRProjectionLayer {
-        header "../XRProjectionLayer.h"
-        export *
-    }
 
-    explicit module XRSubImage {
-        header "../XRSubImage.h"
-        export *
-    }
 
-    explicit module XRView {
-        header "../XRView.h"
-        export *
-    }
 
     export *
 }

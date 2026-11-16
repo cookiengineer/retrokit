@@ -48,7 +48,3 @@ Sampler.mm
 ShaderModule.mm
 Texture.mm
 TextureView.mm
-XRBinding.mm
-XRProjectionLayer.mm
-XRSubImage.mm
-XRView.mm

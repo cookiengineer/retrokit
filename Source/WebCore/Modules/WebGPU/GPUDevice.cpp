@@ -75,8 +75,6 @@
 #include "JSGPUValidationError.h"
 #include "RequestAnimationFrameCallback.h"
 #include "SecurityOrigin.h"
-#include "WebGPUXRBinding.h"
-#include "XRGPUBinding.h"
 #include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
@@ -158,11 +156,6 @@ GPUDevice::LostPromise& GPUDevice::lost()
     });
 
     return m_lostPromise;
-}
-
-RefPtr<WebGPU::XRBinding> GPUDevice::createXRBinding(const WebXRSession&)
-{
-    return m_backing->createXRBinding();
 }
 
 ExceptionOr<Ref<GPUBuffer>> GPUDevice::createBuffer(GPUBufferDescriptor&& bufferDescriptor)

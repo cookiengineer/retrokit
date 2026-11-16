@@ -1040,17 +1040,8 @@
 #define ENABLE_WEBKIT_TOUCH_CALLOUT_CSS_PROPERTY 1
 #endif
 
-#if !defined(ENABLE_WEBXR) && PLATFORM(VISION)
-#define ENABLE_WEBXR 1
-#endif
 
-#if !defined(ENABLE_WEBXR_AR) && PLATFORM(IOS)
-#define ENABLE_WEBXR_AR ENABLE_WEBXR
-#endif
 
-#if !defined(ENABLE_WEBXR_HANDS) && PLATFORM(VISION)
-#define ENABLE_WEBXR_HANDS 1
-#endif
 
 #if !defined(ENABLE_WHEEL_EVENT_LATCHING) && PLATFORM(MAC)
 // FIXME: Maybe this can be combined with ENABLE_KINETIC_SCROLLING.

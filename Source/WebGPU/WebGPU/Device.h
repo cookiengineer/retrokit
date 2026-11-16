@@ -72,10 +72,6 @@ class RenderPipeline;
 class Sampler;
 class ShaderModule;
 class Texture;
-class XRBinding;
-class XRSubImage;
-class XRProjectionLayer;
-class XRView;
 
 #if ENABLE(WEBGPU_BY_DEFAULT)
 using GPUShaderValidation = MTLShaderValidation;
@@ -111,9 +107,6 @@ public:
 
     Ref<BindGroup> createBindGroup(const WGPUBindGroupDescriptor&);
     Ref<BindGroupLayout> createBindGroupLayout(const WGPUBindGroupLayoutDescriptor&, bool isGeneratedLayout = false);
-    Ref<XRBinding> createXRBinding();
-    Ref<XRSubImage> createXRSubImage();
-    Ref<XRView> createXRView();
     Ref<Buffer> createBuffer(const WGPUBufferDescriptor&);
     Ref<CommandEncoder> createCommandEncoder(const WGPUCommandEncoderDescriptor&);
     std::pair<Ref<ComputePipeline>, NSString*> createComputePipeline(const WGPUComputePipelineDescriptor&, bool isAsync = false);
@@ -213,9 +206,6 @@ public:
         simd::float4x3 colorSpaceConversionMatrix;
     };
     ExternalTextureData createExternalTextureFromPixelBuffer(CVPixelBufferRef, WGPUColorSpace) const;
-    RefPtr<XRSubImage> getXRViewSubImage(XRProjectionLayer&);
-    RefPtr<XRSubImage> NODELETE getXRViewSubImage() const;
-    id<MTLTexture> _Nullable getXRViewSubImageDepthTexture() const;
     const std::optional<const MachSendRight> webProcessID() const;
 #if CPU(X86_64)
     bool isIntel() const { return [m_device.name localizedCaseInsensitiveContainsString:@"intel"]; }
@@ -291,7 +281,6 @@ private:
 
     Function<void(WGPUErrorType, String&&)> m_uncapturedErrorCallback;
     Vector<ErrorScope> m_errorScopeStack;
-    RefPtr<XRSubImage> m_xrSubImage;
 
     Function<void(WGPUDeviceLostReason, String&&)> m_deviceLostCallback;
     bool m_isLost { false };

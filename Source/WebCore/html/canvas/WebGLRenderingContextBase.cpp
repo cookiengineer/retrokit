@@ -80,7 +80,6 @@
 #include "LocalFrameView.h"
 #include "Logging.h"
 #include "NVShaderNoperspectiveInterpolation.h"
-#include "NavigatorWebXR.h"
 #include "NotImplemented.h"
 #include "OESDrawBuffersIndexed.h"
 #include "OESElementIndexUint.h"
@@ -140,7 +139,6 @@
 #include "WebGLUtilities.h"
 #include "WebGLVertexArrayObject.h"
 #include "WebGLVertexArrayObjectOES.h"
-#include "WebXRSystem.h"
 #include "WorkerClient.h"
 #include "WorkerGlobalScope.h"
 #include <JavaScriptCore/ConsoleMessage.h>
@@ -438,9 +436,6 @@ static GraphicsContextGLAttributes resolveGraphicsContextGLAttributes(const WebG
     if (graphicsClient && attributes.powerPreference == WebGLContextAttributes::PowerPreference::Default)
         glAttributes.windowGPUID = gpuIDForDisplay(graphicsClient->displayID());
 #endif
-#if ENABLE(WEBXR)
-    glAttributes.xrCompatible = attributes.xrCompatible;
-#endif
     glAttributes.failContextCreationForTesting = attributes.failContextCreationForTesting;
     return glAttributes;
 }
@@ -454,10 +449,6 @@ std::unique_ptr<WebGLRenderingContextBase> WebGLRenderingContextBase::create(Can
     GraphicsClient* graphicsClient = scriptExecutionContext->graphicsClient();
     auto* canvasElement = dynamicDowncast<HTMLCanvasElement>(canvas);
 
-#if ENABLE(WEBXR)
-    if (attributes.xrCompatible)
-        attributes.powerPreference = GraphicsContextGLPowerPreference::HighPerformance;
-#endif
     if (scriptExecutionContext->settingsValues().forceWebGLUsesLowPower)
         attributes.powerPreference = GraphicsContextGLPowerPreference::LowPower;
     const bool isWebGL2 = type == WebGLVersion::WebGL2;
@@ -587,7 +578,6 @@ void WebGLRenderingContextBase::initializeContextState()
         if (m_attributes.stencil)
             m_attributes.stencil = glAttributes.stencil;
     }
-    // WebXR might use multisampling in WebGL2 context. Multisample extensions are also enabled in WebGL 1 case context
     // is antialiased.
     m_maxSamples = (isWebGL2() || m_attributes.antialias) ? context->maxSamples() : 0;
 
@@ -1252,16 +1242,6 @@ GCGLenum WebGLRenderingContextBase::checkFramebufferStatus(GCGLenum target)
         synthesizeGLError(GraphicsContextGL::INVALID_ENUM, "checkFramebufferStatus"_s, "invalid target"_s);
         return 0;
     }
-#if ENABLE(WEBXR)
-    // An opaque framebuffer is considered incomplete outside of a requestAnimationFrame() callback.
-    // When not in the requestAnimationFrame() callback of its session, calls to
-    // checkFramebufferStatus MUST generate a FRAMEBUFFER_UNSUPPORTED error and attempts to clear,
-    // draw to, or read from the opaque framebuffer MUST generate an INVALID_FRAMEBUFFER_OPERATION
-    // error.
-    RefPtr framebuffer = getFramebufferBinding(target);
-    if (framebuffer && framebuffer->isOpaque() && !framebuffer->isInsideWebXRRAF())
-        return GraphicsContextGL::FRAMEBUFFER_UNSUPPORTED;
-#endif
     return protect(graphicsContextGL())->checkFramebufferStatus(target);
 }
 
@@ -1489,12 +1469,6 @@ void WebGLRenderingContextBase::deleteFramebuffer(WebGLFramebuffer* framebuffer)
 {
     Locker locker { objectGraphLock() };
 
-#if ENABLE(WEBXR)
-    if (framebuffer && framebuffer->isOpaque()) {
-        synthesizeGLError(GraphicsContextGL::INVALID_OPERATION, "deleteFramebuffer"_s, "An opaque framebuffer can't be deleted"_s);
-        return;
-    }
-#endif
 
     if (!deleteObject(locker, framebuffer))
         return;
@@ -1732,12 +1706,6 @@ void WebGLRenderingContextBase::framebufferRenderbuffer(GCGLenum target, GCGLenu
         return;
     }
 
-#if ENABLE(WEBXR)
-    if (framebufferBinding->isOpaque()) {
-        synthesizeGLError(GraphicsContextGL::INVALID_OPERATION, "framebufferRenderbuffer"_s, "An opaque framebuffer's attachments cannot be inspected or changed"_s);
-        return;
-    }
-#endif
 
     framebufferBinding->setAttachmentForBoundFramebuffer(target, attachment, protect(buffer));
 }
@@ -1761,12 +1729,6 @@ void WebGLRenderingContextBase::framebufferTexture2D(GCGLenum target, GCGLenum a
         synthesizeGLError(GraphicsContextGL::INVALID_OPERATION, "framebufferTexture2D"_s, "no framebuffer bound"_s);
         return;
     }
-#if ENABLE(WEBXR)
-    if (framebufferBinding->isOpaque()) {
-        synthesizeGLError(GraphicsContextGL::INVALID_OPERATION, "framebufferTexture2D"_s, "An opaque framebuffer's attachments cannot be inspected or changed"_s);
-        return;
-    }
-#endif
 
     framebufferBinding->setAttachmentForBoundFramebuffer(target, attachment, WebGLFramebuffer::TextureAttachment { texture, texTarget, level });
 }
@@ -2889,66 +2851,6 @@ bool WebGLRenderingContextBase::linkProgramWithoutInvalidatingAttribLocations(We
     return true;
 }
 
-#if ENABLE(WEBXR)
-// https://immersive-web.github.io/webxr/#dom-webglrenderingcontextbase-makexrcompatible
-void WebGLRenderingContextBase::makeXRCompatible(MakeXRCompatiblePromise&& promise)
-{
-    // Returning an exception in these two checks is not part of the spec.
-    auto* canvas = htmlCanvas();
-    if (!canvas) {
-        m_attributes.xrCompatible = false;
-        promise.reject(Exception { ExceptionCode::InvalidStateError });
-        return;
-    }
-
-    auto* window = canvas->document().window();
-    if (!window) {
-        m_attributes.xrCompatible = false;
-        promise.reject(Exception { ExceptionCode::InvalidStateError });
-        return;
-    }
-
-    // 1. If the requesting document’s origin is not allowed to use the "xr-spatial-tracking"
-    // permissions policy, resolve promise and return it.
-    if (!PermissionsPolicy::isFeatureEnabled(PermissionsPolicy::Feature::XRSpatialTracking, canvas->document())) {
-        promise.resolve();
-        return;
-    }
-
-    // 2. Let promise be a new Promise.
-    // 3. Let context be the target WebGLRenderingContextBase object.
-    // 4. Ensure an immersive XR device is selected.
-    auto& xrSystem = NavigatorWebXR::xr(window->navigator());
-    xrSystem.ensureImmersiveXRDeviceIsSelected([this, protectedThis = protect(*this), promise = WTF::move(promise), protectedXrSystem = protect(xrSystem)]() mutable {
-        auto rejectPromiseWithInvalidStateError = makeScopeExit([&]() {
-            m_attributes.xrCompatible = false;
-            promise.reject(Exception { ExceptionCode::InvalidStateError });
-        });
-
-        // 4. Set context’s XR compatible boolean as follows:
-        //    If context’s WebGL context lost flag is set
-        //      Set context’s XR compatible boolean to false and reject promise with an InvalidStateError.
-        if (isContextLost())
-            return;
-
-        // If the immersive XR device is null
-        //    Set context’s XR compatible boolean to false and reject promise with an InvalidStateError.
-        if (!protectedXrSystem->hasActiveImmersiveXRDevice())
-            return;
-
-        // If context’s XR compatible boolean is true. Resolve promise.
-        // If context was created on a compatible graphics adapter for the immersive XR device
-        //  Set context’s XR compatible boolean to true and resolve promise.
-        // Otherwise: Queue a task on the WebGL task source to perform the following steps:
-        // FIXME: add a way to verify that we're using a compatible graphics adapter.
-        if (!m_context->enableRequiredWebXRExtensions())
-            return;
-        m_attributes.xrCompatible = true;
-        promise.resolve();
-        rejectPromiseWithInvalidStateError.release();
-    });
-}
-#endif
 
 void WebGLRenderingContextBase::pixelStorei(GCGLenum pname, GCGLint param)
 {

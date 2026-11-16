@@ -171,9 +171,6 @@
 #include <WebCore/GraphicsContextGL.h>
 #endif
 
-#if ENABLE(WEBXR)
-#include "PlatformXRSystemProxy.h"
-#endif
 
 #if PLATFORM(MAC)
 #include "TiledCoreAnimationScrollingCoordinator.h"
@@ -2294,23 +2291,6 @@ void WebChromeClient::showMediaControlsContextMenu(FloatRect&& targetFrame, Vect
 
 #endif // ENABLE(MEDIA_CONTROLS_CONTEXT_MENUS) && USE(UICONTEXTMENU)
 
-#if ENABLE(WEBXR)
-void WebChromeClient::enumerateImmersiveXRDevices(CompletionHandler<void(const PlatformXR::DeviceList&)>&& completionHandler)
-{
-    if (RefPtr page = m_page.get())
-        page->xrSystemProxy().enumerateImmersiveXRDevices(WTF::move(completionHandler));
-    else
-        completionHandler({ });
-}
-
-void WebChromeClient::requestPermissionOnXRSessionFeatures(const SecurityOriginData& origin, PlatformXR::SessionMode mode, const PlatformXR::Device::FeatureList& granted, const PlatformXR::Device::FeatureList& consentRequired, const PlatformXR::Device::FeatureList& consentOptional, const PlatformXR::Device::FeatureList& requiredFeaturesRequested, const PlatformXR::Device::FeatureList& optionalFeaturesRequested,  CompletionHandler<void(std::optional<PlatformXR::Device::FeatureList>&&)>&& completionHandler)
-{
-    if (RefPtr page = m_page.get())
-        page->xrSystemProxy().requestPermissionOnSessionFeatures(origin, mode, granted, consentRequired, consentOptional, requiredFeaturesRequested, optionalFeaturesRequested, WTF::move(completionHandler));
-    else
-        completionHandler(std::nullopt);
-}
-#endif
 
 #if ENABLE(APPLE_PAY_AMS_UI)
 

@@ -30,9 +30,6 @@
 #include "GLContextWrapper.h"
 #include "GraphicsContextGLANGLE.h"
 
-#if ENABLE(WEBXR) && USE(OPENXR)
-#include <wtf/unix/UnixFileDescriptor.h>
-#endif
 
 namespace WebCore {
 
@@ -57,18 +54,6 @@ public:
     bool reshapeDrawingBuffer() override;
     void prepareForDisplay() override;
 
-#if ENABLE(WEBXR)
-    GCGLExternalSync createExternalSync(ExternalSyncSource&&) final;
-#if USE(OPENXR)
-    WTF::UnixFileDescriptor exportExternalSync(GCGLExternalSync) final;
-#endif
-
-    bool addFoveation(IntSize, IntSize, IntSize, std::span<const GCGLfloat>, std::span<const GCGLfloat>, std::span<const GCGLfloat>) final;
-    void enableFoveation(GCGLuint) final;
-    void disableFoveation() final;
-
-    bool enableRequiredWebXRExtensions() override;
-#endif
 
 protected:
     explicit GraphicsContextGLTextureMapperANGLE(WebCore::GraphicsContextGLAttributes&&);

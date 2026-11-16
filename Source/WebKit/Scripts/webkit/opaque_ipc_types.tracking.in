@@ -316,15 +316,10 @@
 }
 
 [UnsafeWrapper] MachSendRight {
-    [Legacy] MessageParam RemoteXRProjectionLayer.StartFrame colorBuffer
-    [Legacy] MessageParam RemoteXRProjectionLayer.StartFrame completionSyncEvent
-    [Legacy] MessageParam RemoteXRProjectionLayer.StartFrame depthBuffer
     [Legacy] MessageParam DrawingArea.UpdateGeometry fencePort
     [Legacy] StructureParam IPC::Semaphore.createSendRight()
     [Legacy] StructureParam IPC::SharedFileHandle.toMachSendRight()
     [Legacy] StructureParam IPC::Signal.takeSendRight()
-    [Legacy] StructureParam PlatformXR::FrameData::ExternalTexture.handle
-    [Legacy] StructureParam PlatformXR::FrameData::LayerSetupData.completionSyncEvent
     [Legacy] StructureParam WebKit::CoreIPCCVPixelBufferRef.m_sendRight
     [Legacy] StructureParam WebCore::GraphicsContextGLExternalImageSourceIOSurfaceHandle.handle
     [Legacy] StructureParam WebCore::GraphicsContextGLExternalImageSourceMTLSharedTextureHandle.handle

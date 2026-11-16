@@ -43,7 +43,6 @@
 #import "Sampler.h"
 #import "ShaderModule.h"
 #import "Texture.h"
-#import "XRSubImage.h"
 #import <algorithm>
 #import <notify.h>
 #import <ranges>
@@ -290,7 +289,6 @@ static uint32_t computeAppleGPUFamily(id<MTLDevice> device)
 Device::Device(id<MTLDevice> device, id<MTLCommandQueue> defaultQueue, HardwareCapabilities&& capabilities, Adapter& adapter)
     : m_device(device)
     , m_defaultQueue(Queue::create(defaultQueue, adapter, *this))
-    , m_xrSubImage(XRSubImage::create(*this))
     , m_capabilities(WTF::move(capabilities))
     , m_adapter(adapter)
     , m_instance(adapter.weakInstance())
@@ -385,27 +383,6 @@ Device::~Device()
         m_uncapturedErrorCallback(WGPUErrorType_NoError, ""_s);
         m_uncapturedErrorCallback = nullptr;
     }
-}
-
-RefPtr<XRSubImage> Device::getXRViewSubImage(XRProjectionLayer& projectionLayer)
-{
-    protect(m_xrSubImage)->update(projectionLayer);
-    return m_xrSubImage;
-}
-
-RefPtr<XRSubImage> Device::getXRViewSubImage() const
-{
-    return m_xrSubImage;
-}
-
-id<MTLTexture> Device::getXRViewSubImageDepthTexture() const
-{
-    if (auto subImage = getXRViewSubImage()) {
-        if (RefPtr depthTexture = subImage->depthTexture())
-            return depthTexture->texture();
-    }
-
-    return nil;
 }
 
 void Device::makeInvalid()
@@ -1114,11 +1091,6 @@ WGPUBindGroup wgpuDeviceCreateBindGroup(WGPUDevice device, const WGPUBindGroupDe
 WGPUBindGroupLayout wgpuDeviceCreateBindGroupLayout(WGPUDevice device, const WGPUBindGroupLayoutDescriptor* descriptor)
 {
     return WebGPU::releaseToAPI(protect(WebGPU::fromAPI(device))->createBindGroupLayout(*descriptor));
-}
-
-WGPUXRBinding wgpuDeviceCreateXRBinding(WGPUDevice device)
-{
-    return WebGPU::releaseToAPI(protect(WebGPU::fromAPI(device))->createXRBinding());
 }
 
 WGPUBuffer wgpuDeviceCreateBuffer(WGPUDevice device, const WGPUBufferDescriptor* descriptor)

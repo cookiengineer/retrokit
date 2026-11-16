@@ -8762,11 +8762,14 @@ webrtc	flag	SET_AND_EXPOSE_TO_BUILD(ENABLE_WEB_RTC ON)	Source/cmake/OptionsMac.c
 webrtc	flag	SET_AND_EXPOSE_TO_BUILD(USE_LIBWEBRTC TRUE)	Source/cmake/OptionsMac.cmake	removed	source	f9fe47b60b5fc77c36d0dddb7fe5bf77145ee9dd	line=95; commit=f9fe47b60b5f
 webrtc	flag	WEBKIT_OPTION_DEFINE(ENABLE_WEB_RTC "Toggle WebRTC support" PRIVATE OFF)	Source/cmake/WebKitFeatures.cmake	removed	source	f9fe47b60b5fc77c36d0dddb7fe5bf77145ee9dd	line=217; commit=f9fe47b60b5f
 webrtc	flag	WEBKIT_OPTION_DEPEND(ENABLE_WEB_RTC ENABLE_MEDIA_STREAM)	Source/cmake/WebKitFeatures.cmake	removed	source	f9fe47b60b5fc77c36d0dddb7fe5bf77145ee9dd	line=227; commit=f9fe47b60b5f
+webxr	file	-	Source/WTF/Scripts/Preferences/UnifiedWebPreferences.yaml	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
 webxr	pref	WebXREnabled:	Source/WTF/Scripts/Preferences/WebPreferencesExperimental.yaml	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	line=1482; commit=70c5c9a54927
 webxr	pref	condition: ENABLE(WEBXR)	Source/WTF/Scripts/Preferences/WebPreferencesExperimental.yaml	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	line=1486; commit=70c5c9a54927
 webxr	pref	default: WebKit::defaultWebXREnabled()	Source/WTF/Scripts/Preferences/WebPreferencesExperimental.yaml	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	line=1489; commit=70c5c9a54927; line=1491; commit=70c5c9a54927
 webxr	pref	humanReadableDescription: "Adds support for accessing virtual reality (VR) and augmented reality (AR) devices, including sensors and head-mounted displays, on the Web"	Source/WTF/Scripts/Preferences/WebPreferencesExperimental.yaml	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	line=1485; commit=70c5c9a54927
 webxr	pref	humanReadableName: "WebXR Device API"	Source/WTF/Scripts/Preferences/WebPreferencesExperimental.yaml	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	line=1484; commit=70c5c9a54927
+webxr	file	-	Source/WTF/wtf/SystemTracing.h	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WTF/wtf/glib/SysprofAnnotator.h	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
 webxr	build_ref	"${WEBCORE_DIR}/Modules/webxr"	Source/WebCore/CMakeLists.txt	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	line=63; commit=70c5c9a54927
 webxr	build_ref	Modules/webxr/Navigator+WebXR.idl	Source/WebCore/CMakeLists.txt	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	line=1270; commit=70c5c9a54927
 webxr	build_ref	Modules/webxr/WebXRBoundedReferenceSpace.idl	Source/WebCore/CMakeLists.txt	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	line=1271; commit=70c5c9a54927
@@ -8816,6 +8819,9 @@ webxr	build_ref	testing/WebXRTest.cpp	Source/WebCore/CMakeLists.txt	removed	sour
 webxr	build_ref	testing/WebXRTest.idl	Source/WebCore/CMakeLists.txt	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	line=1713; commit=70c5c9a54927
 webxr	build_ref	testing/XRSimulateUserActivationFunction.idl	Source/WebCore/CMakeLists.txt	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	line=1714; commit=70c5c9a54927
 webxr	flag	if (ENABLE_WEBXR)	Source/WebCore/CMakeLists.txt	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	line=1704; commit=70c5c9a54927
+webxr	file	-	Source/WebCore/Configurations/AllowedSPI-legacy.toml	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebCore/DerivedSources-input.xcfilelist	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebCore/DerivedSources-output.xcfilelist	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
 webxr	build_ref	$(WebCore)/Modules/webxr/Navigator+WebXR.idl \	Source/WebCore/DerivedSources.make	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	line=394; commit=70c5c9a54927
 webxr	build_ref	$(WebCore)/Modules/webxr/WebXRBoundedReferenceSpace.idl \	Source/WebCore/DerivedSources.make	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	line=395; commit=70c5c9a54927
 webxr	build_ref	$(WebCore)/Modules/webxr/WebXRFrame.idl \	Source/WebCore/DerivedSources.make	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	line=396; commit=70c5c9a54927
@@ -8861,17 +8867,65 @@ webxr	build_ref	$(WebCore)/testing/WebFakeXRInputController.idl \	Source/WebCore
 webxr	build_ref	$(WebCore)/testing/WebXRTest.idl \	Source/WebCore/DerivedSources.make	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	line=1126; commit=70c5c9a54927
 webxr	build_ref	$(WebCore)/testing/XRSimulateUserActivationFunction.idl \	Source/WebCore/DerivedSources.make	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	line=1127; commit=70c5c9a54927
 webxr	build_ref	platform/xr/PlatformXR.h	Source/WebCore/Headers.cmake	removed	source	a473269389419f4d83ed60c0b773434d22ab2a8d	line=1495; commit=a47326938941
+webxr	file	-	Source/WebCore/Modules/WebGPU/GPUDevice.cpp	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/WebGPU/GPUDevice.h	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/WebGPU/GPURequestAdapterOptions.h	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/WebGPU/GPURequestAdapterOptions.idl	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/WebGPU/Implementation/WebGPUAdapterImpl.cpp	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/WebGPU/Implementation/WebGPUAdapterImpl.h	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/WebGPU/Implementation/WebGPUConvertToBackingContext.cpp	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/WebGPU/Implementation/WebGPUConvertToBackingContext.h	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/WebGPU/Implementation/WebGPUDeviceImpl.cpp	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/WebGPU/Implementation/WebGPUDeviceImpl.h	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/WebGPU/Implementation/WebGPUDowncastConvertToBackingContext.cpp	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/WebGPU/Implementation/WebGPUDowncastConvertToBackingContext.h	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/WebGPU/Implementation/WebGPUImpl.cpp	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/WebGPU/Implementation/WebGPUImpl.h	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/WebGPU/Implementation/WebGPUPtr.h	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/WebGPU/Implementation/WebGPUXRBindingImpl.cpp	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/WebGPU/Implementation/WebGPUXRBindingImpl.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/WebGPU/Implementation/WebGPUXRProjectionLayerImpl.cpp	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/WebGPU/Implementation/WebGPUXRProjectionLayerImpl.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/WebGPU/Implementation/WebGPUXRSubImageImpl.cpp	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/WebGPU/Implementation/WebGPUXRSubImageImpl.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/WebGPU/Implementation/WebGPUXRViewImpl.cpp	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/WebGPU/Implementation/WebGPUXRViewImpl.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/WebGPU/InternalAPI/WebGPU.h	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/WebGPU/InternalAPI/WebGPUAdapter.h	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/WebGPU/InternalAPI/WebGPUDevice.h	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/WebGPU/InternalAPI/WebGPURequestAdapterOptions.h	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/WebGPU/InternalAPI/WebGPUXRBinding.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/WebGPU/InternalAPI/WebGPUXREye.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/WebGPU/InternalAPI/WebGPUXRLayerBacking.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/WebGPU/InternalAPI/WebGPUXRProjectionLayer.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/WebGPU/InternalAPI/WebGPUXRSubImage.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/WebGPU/InternalAPI/WebGPUXRView.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
 webxr	file	-	Source/WebCore/Modules/webxr/Navigator+WebXR.idl	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
 webxr	file	-	Source/WebCore/Modules/webxr/NavigatorWebXR.cpp	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
 webxr	file	-	Source/WebCore/Modules/webxr/NavigatorWebXR.h	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
+webxr	file	-	Source/WebCore/Modules/webxr/WebGLOpaqueTexture.cpp	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/WebGLOpaqueTexture.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
 webxr	file	-	Source/WebCore/Modules/webxr/WebXRBoundedReferenceSpace.cpp	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
 webxr	file	-	Source/WebCore/Modules/webxr/WebXRBoundedReferenceSpace.h	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
 webxr	file	-	Source/WebCore/Modules/webxr/WebXRBoundedReferenceSpace.idl	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
+webxr	file	-	Source/WebCore/Modules/webxr/WebXRFrame+HandInput.idl	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/WebXRFrame+HitTest.idl	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
 webxr	file	-	Source/WebCore/Modules/webxr/WebXRFrame.cpp	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
 webxr	file	-	Source/WebCore/Modules/webxr/WebXRFrame.h	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
 webxr	file	-	Source/WebCore/Modules/webxr/WebXRFrame.idl	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
 webxr	file	-	Source/WebCore/Modules/webxr/WebXRGamepad.cpp	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
 webxr	file	-	Source/WebCore/Modules/webxr/WebXRGamepad.h	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
+webxr	file	-	Source/WebCore/Modules/webxr/WebXRHand.cpp	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/WebXRHand.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/WebXRHand.idl	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/WebXRHitTestResult.cpp	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/WebXRHitTestResult.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/WebXRHitTestResult.idl	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/WebXRHitTestSource.cpp	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/WebXRHitTestSource.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/WebXRHitTestSource.idl	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/WebXRInputSource+Gamepad.idl	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/WebXRInputSource+HandInput.idl	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
 webxr	file	-	Source/WebCore/Modules/webxr/WebXRInputSource.cpp	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
 webxr	file	-	Source/WebCore/Modules/webxr/WebXRInputSource.h	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
 webxr	file	-	Source/WebCore/Modules/webxr/WebXRInputSource.idl	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
@@ -8880,6 +8934,12 @@ webxr	file	-	Source/WebCore/Modules/webxr/WebXRInputSourceArray.h	removed	source
 webxr	file	-	Source/WebCore/Modules/webxr/WebXRInputSourceArray.idl	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
 webxr	file	-	Source/WebCore/Modules/webxr/WebXRInputSpace.cpp	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
 webxr	file	-	Source/WebCore/Modules/webxr/WebXRInputSpace.h	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
+webxr	file	-	Source/WebCore/Modules/webxr/WebXRJointPose.cpp	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/WebXRJointPose.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/WebXRJointPose.idl	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/WebXRJointSpace.cpp	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/WebXRJointSpace.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/WebXRJointSpace.idl	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
 webxr	file	-	Source/WebCore/Modules/webxr/WebXRLayer.cpp	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
 webxr	file	-	Source/WebCore/Modules/webxr/WebXRLayer.h	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
 webxr	file	-	Source/WebCore/Modules/webxr/WebXRLayer.idl	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
@@ -8888,24 +8948,39 @@ webxr	file	-	Source/WebCore/Modules/webxr/WebXROpaqueFramebuffer.h	removed	sourc
 webxr	file	-	Source/WebCore/Modules/webxr/WebXRPose.cpp	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
 webxr	file	-	Source/WebCore/Modules/webxr/WebXRPose.h	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
 webxr	file	-	Source/WebCore/Modules/webxr/WebXRPose.idl	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
+webxr	file	-	Source/WebCore/Modules/webxr/WebXRRay.cpp	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/WebXRRay.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/WebXRRay.idl	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
 webxr	file	-	Source/WebCore/Modules/webxr/WebXRReferenceSpace.cpp	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
 webxr	file	-	Source/WebCore/Modules/webxr/WebXRReferenceSpace.h	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
 webxr	file	-	Source/WebCore/Modules/webxr/WebXRReferenceSpace.idl	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
+webxr	file	-	Source/WebCore/Modules/webxr/WebXRRenderState+Layers.idl	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
 webxr	file	-	Source/WebCore/Modules/webxr/WebXRRenderState.cpp	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
 webxr	file	-	Source/WebCore/Modules/webxr/WebXRRenderState.h	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
 webxr	file	-	Source/WebCore/Modules/webxr/WebXRRenderState.idl	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
 webxr	file	-	Source/WebCore/Modules/webxr/WebXRRigidTransform.cpp	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
 webxr	file	-	Source/WebCore/Modules/webxr/WebXRRigidTransform.h	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
 webxr	file	-	Source/WebCore/Modules/webxr/WebXRRigidTransform.idl	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
+webxr	file	-	Source/WebCore/Modules/webxr/WebXRSession+AR.idl	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/WebXRSession+HitTest.idl	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/WebXRSession+Layers.idl	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
 webxr	file	-	Source/WebCore/Modules/webxr/WebXRSession.cpp	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
 webxr	file	-	Source/WebCore/Modules/webxr/WebXRSession.h	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
 webxr	file	-	Source/WebCore/Modules/webxr/WebXRSession.idl	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
+webxr	file	-	Source/WebCore/Modules/webxr/WebXRSessionListener.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
 webxr	file	-	Source/WebCore/Modules/webxr/WebXRSpace.cpp	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
 webxr	file	-	Source/WebCore/Modules/webxr/WebXRSpace.h	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
 webxr	file	-	Source/WebCore/Modules/webxr/WebXRSpace.idl	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
+webxr	file	-	Source/WebCore/Modules/webxr/WebXRSwapchain.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
 webxr	file	-	Source/WebCore/Modules/webxr/WebXRSystem.cpp	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
 webxr	file	-	Source/WebCore/Modules/webxr/WebXRSystem.h	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
 webxr	file	-	Source/WebCore/Modules/webxr/WebXRSystem.idl	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
+webxr	file	-	Source/WebCore/Modules/webxr/WebXRTransientInputHitTestResult.cpp	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/WebXRTransientInputHitTestResult.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/WebXRTransientInputHitTestResult.idl	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/WebXRTransientInputHitTestSource.cpp	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/WebXRTransientInputHitTestSource.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/WebXRTransientInputHitTestSource.idl	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
 webxr	file	-	Source/WebCore/Modules/webxr/WebXRView.cpp	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
 webxr	file	-	Source/WebCore/Modules/webxr/WebXRView.h	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
 webxr	file	-	Source/WebCore/Modules/webxr/WebXRView.idl	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
@@ -8918,14 +8993,52 @@ webxr	file	-	Source/WebCore/Modules/webxr/WebXRViewport.idl	removed	source	a7047
 webxr	file	-	Source/WebCore/Modules/webxr/WebXRWebGLLayer.cpp	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
 webxr	file	-	Source/WebCore/Modules/webxr/WebXRWebGLLayer.h	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
 webxr	file	-	Source/WebCore/Modules/webxr/WebXRWebGLLayer.idl	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
+webxr	file	-	Source/WebCore/Modules/webxr/WebXRWebGLSwapchain.cpp	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/WebXRWebGLSwapchain.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XRCanvasConfiguration.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XRCompositionLayer.cpp	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XRCompositionLayer.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XRCompositionLayer.idl	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XRCompositionLayerPose.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XRCubeLayer.cpp	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XRCubeLayer.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XRCubeLayer.idl	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XRCubeLayerInit.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XRCubeLayerInit.idl	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XRCylinderLayer.cpp	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XRCylinderLayer.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XRCylinderLayer.idl	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XRCylinderLayerInit.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XRCylinderLayerInit.idl	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
 webxr	file	-	Source/WebCore/Modules/webxr/XREnvironmentBlendMode.h	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
 webxr	file	-	Source/WebCore/Modules/webxr/XREnvironmentBlendMode.idl	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
+webxr	file	-	Source/WebCore/Modules/webxr/XREquirectLayer.cpp	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XREquirectLayer.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XREquirectLayer.idl	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XREquirectLayerInit.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XREquirectLayerInit.idl	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
 webxr	file	-	Source/WebCore/Modules/webxr/XREye.h	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
 webxr	file	-	Source/WebCore/Modules/webxr/XREye.idl	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
 webxr	file	-	Source/WebCore/Modules/webxr/XRFrameRequestCallback.h	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
 webxr	file	-	Source/WebCore/Modules/webxr/XRFrameRequestCallback.idl	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
+webxr	file	-	Source/WebCore/Modules/webxr/XRGPUBinding.cpp	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XRGPUBinding.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XRGPUBinding.idl	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XRGPULayerInit.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XRGPULayerInit.idl	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XRGPUProjectionLayerInit.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XRGPUProjectionLayerInit.idl	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XRGPUSubImage.cpp	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XRGPUSubImage.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XRGPUSubImage.idl	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XRHandJoint.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XRHandJoint.idl	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
 webxr	file	-	Source/WebCore/Modules/webxr/XRHandedness.h	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
 webxr	file	-	Source/WebCore/Modules/webxr/XRHandedness.idl	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
+webxr	file	-	Source/WebCore/Modules/webxr/XRHitTestOptionsInit.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XRHitTestOptionsInit.idl	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XRHitTestTrackableType.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XRHitTestTrackableType.idl	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
 webxr	file	-	Source/WebCore/Modules/webxr/XRInputSourceEvent.cpp	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
 webxr	file	-	Source/WebCore/Modules/webxr/XRInputSourceEvent.h	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
 webxr	file	-	Source/WebCore/Modules/webxr/XRInputSourceEvent.idl	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
@@ -8934,6 +9047,29 @@ webxr	file	-	Source/WebCore/Modules/webxr/XRInputSourcesChangeEvent.h	removed	so
 webxr	file	-	Source/WebCore/Modules/webxr/XRInputSourcesChangeEvent.idl	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
 webxr	file	-	Source/WebCore/Modules/webxr/XRInteractionMode.h	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
 webxr	file	-	Source/WebCore/Modules/webxr/XRInteractionMode.idl	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
+webxr	file	-	Source/WebCore/Modules/webxr/XRLayerBacking.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XRLayerEvent.cpp	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XRLayerEvent.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XRLayerEvent.idl	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XRLayerEventInit.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XRLayerInit.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XRLayerInit.idl	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XRLayerLayout.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XRLayerLayout.idl	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XRLayerQuality.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XRLayerQuality.idl	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XRProjectionLayer.cpp	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XRProjectionLayer.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XRProjectionLayer.idl	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XRProjectionLayerInit.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XRProjectionLayerInit.idl	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XRQuadLayer.cpp	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XRQuadLayer.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XRQuadLayer.idl	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XRQuadLayerInit.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XRQuadLayerInit.idl	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XRRayDirectionInit.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XRRayDirectionInit.idl	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
 webxr	file	-	Source/WebCore/Modules/webxr/XRReferenceSpaceEvent.cpp	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
 webxr	file	-	Source/WebCore/Modules/webxr/XRReferenceSpaceEvent.h	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
 webxr	file	-	Source/WebCore/Modules/webxr/XRReferenceSpaceEvent.idl	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
@@ -8948,12 +9084,45 @@ webxr	file	-	Source/WebCore/Modules/webxr/XRSessionInit.h	removed	source	a7047cf
 webxr	file	-	Source/WebCore/Modules/webxr/XRSessionInit.idl	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
 webxr	file	-	Source/WebCore/Modules/webxr/XRSessionMode.h	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
 webxr	file	-	Source/WebCore/Modules/webxr/XRSessionMode.idl	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
+webxr	file	-	Source/WebCore/Modules/webxr/XRSubImage.cpp	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XRSubImage.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XRSubImage.idl	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XRSwapchain.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
 webxr	file	-	Source/WebCore/Modules/webxr/XRTargetRayMode.h	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
 webxr	file	-	Source/WebCore/Modules/webxr/XRTargetRayMode.idl	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
+webxr	file	-	Source/WebCore/Modules/webxr/XRTextureType.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XRTextureType.idl	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XRTransientInputHitTestOptionsInit.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XRTransientInputHitTestOptionsInit.idl	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
 webxr	file	-	Source/WebCore/Modules/webxr/XRVisibilityState.h	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
 webxr	file	-	Source/WebCore/Modules/webxr/XRVisibilityState.idl	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
+webxr	file	-	Source/WebCore/Modules/webxr/XRWebGLBinding.cpp	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XRWebGLBinding.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XRWebGLBinding.idl	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XRWebGLCubeLayerBacking.cpp	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XRWebGLCubeLayerBacking.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XRWebGLCylinderLayerBacking.cpp	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XRWebGLCylinderLayerBacking.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XRWebGLEquirectLayerBacking.cpp	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XRWebGLEquirectLayerBacking.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XRWebGLLayerBacking.cpp	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XRWebGLLayerBacking.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
 webxr	file	-	Source/WebCore/Modules/webxr/XRWebGLLayerInit.h	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
 webxr	file	-	Source/WebCore/Modules/webxr/XRWebGLLayerInit.idl	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
+webxr	file	-	Source/WebCore/Modules/webxr/XRWebGLProjectionLayerBacking.cpp	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XRWebGLProjectionLayerBacking.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XRWebGLQuadLayerBacking.cpp	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XRWebGLQuadLayerBacking.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XRWebGLSubImage.cpp	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XRWebGLSubImage.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/Modules/webxr/XRWebGLSubImage.idl	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/PAL/pal/cocoa/ARKitSoftLink.h	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebCore/PAL/pal/cocoa/ARKitSoftLink.mm	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebCore/PAL/pal/cocoa/CompositorServicesSoftLink.h	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebCore/PAL/pal/cocoa/CompositorServicesSoftLink.mm	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebCore/PlatformCocoa.cmake	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebCore/PlatformWPE.cmake	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebCore/SaferCPPExpectations/ForwardDeclCheckerExpectations	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
 webxr	build_ref	JSWebXRBoundedReferenceSpace.cpp	Source/WebCore/Sources.txt	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	line=3591; commit=70c5c9a54927
 webxr	build_ref	JSWebXRFrame.cpp	Source/WebCore/Sources.txt	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	line=3592; commit=70c5c9a54927
 webxr	build_ref	JSWebXRInputSource.cpp	Source/WebCore/Sources.txt	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	line=3593; commit=70c5c9a54927
@@ -9021,11 +9190,14 @@ webxr	build_ref	platform/xr/openxr/OpenXRInstance.cpp @no-unify	Source/WebCore/S
 webxr	build_ref	platform/xr/openxr/OpenXRLayer.cpp @no-unify	Source/WebCore/Sources.txt	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	line=2090; commit=70c5c9a54927
 webxr	build_ref	platform/xr/openxr/OpenXRSwapchain.cpp @no-unify	Source/WebCore/Sources.txt	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	line=2091; commit=70c5c9a54927
 webxr	build_ref	platform/xr/openxr/PlatformXROpenXR.cpp @no-unify	Source/WebCore/Sources.txt	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	line=2092; commit=70c5c9a54927
+webxr	file	-	Source/WebCore/SourcesCMakeCocoa.txt	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
 webxr	build_ref	platform/xr/cocoa/PlatformXRCocoa.mm	Source/WebCore/SourcesCocoa.txt	removed	source	a473269389419f4d83ed60c0b773434d22ab2a8d	line=500; commit=a47326938941
 webxr	file	-	Source/WebCore/bindings/js/JSWebXRReferenceSpaceCustom.cpp	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	origin=70c5c9a549279cb1995ab08dbec2e8885778a233 :unicorn: WebXR API
 webxr	file	-	Source/WebCore/bindings/js/JSWebXRRigidTransformCustom.cpp	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	origin=70c5c9a549279cb1995ab08dbec2e8885778a233 :unicorn: WebXR API
+webxr	file	-	Source/WebCore/bindings/js/JSWebXRSessionCustom.cpp	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
 webxr	file	-	Source/WebCore/bindings/js/JSWebXRSpaceCustom.cpp	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	origin=70c5c9a549279cb1995ab08dbec2e8885778a233 :unicorn: WebXR API
 webxr	file	-	Source/WebCore/bindings/js/JSWebXRViewCustom.cpp	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	origin=70c5c9a549279cb1995ab08dbec2e8885778a233 :unicorn: WebXR API
+webxr	file	-	Source/WebCore/dom/EventInterfaces.in	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
 webxr	config_line	XRInputSourceEvent conditional=WEBXR	Source/WebCore/dom/EventNames.in	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	line=81; commit=70c5c9a54927
 webxr	config_line	XRInputSourcesChangeEvent conditional=WEBXR	Source/WebCore/dom/EventNames.in	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	line=82; commit=70c5c9a54927
 webxr	config_line	XRReferenceSpaceEvent conditional=WEBXR	Source/WebCore/dom/EventNames.in	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	line=83; commit=70c5c9a54927
@@ -9041,7 +9213,38 @@ webxr	build_ref	"url": "https://immersive-web.github.io/webxr/",	Source/WebCore/
 webxr	config_line	"description": "The WebXR device API is for accessing virtual reality (VR) and augmented reality (AR) devices, including sensors and head-mounted displays on the Web."	Source/WebCore/features.json	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	line=787; commit=70c5c9a54927
 webxr	config_line	"keywords": ["webxr", "webgl", "webgpu"],	Source/WebCore/features.json	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	line=785; commit=70c5c9a54927
 webxr	config_line	"name": "WebXR",	Source/WebCore/features.json	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	line=779; commit=70c5c9a54927
+webxr	file	-	Source/WebCore/html/PermissionsPolicy.cpp	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebCore/html/PermissionsPolicy.h	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebCore/html/canvas/WebGL2RenderingContext.cpp	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebCore/html/canvas/WebGLContextAttributes.h	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebCore/html/canvas/WebGLContextAttributes.idl	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebCore/html/canvas/WebGLFramebuffer.cpp	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebCore/html/canvas/WebGLFramebuffer.h	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebCore/html/canvas/WebGLRenderingContext.cpp	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebCore/html/canvas/WebGLRenderingContextBase.cpp	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebCore/html/canvas/WebGLRenderingContextBase.h	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebCore/html/canvas/WebGLRenderingContextBase.idl	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebCore/platform/gamepad/GamepadConstants.cpp	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebCore/platform/gamepad/GamepadConstants.h	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebCore/platform/glib/UserAgentQuirks.cpp	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebCore/platform/graphics/GraphicsContextGL.cpp	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebCore/platform/graphics/GraphicsContextGL.h	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebCore/platform/graphics/GraphicsContextGLAttributes.h	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebCore/platform/graphics/GraphicsTypesGL.h	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebCore/platform/graphics/android/GraphicsContextGLTextureMapperAndroid.cpp	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebCore/platform/graphics/android/GraphicsContextGLTextureMapperAndroid.h	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebCore/platform/graphics/angle/GraphicsContextGLANGLE.cpp	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebCore/platform/graphics/angle/GraphicsContextGLANGLE.h	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebCore/platform/graphics/cocoa/GraphicsContextGLCocoa.h	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebCore/platform/graphics/cocoa/GraphicsContextGLCocoa.mm	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebCore/platform/graphics/gbm/GraphicsContextGLTextureMapperGBM.cpp	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebCore/platform/graphics/gbm/GraphicsContextGLTextureMapperGBM.h	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebCore/platform/graphics/texmap/GraphicsContextGLTextureMapperANGLE.cpp	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebCore/platform/graphics/texmap/GraphicsContextGLTextureMapperANGLE.h	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
 webxr	file	-	Source/WebCore/platform/xr/PlatformXR.h	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	origin=70c5c9a549279cb1995ab08dbec2e8885778a233 :unicorn: WebXR API
+webxr	file	-	Source/WebCore/platform/xr/XRHitTestSourceIdentifier.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/platform/xr/cocoa/PlatformXRPose.cpp	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/platform/xr/cocoa/PlatformXRPose.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
 webxr	file	-	Source/WebCore/platform/xr/openxr/OpenXRExtensions.cpp	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	origin=70c5c9a549279cb1995ab08dbec2e8885778a233 :unicorn: WebXR API
 webxr	file	-	Source/WebCore/platform/xr/openxr/OpenXRExtensions.h	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	origin=70c5c9a549279cb1995ab08dbec2e8885778a233 :unicorn: WebXR API
 webxr	file	-	Source/WebCore/platform/xr/openxr/OpenXRInput.cpp	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	origin=70c5c9a549279cb1995ab08dbec2e8885778a233 :unicorn: WebXR API
@@ -9063,10 +9266,14 @@ webxr	file	-	Source/WebCore/testing/FakeXRButtonStateInit.h	removed	source	70c5c
 webxr	file	-	Source/WebCore/testing/FakeXRButtonStateInit.idl	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	origin=70c5c9a549279cb1995ab08dbec2e8885778a233 :unicorn: WebXR API
 webxr	file	-	Source/WebCore/testing/FakeXRInputSourceInit.h	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	origin=70c5c9a549279cb1995ab08dbec2e8885778a233 :unicorn: WebXR API
 webxr	file	-	Source/WebCore/testing/FakeXRInputSourceInit.idl	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	origin=70c5c9a549279cb1995ab08dbec2e8885778a233 :unicorn: WebXR API
+webxr	file	-	Source/WebCore/testing/FakeXRJointStateInit.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/testing/FakeXRJointStateInit.idl	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
 webxr	file	-	Source/WebCore/testing/FakeXRRigidTransformInit.h	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	origin=70c5c9a549279cb1995ab08dbec2e8885778a233 :unicorn: WebXR API
 webxr	file	-	Source/WebCore/testing/FakeXRRigidTransformInit.idl	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	origin=70c5c9a549279cb1995ab08dbec2e8885778a233 :unicorn: WebXR API
 webxr	file	-	Source/WebCore/testing/FakeXRViewInit.h	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	origin=70c5c9a549279cb1995ab08dbec2e8885778a233 :unicorn: WebXR API
 webxr	file	-	Source/WebCore/testing/FakeXRViewInit.idl	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	origin=70c5c9a549279cb1995ab08dbec2e8885778a233 :unicorn: WebXR API
+webxr	file	-	Source/WebCore/testing/FakeXRWorldInit.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebCore/testing/FakeXRWorldInit.idl	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
 webxr	file	-	Source/WebCore/testing/WebFakeXRDevice.cpp	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	origin=70c5c9a549279cb1995ab08dbec2e8885778a233 :unicorn: WebXR API
 webxr	file	-	Source/WebCore/testing/WebFakeXRDevice.h	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	origin=70c5c9a549279cb1995ab08dbec2e8885778a233 :unicorn: WebXR API
 webxr	file	-	Source/WebCore/testing/WebFakeXRDevice.idl	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	origin=70c5c9a549279cb1995ab08dbec2e8885778a233 :unicorn: WebXR API
@@ -9078,27 +9285,155 @@ webxr	file	-	Source/WebCore/testing/WebXRTest.h	removed	source	70c5c9a549279cb19
 webxr	file	-	Source/WebCore/testing/WebXRTest.idl	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	origin=70c5c9a549279cb1995ab08dbec2e8885778a233 :unicorn: WebXR API
 webxr	file	-	Source/WebCore/testing/XRSimulateUserActivationFunction.h	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	origin=70c5c9a549279cb1995ab08dbec2e8885778a233 :unicorn: WebXR API
 webxr	file	-	Source/WebCore/testing/XRSimulateUserActivationFunction.idl	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	origin=70c5c9a549279cb1995ab08dbec2e8885778a233 :unicorn: WebXR API
+webxr	file	-	Source/WebGPU/WebGPU/APIConversions.h	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebGPU/WebGPU/Adapter.h	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebGPU/WebGPU/Adapter.mm	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebGPU/WebGPU/CommandEncoder.mm	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebGPU/WebGPU/CommandEncoder.swift	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebGPU/WebGPU/Device.h	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebGPU/WebGPU/Device.mm	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebGPU/WebGPU/Instance.mm	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebGPU/WebGPU/Internal/module.modulemap	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebGPU/WebGPU/Sources.txt	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebGPU/WebGPU/WebGPU.h	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebGPU/WebGPU/WebGPUExt.h	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebGPU/WebGPU/XRBinding.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebGPU/WebGPU/XRBinding.mm	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebGPU/WebGPU/XRProjectionLayer.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebGPU/WebGPU/XRProjectionLayer.mm	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebGPU/WebGPU/XRSubImage.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebGPU/WebGPU/XRSubImage.mm	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebGPU/WebGPU/XRView.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebGPU/WebGPU/XRView.mm	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
 webxr	build_ref	UIProcess/XR/PlatformXRSystem	Source/WebKit/CMakeLists.txt	removed	source	a473269389419f4d83ed60c0b773434d22ab2a8d	line=215; commit=a47326938941
 webxr	build_ref	WebProcess/XR/PlatformXRSystemProxy	Source/WebKit/CMakeLists.txt	removed	source	a473269389419f4d83ed60c0b773434d22ab2a8d	line=286; commit=a47326938941
+webxr	file	-	Source/WebKit/DerivedSources-input.xcfilelist	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebKit/DerivedSources-output.xcfilelist	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
 webxr	build_ref	UIProcess/XR/PlatformXRSystem \	Source/WebKit/DerivedSources.make	removed	source	a473269389419f4d83ed60c0b773434d22ab2a8d	line=173; commit=a47326938941
 webxr	build_ref	WebProcess/XR/PlatformXRSystemProxy \	Source/WebKit/DerivedSources.make	removed	source	a473269389419f4d83ed60c0b773434d22ab2a8d	line=234; commit=a47326938941
+webxr	file	-	Source/WebKit/GPUProcess/graphics/RemoteGraphicsContextGL.cpp	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebKit/GPUProcess/graphics/RemoteGraphicsContextGL.h	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebKit/GPUProcess/graphics/RemoteGraphicsContextGL.messages.in	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebKit/GPUProcess/graphics/RemoteGraphicsContextGLFunctionsGenerated.cpp	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebKit/GPUProcess/graphics/RemoteGraphicsContextGLFunctionsGenerated.h	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebKit/GPUProcess/graphics/WebGPU/RemoteDevice.cpp	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebKit/GPUProcess/graphics/WebGPU/RemoteDevice.h	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebKit/GPUProcess/graphics/WebGPU/RemoteDevice.messages.in	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebKit/GPUProcess/graphics/WebGPU/RemoteXRBinding.cpp	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebKit/GPUProcess/graphics/WebGPU/RemoteXRBinding.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebKit/GPUProcess/graphics/WebGPU/RemoteXRBinding.messages.in	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebKit/GPUProcess/graphics/WebGPU/RemoteXRProjectionLayer.cpp	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebKit/GPUProcess/graphics/WebGPU/RemoteXRProjectionLayer.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebKit/GPUProcess/graphics/WebGPU/RemoteXRProjectionLayer.messages.in	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebKit/GPUProcess/graphics/WebGPU/RemoteXRSubImage.cpp	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebKit/GPUProcess/graphics/WebGPU/RemoteXRSubImage.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebKit/GPUProcess/graphics/WebGPU/RemoteXRSubImage.messages.in	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebKit/GPUProcess/graphics/WebGPU/RemoteXRView.cpp	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebKit/GPUProcess/graphics/WebGPU/RemoteXRView.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebKit/GPUProcess/graphics/WebGPU/RemoteXRView.messages.in	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebKit/GPUProcess/graphics/WebGPU/WebGPUObjectHeap.cpp	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebKit/GPUProcess/graphics/WebGPU/WebGPUObjectHeap.h	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebKit/PlatformIOS.cmake	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebKit/PlatformWPE.cmake	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebKit/Resources/Signposts/SystemTracePoints.plist	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebKit/Scripts/webkit/opaque_ipc_types.tracking.in	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebKit/Shared/WTFArgumentCoders.serialization.in	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebKit/Shared/WebCoreArgumentCoders.serialization.in	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebKit/Shared/WebGL.serialization.in	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebKit/Shared/WebGPU/WebGPUConvertFromBackingContext.h	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebKit/Shared/WebGPU/WebGPUConvertToBackingContext.h	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebKit/Shared/WebGPU/WebGPURequestAdapterOptions.cpp	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebKit/Shared/WebGPU/WebGPURequestAdapterOptions.h	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebKit/Shared/WebGPU/WebGPURequestAdapterOptions.serialization.in	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebKit/Shared/XR/PlatformXR.serialization.in	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
 webxr	file	-	Source/WebKit/Shared/XR/XRDeviceIdentifier.h	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	origin=70c5c9a549279cb1995ab08dbec2e8885778a233 :unicorn: WebXR API
 webxr	file	-	Source/WebKit/Shared/XR/XRDeviceInfo.cpp	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	origin=70c5c9a549279cb1995ab08dbec2e8885778a233 :unicorn: WebXR API
 webxr	file	-	Source/WebKit/Shared/XR/XRDeviceInfo.h	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	origin=70c5c9a549279cb1995ab08dbec2e8885778a233 :unicorn: WebXR API
 webxr	file	-	Source/WebKit/Shared/XR/XRDeviceProxy.cpp	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	origin=70c5c9a549279cb1995ab08dbec2e8885778a233 :unicorn: WebXR API
 webxr	file	-	Source/WebKit/Shared/XR/XRDeviceProxy.h	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	origin=70c5c9a549279cb1995ab08dbec2e8885778a233 :unicorn: WebXR API
+webxr	file	-	Source/WebKit/Shared/XR/XRSystem.serialization.in	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
 webxr	build_ref	Shared/XR/XRDeviceInfo.cpp	Source/WebKit/Sources.txt	removed	source	a473269389419f4d83ed60c0b773434d22ab2a8d	line=293; commit=a47326938941
 webxr	build_ref	Shared/XR/XRDeviceProxy.cpp	Source/WebKit/Sources.txt	removed	source	a473269389419f4d83ed60c0b773434d22ab2a8d	line=294; commit=a47326938941
 webxr	build_ref	UIProcess/XR/PlatformXRSystem.cpp	Source/WebKit/Sources.txt	removed	source	a473269389419f4d83ed60c0b773434d22ab2a8d	line=501; commit=a47326938941
 webxr	build_ref	WebProcess/XR/PlatformXRSystemProxy.cpp	Source/WebKit/Sources.txt	removed	source	a473269389419f4d83ed60c0b773434d22ab2a8d	line=716; commit=a47326938941
+webxr	file	-	Source/WebKit/UIProcess/API/Cocoa/WKUIDelegatePrivate.h	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebKit/UIProcess/API/glib/WebKitWebView.h.in	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebKit/UIProcess/API/glib/WebKitXRPermissionRequest.cpp	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebKit/UIProcess/API/glib/WebKitXRPermissionRequest.h.in	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebKit/UIProcess/API/glib/WebKitXRPermissionRequestPrivate.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebKit/UIProcess/API/glib/webkit.h.in	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebKit/UIProcess/Cocoa/PlatformXRCoordinator.mm	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebKit/UIProcess/Cocoa/UIDelegate.h	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebKit/UIProcess/Cocoa/UIDelegate.mm	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebKit/UIProcess/Cocoa/WebPageProxyCocoa.mm	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebKit/UIProcess/Cocoa/WebProcessPoolCocoa.mm	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebKit/UIProcess/Gamepad/ios/UIGamepadProviderIOS.mm	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebKit/UIProcess/WebPageProxyInternals.h	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
 webxr	file	-	Source/WebKit/UIProcess/XR/PlatformXRCoordinator.h	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	origin=70c5c9a549279cb1995ab08dbec2e8885778a233 :unicorn: WebXR API
+webxr	file	-	Source/WebKit/UIProcess/XR/PlatformXRSessionEnums.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
 webxr	file	-	Source/WebKit/UIProcess/XR/PlatformXRSystem.cpp	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	origin=70c5c9a549279cb1995ab08dbec2e8885778a233 :unicorn: WebXR API
 webxr	file	-	Source/WebKit/UIProcess/XR/PlatformXRSystem.h	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	origin=70c5c9a549279cb1995ab08dbec2e8885778a233 :unicorn: WebXR API
 webxr	file	-	Source/WebKit/UIProcess/XR/PlatformXRSystem.messages.in	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	origin=70c5c9a549279cb1995ab08dbec2e8885778a233 :unicorn: WebXR API
+webxr	file	-	Source/WebKit/UIProcess/XR/ios/PlatformXRARKit.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebKit/UIProcess/XR/ios/PlatformXRARKit.mm	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebKit/UIProcess/XR/ios/PlatformXRSystemIOS.mm	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebKit/UIProcess/XR/ios/WKARPresentationSession.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebKit/UIProcess/XR/ios/WKARPresentationSession.mm	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebKit/UIProcess/XR/openxr/OpenXRExtensions.cpp	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebKit/UIProcess/XR/openxr/OpenXRExtensions.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebKit/UIProcess/XR/openxr/OpenXRGraphicsBinding.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebKit/UIProcess/XR/openxr/OpenXRGraphicsBindingOpenGLES.cpp	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebKit/UIProcess/XR/openxr/OpenXRGraphicsBindingOpenGLES.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebKit/UIProcess/XR/openxr/OpenXRHitTestManager.cpp	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebKit/UIProcess/XR/openxr/OpenXRHitTestManager.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebKit/UIProcess/XR/openxr/OpenXRInput.cpp	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebKit/UIProcess/XR/openxr/OpenXRInput.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebKit/UIProcess/XR/openxr/OpenXRInputMappings.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebKit/UIProcess/XR/openxr/OpenXRInputSource.cpp	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebKit/UIProcess/XR/openxr/OpenXRInputSource.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebKit/UIProcess/XR/openxr/OpenXRLayer.cpp	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebKit/UIProcess/XR/openxr/OpenXRLayer.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebKit/UIProcess/XR/openxr/OpenXRSwapchain.cpp	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebKit/UIProcess/XR/openxr/OpenXRSwapchain.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebKit/UIProcess/XR/openxr/OpenXRUtils.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebKit/UIProcess/XR/openxr/PlatformXROpenXR.cpp	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebKit/UIProcess/XR/openxr/PlatformXROpenXR.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebKit/UIProcess/XR/openxr/PlatformXRSystemOpenXR.cpp	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebKit/UIProcess/XR/xros/PlatformXRCompositor.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebKit/UIProcess/XR/xros/PlatformXRCompositor.mm	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebKit/UIProcess/XR/xros/PlatformXRSystemXROS.mm	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebKit/UIProcess/XR/xros/WKSpatialGestureRecognizer.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebKit/UIProcess/XR/xros/WKSpatialGestureRecognizer.mm	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebKit/UIProcess/XR/xros/WKXRControllerManager.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebKit/UIProcess/XR/xros/WKXRControllerManager.mm	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebKit/UIProcess/XR/xros/WKXRTrackingManager.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebKit/UIProcess/XR/xros/WKXRTrackingManager.mm	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebKit/UIProcess/ios/PageClientImplIOS.mm	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebKit/WebProcess/GPU/graphics/RemoteGraphicsContextGLProxy.cpp	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebKit/WebProcess/GPU/graphics/RemoteGraphicsContextGLProxy.h	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebKit/WebProcess/GPU/graphics/RemoteGraphicsContextGLProxyFunctionsGenerated.cpp	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebKit/WebProcess/GPU/graphics/WebGPU/RemoteAdapterProxy.cpp	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebKit/WebProcess/GPU/graphics/WebGPU/RemoteAdapterProxy.h	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebKit/WebProcess/GPU/graphics/WebGPU/RemoteDeviceProxy.cpp	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebKit/WebProcess/GPU/graphics/WebGPU/RemoteDeviceProxy.h	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebKit/WebProcess/GPU/graphics/WebGPU/RemoteGPUProxy.cpp	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebKit/WebProcess/GPU/graphics/WebGPU/RemoteGPUProxy.h	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebKit/WebProcess/GPU/graphics/WebGPU/RemoteXRBindingProxy.cpp	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebKit/WebProcess/GPU/graphics/WebGPU/RemoteXRBindingProxy.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebKit/WebProcess/GPU/graphics/WebGPU/RemoteXRProjectionLayerProxy.cpp	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebKit/WebProcess/GPU/graphics/WebGPU/RemoteXRProjectionLayerProxy.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebKit/WebProcess/GPU/graphics/WebGPU/RemoteXRSubImageProxy.cpp	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebKit/WebProcess/GPU/graphics/WebGPU/RemoteXRSubImageProxy.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebKit/WebProcess/GPU/graphics/WebGPU/RemoteXRViewProxy.cpp	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebKit/WebProcess/GPU/graphics/WebGPU/RemoteXRViewProxy.h	removed	source	manual:webxr-2.54	WebXR/WebGPU-XR removal during 2.54 migration
+webxr	file	-	Source/WebKit/WebProcess/GPU/graphics/WebGPU/WebGPUDowncastConvertToBackingContext.cpp	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/WebKit/WebProcess/GPU/graphics/WebGPU/WebGPUDowncastConvertToBackingContext.h	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
 webxr	file	-	Source/WebKit/WebProcess/XR/PlatformXRSystemProxy.cpp	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	origin=70c5c9a549279cb1995ab08dbec2e8885778a233 :unicorn: WebXR API
 webxr	file	-	Source/WebKit/WebProcess/XR/PlatformXRSystemProxy.h	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	origin=70c5c9a549279cb1995ab08dbec2e8885778a233 :unicorn: WebXR API
 webxr	file	-	Source/WebKit/WebProcess/XR/PlatformXRSystemProxy.messages.in	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	origin=70c5c9a549279cb1995ab08dbec2e8885778a233 :unicorn: WebXR API
 webxr	file	-	Source/cmake/FindOpenXR.cmake	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	origin=70c5c9a549279cb1995ab08dbec2e8885778a233 :unicorn: WebXR API
+webxr	file	-	Source/cmake/OptionsIOS.cmake	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
+webxr	file	-	Source/cmake/OptionsWPE.cmake	modified	source	manual:webxr-2.54	WebXR integration removed during 2.54 migration
 webxr	flag	WEBKIT_OPTION_DEFINE(ENABLE_WEBXR "Toggle WebXR support" PRIVATE OFF)	Source/cmake/WebKitFeatures.cmake	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	line=226; commit=70c5c9a54927
 webxr	flag	WEBKIT_OPTION_DEPEND(ENABLE_WEBXR ENABLE_WEBGL)	Source/cmake/WebKitFeatures.cmake	removed	source	70c5c9a549279cb1995ab08dbec2e8885778a233	line=251; commit=70c5c9a54927
 wireless-playback	pref	AllowsAirPlayForMediaPlayback:	Source/WTF/Scripts/Preferences/WebPreferences.yaml	removed	source	b94fa9ba1a11c6a3d66a2aef242eadfb2d0fc513	line=184; commit=b94fa9ba1a11

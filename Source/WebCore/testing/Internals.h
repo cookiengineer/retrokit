@@ -167,9 +167,6 @@ class TextTrackCueGeneric;
 class VTTCue;
 #endif
 
-#if ENABLE(WEBXR)
-class WebXRTest;
-#endif
 
 #if ENABLE(MEDIA_SESSION)
 class MediaSession;
@@ -1586,9 +1583,6 @@ class Internals final
 
     Vector<Ref<AbstractRange>> textExtractionHighlightRanges() const;
 
-    #if ENABLE(WEBXR)
-        ExceptionOr<Ref<WebXRTest>> xrTest();
-    #endif
 
     #if ENABLE(ENCRYPTED_MEDIA)
         unsigned NODELETE mediaKeysInternalInstanceObjectRefCount(const MediaKeys&) const;
@@ -1766,9 +1760,6 @@ class Internals final
 
     std::unique_ptr<TextIterator> m_textIterator;
 
-    #if ENABLE(WEBXR)
-        RefPtr<WebXRTest> m_xrTest;
-    #endif
 
     #if ENABLE(SPEECH_SYNTHESIS)
         RefPtr<PlatformSpeechSynthesizerMock> m_platformSpeechSynthesizer;

@@ -54,7 +54,6 @@ set(WebKit_PRIVATE_INCLUDE_DIRECTORIES
     "${WEBKIT_DIR}/Shared/RemoteLayerTree"
     "${WEBKIT_DIR}/Shared/WebGPU"
     "${WEBKIT_DIR}/Shared/WebsiteData"
-    "${WEBKIT_DIR}/Shared/XR"
     "${WEBKIT_DIR}/UIProcess"
     "${WEBKIT_DIR}/UIProcess/API"
     "${WEBKIT_DIR}/UIProcess/API/C"
@@ -80,7 +79,6 @@ set(WebKit_PRIVATE_INCLUDE_DIRECTORIES
     "${WEBKIT_DIR}/UIProcess/WebAuthentication"
     "${WEBKIT_DIR}/UIProcess/WebAuthentication/Mock"
     "${WEBKIT_DIR}/UIProcess/WebsiteData"
-    "${WEBKIT_DIR}/UIProcess/XR"
     "${WEBKIT_DIR}/WebProcess"
     "${WEBKIT_DIR}/WebProcess/ApplePay"
     "${WEBKIT_DIR}/WebProcess/ApplicationCache"
@@ -128,7 +126,6 @@ set(WebKit_PRIVATE_INCLUDE_DIRECTORIES
     "${WEBKIT_DIR}/WebProcess/WebPage"
     "${WEBKIT_DIR}/WebProcess/WebPage/RemoteLayerTree"
     "${WEBKIT_DIR}/WebProcess/WebStorage"
-    "${WEBKIT_DIR}/WebProcess/XR"
     "${CMAKE_SOURCE_DIR}/Source"
     "${CMAKE_SOURCE_DIR}/WebKitLibraries"
 )
@@ -225,10 +222,6 @@ set(WebKit_MESSAGES_IN_FILES
     GPUProcess/graphics/WebGPU/RemoteShaderModule
     GPUProcess/graphics/WebGPU/RemoteTexture
     GPUProcess/graphics/WebGPU/RemoteTextureView
-    GPUProcess/graphics/WebGPU/RemoteXRBinding
-    GPUProcess/graphics/WebGPU/RemoteXRProjectionLayer
-    GPUProcess/graphics/WebGPU/RemoteXRSubImage
-    GPUProcess/graphics/WebGPU/RemoteXRView
 
     GPUProcess/media/RemoteAudioDestinationManager
     GPUProcess/media/RemoteAudioVideoRendererProxyManager
@@ -336,7 +329,6 @@ set(WebKit_MESSAGES_IN_FILES
 
     UIProcess/Network/NetworkProcessProxy
 
-    UIProcess/XR/PlatformXRSystem
 
     WebProcess/WebProcess
 
@@ -427,7 +419,6 @@ set(WebKit_MESSAGES_IN_FILES
 
     WebProcess/WebStorage/StorageAreaMap
 
-    WebProcess/XR/PlatformXRSystemProxy
 
     webpushd/PushClientConnection
 )
@@ -706,8 +697,6 @@ set(WebKit_SERIALIZATION_IN_FILES
     Shared/WebsiteData/WebsiteDataFetchOption.serialization.in
     Shared/WebsiteData/WebsiteDataType.serialization.in
 
-    Shared/XR/PlatformXR.serialization.in
-    Shared/XR/XRSystem.serialization.in
 
     Shared/graphics/RemoteImageBufferSetConfiguration.serialization.in
 

@@ -383,9 +383,6 @@ public:
     std::optional<PlaybackSessionContextIdentifier> currentFullscreenVideoSessionIdentifier;
 #endif
 
-#if ENABLE(WEBXR)
-    RefPtr<PlatformXRSystem> xrSystem;
-#endif
 
 #if ENABLE(EXTENSION_CAPABILITIES)
     RefPtr<MediaCapability> mediaCapability;

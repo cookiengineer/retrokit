@@ -183,9 +183,6 @@ WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
         case ScrollingThreadDisplayDidRefreshStart:
         case RenderTreeLayoutStart:
         case PerformOpportunisticallyScheduledTasksStart:
-        case WebXRLayerStartFrameStart:
-        case WebXRLayerEndFrameStart:
-        case WebXRSessionFrameCallbacksStart:
         case WebHTMLViewPaintStart:
         case BackingStoreFlushStart:
         case BuildTransactionStart:
@@ -208,9 +205,6 @@ WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
         case CommitLayerTreeStart:
         case ProcessLaunchStart:
         case InitializeSandboxStart:
-        case WebXRCPFrameWaitStart:
-        case WebXRCPFrameStartSubmissionStart:
-        case WebXRCPFrameEndSubmissionStart:
         case WakeUpAndApplyDisplayListStart:
         case ThreadTimersStart:
         case TimerFiredStart:
@@ -248,9 +242,6 @@ WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
         case ScrollingThreadDisplayDidRefreshEnd:
         case RenderTreeLayoutEnd:
         case PerformOpportunisticallyScheduledTasksEnd:
-        case WebXRLayerStartFrameEnd:
-        case WebXRLayerEndFrameEnd:
-        case WebXRSessionFrameCallbacksEnd:
         case ProgrammaticScroll:
         case FixedContainerEdgeSamplingStart:
         case FixedContainerEdgeSamplingEnd:
@@ -276,9 +267,6 @@ WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
         case CommitLayerTreeEnd:
         case ProcessLaunchEnd:
         case InitializeSandboxEnd:
-        case WebXRCPFrameWaitEnd:
-        case WebXRCPFrameStartSubmissionEnd:
-        case WebXRCPFrameEndSubmissionEnd:
         case WakeUpAndApplyDisplayListEnd:
         case ThreadTimersEnd:
         case TimerFiredEnd:
@@ -452,15 +440,6 @@ private:
         case PerformOpportunisticallyScheduledTasksStart:
         case PerformOpportunisticallyScheduledTasksEnd:
             return "PerformOpportunisticallyScheduledTasks"_s;
-        case WebXRLayerStartFrameStart:
-        case WebXRLayerStartFrameEnd:
-            return "WebXRLayerStartFrame"_s;
-        case WebXRLayerEndFrameStart:
-        case WebXRLayerEndFrameEnd:
-            return "WebXRLayerEndFrame"_s;
-        case WebXRSessionFrameCallbacksStart:
-        case WebXRSessionFrameCallbacksEnd:
-            return "WebXRSessionFrameCallbacks"_s;
         case ProgrammaticScroll:
             return "ProgrammaticScroll"_s;
         case FixedContainerEdgeSamplingStart:
@@ -541,15 +520,6 @@ private:
         case InitializeSandboxStart:
         case InitializeSandboxEnd:
             return "InitializeSandbox"_s;
-        case WebXRCPFrameWaitStart:
-        case WebXRCPFrameWaitEnd:
-            return "WebXRCPFrameWait"_s;
-        case WebXRCPFrameStartSubmissionStart:
-        case WebXRCPFrameStartSubmissionEnd:
-            return "WebXRCPFrameStartSubmission"_s;
-        case WebXRCPFrameEndSubmissionStart:
-        case WebXRCPFrameEndSubmissionEnd:
-            return "WebXRCPFrameEndSubmission"_s;
 
         case WakeUpAndApplyDisplayListStart:
         case WakeUpAndApplyDisplayListEnd:

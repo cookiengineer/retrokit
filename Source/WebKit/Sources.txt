@@ -70,10 +70,6 @@ GPUProcess/graphics/WebGPU/RemoteSampler.cpp
 GPUProcess/graphics/WebGPU/RemoteShaderModule.cpp
 GPUProcess/graphics/WebGPU/RemoteTexture.cpp
 GPUProcess/graphics/WebGPU/RemoteTextureView.cpp
-GPUProcess/graphics/WebGPU/RemoteXRBinding.cpp
-GPUProcess/graphics/WebGPU/RemoteXRProjectionLayer.cpp
-GPUProcess/graphics/WebGPU/RemoteXRSubImage.cpp
-GPUProcess/graphics/WebGPU/RemoteXRView.cpp
 GPUProcess/graphics/WebGPU/WebGPUObjectHeap.cpp @cost:3
 GPUProcess/media/RemoteAudioHardwareListenerProxy.cpp
 GPUProcess/media/RemoteAudioSessionProxy.cpp
@@ -396,7 +392,6 @@ Shared/WebGPU/WebGPUVertexState.cpp
 
 Shared/WebsiteData/WebsiteData.cpp
 
-Shared/XR/XRDeviceProxy.cpp
 
 UIProcess/AboutSchemeHandler.cpp
 UIProcess/AuxiliaryProcessProxy.cpp @cost:4
@@ -682,7 +677,6 @@ UIProcess/WebsiteData/WebsiteDataRecord.cpp
 UIProcess/WebsiteData/WebsiteDataStore.cpp @cost:5
 UIProcess/WebsiteData/WebsiteDataStoreConfiguration.cpp
 
-UIProcess/XR/PlatformXRSystem.cpp
 
 WebProcess/WebProcess.cpp @cost:11
 WebProcess/WebSleepDisablerClient.cpp
@@ -805,10 +799,6 @@ WebProcess/GPU/graphics/WebGPU/RemoteSamplerProxy.cpp
 WebProcess/GPU/graphics/WebGPU/RemoteShaderModuleProxy.cpp
 WebProcess/GPU/graphics/WebGPU/RemoteTextureProxy.cpp
 WebProcess/GPU/graphics/WebGPU/RemoteTextureViewProxy.cpp
-WebProcess/GPU/graphics/WebGPU/RemoteXRBindingProxy.cpp
-WebProcess/GPU/graphics/WebGPU/RemoteXRProjectionLayerProxy.cpp
-WebProcess/GPU/graphics/WebGPU/RemoteXRSubImageProxy.cpp
-WebProcess/GPU/graphics/WebGPU/RemoteXRViewProxy.cpp
 WebProcess/GPU/graphics/WebGPU/WebGPUDowncastConvertToBackingContext.cpp
 WebProcess/GPU/graphics/ImageBufferRemoteDisplayListBackend.cpp
 WebProcess/GPU/graphics/ImageBufferRemotePDFDocumentBackend.cpp
@@ -967,7 +957,6 @@ WebProcess/WebStorage/StorageAreaMap.cpp
 WebProcess/WebStorage/StorageNamespaceImpl.cpp
 WebProcess/WebStorage/WebStorageNamespaceProvider.cpp
 
-WebProcess/XR/PlatformXRSystemProxy.cpp
 
 AudioVideoRendererRemoteMessageReceiverMessageReceiver.cpp
 IPCConnectionTesterMessageReceiver.cpp
@@ -986,8 +975,6 @@ RemoteSnapshotRecorderMessageReceiver.cpp @cost:5
 RemoteGraphicsContextMessageReceiver.cpp @cost:9
 RemoteGraphicsContextGLMessageReceiver.cpp @cost:13
 RemoteGraphicsContextGLProxyMessageReceiver.cpp
-PlatformXRSystemMessageReceiver.cpp
-PlatformXRSystemProxyMessageReceiver.cpp
 PushClientConnectionMessageReceiver.cpp
 RemoteAdapterMessageReceiver.cpp @cost:5
 RemoteAudioVideoRendererProxyManagerMessageReceiver.cpp
@@ -1021,10 +1008,6 @@ RemoteShaderModuleMessageReceiver.cpp
 RemoteTextDetectorMessageReceiver.cpp @cost:5
 RemoteTextureMessageReceiver.cpp
 RemoteTextureViewMessageReceiver.cpp
-RemoteXRBindingMessageReceiver.cpp
-RemoteXRProjectionLayerMessageReceiver.cpp
-RemoteXRSubImageMessageReceiver.cpp
-RemoteXRViewMessageReceiver.cpp
 RemoteWebLockRegistryMessageReceiver.cpp
 ServiceWorkerDownloadTaskMessageReceiver.cpp
 WebBroadcastChannelRegistryMessageReceiver.cpp

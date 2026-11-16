@@ -137,10 +137,6 @@ $(BUILT_PRODUCTS_DIR)/DerivedSources/WebKit/IPC/NetworkTransportSessionMessageRe
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebKit/IPC/NetworkTransportSessionMessages.h
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebKit/IPC/NotificationManagerMessageHandlerMessageReceiver.cpp
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebKit/IPC/NotificationManagerMessageHandlerMessages.h
-$(BUILT_PRODUCTS_DIR)/DerivedSources/WebKit/IPC/PlatformXRSystemMessageReceiver.cpp
-$(BUILT_PRODUCTS_DIR)/DerivedSources/WebKit/IPC/PlatformXRSystemMessages.h
-$(BUILT_PRODUCTS_DIR)/DerivedSources/WebKit/IPC/PlatformXRSystemProxyMessageReceiver.cpp
-$(BUILT_PRODUCTS_DIR)/DerivedSources/WebKit/IPC/PlatformXRSystemProxyMessages.h
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebKit/IPC/PlaybackSessionManagerMessageReceiver.cpp
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebKit/IPC/PlaybackSessionManagerMessages.h
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebKit/IPC/PlaybackSessionManagerProxyMessageReceiver.cpp
@@ -337,14 +333,6 @@ $(BUILT_PRODUCTS_DIR)/DerivedSources/WebKit/IPC/RemoteWebInspectorUIProxyMessage
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebKit/IPC/RemoteWebInspectorUIProxyMessages.h
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebKit/IPC/RemoteWebLockRegistryMessageReceiver.cpp
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebKit/IPC/RemoteWebLockRegistryMessages.h
-$(BUILT_PRODUCTS_DIR)/DerivedSources/WebKit/IPC/RemoteXRBindingMessageReceiver.cpp
-$(BUILT_PRODUCTS_DIR)/DerivedSources/WebKit/IPC/RemoteXRBindingMessages.h
-$(BUILT_PRODUCTS_DIR)/DerivedSources/WebKit/IPC/RemoteXRProjectionLayerMessageReceiver.cpp
-$(BUILT_PRODUCTS_DIR)/DerivedSources/WebKit/IPC/RemoteXRProjectionLayerMessages.h
-$(BUILT_PRODUCTS_DIR)/DerivedSources/WebKit/IPC/RemoteXRSubImageMessageReceiver.cpp
-$(BUILT_PRODUCTS_DIR)/DerivedSources/WebKit/IPC/RemoteXRSubImageMessages.h
-$(BUILT_PRODUCTS_DIR)/DerivedSources/WebKit/IPC/RemoteXRViewMessageReceiver.cpp
-$(BUILT_PRODUCTS_DIR)/DerivedSources/WebKit/IPC/RemoteXRViewMessages.h
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebKit/IPC/SampleBufferDisplayLayerMessageReceiver.cpp
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebKit/IPC/SampleBufferDisplayLayerMessages.h
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebKit/IPC/SecItemShimProxyMessageReceiver.cpp

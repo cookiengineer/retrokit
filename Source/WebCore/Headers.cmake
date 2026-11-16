@@ -173,10 +173,6 @@ set(WebCore_PRIVATE_FRAMEWORK_HEADERS
     Modules/WebGPU/Implementation/WebGPUShaderModuleImpl.h
     Modules/WebGPU/Implementation/WebGPUTextureImpl.h
     Modules/WebGPU/Implementation/WebGPUTextureViewImpl.h
-    Modules/WebGPU/Implementation/WebGPUXRBindingImpl.h
-    Modules/WebGPU/Implementation/WebGPUXRProjectionLayerImpl.h
-    Modules/WebGPU/Implementation/WebGPUXRSubImageImpl.h
-    Modules/WebGPU/Implementation/WebGPUXRViewImpl.h
 
     Modules/WebGPU/InternalAPI/WebGPU.h
     Modules/WebGPU/InternalAPI/WebGPUAdapter.h
@@ -308,12 +304,6 @@ set(WebCore_PRIVATE_FRAMEWORK_HEADERS
     Modules/WebGPU/InternalAPI/WebGPUVertexFormat.h
     Modules/WebGPU/InternalAPI/WebGPUVertexState.h
     Modules/WebGPU/InternalAPI/WebGPUVertexStepMode.h
-    Modules/WebGPU/InternalAPI/WebGPUXRBinding.h
-    Modules/WebGPU/InternalAPI/WebGPUXREye.h
-    Modules/WebGPU/InternalAPI/WebGPUXRLayerBacking.h
-    Modules/WebGPU/InternalAPI/WebGPUXRProjectionLayer.h
-    Modules/WebGPU/InternalAPI/WebGPUXRSubImage.h
-    Modules/WebGPU/InternalAPI/WebGPUXRView.h
 
     Modules/airplay/PlaybackTargetClientContextIdentifier.h
     Modules/airplay/WebMediaSessionManager.h
@@ -818,11 +808,6 @@ set(WebCore_PRIVATE_FRAMEWORK_HEADERS
     Modules/webtransport/WebTransportSessionClient.h
     Modules/webtransport/WorkerWebTransportSession.h
 
-    Modules/webxr/XRCanvasConfiguration.h
-    Modules/webxr/XRCompositionLayerPose.h
-    Modules/webxr/XRGPUProjectionLayerInit.h
-    Modules/webxr/XRHitTestTrackableType.h
-    Modules/webxr/XRLayerBacking.h
 
     Scripts/generate-log-declarations.py
 
@@ -2986,8 +2971,6 @@ set(WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/video-codecs/BitReader.h
     platform/video-codecs/VideoCodecType.h
 
-    platform/xr/PlatformXR.h
-    platform/xr/XRHitTestSourceIdentifier.h
 
     plugins/PluginData.h
     plugins/PluginInfoProvider.h

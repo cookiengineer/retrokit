@@ -32,7 +32,6 @@
 #include "JavaScriptEvaluationResult.h"
 #include "NotificationService.h"
 #include "PageLoadState.h"
-#include "PlatformXRSystem.h"
 #include "ProcessTerminationReason.h"
 #include "ProvisionalPageProxy.h"
 #include "RunJavaScriptParameters.h"
@@ -262,7 +261,6 @@ enum {
     PROP_DEFAULT_CONTENT_SECURITY_POLICY,
 
     PROP_THEME_COLOR,
-    PROP_IS_IMMERSIVE_MODE_ENABLED,
 
 #if ENABLE(2022_GLIB_API)
     PROP_PAGE_ICONS,
@@ -454,9 +452,6 @@ struct _WebKitWebViewPrivate {
     WebKitWebExtensionMode webExtensionMode;
 
     bool isWebProcessResponsive;
-#if ENABLE(WEBXR) && USE(OPENXR)
-    bool isImmersiveModeEnabled;
-#endif
 };
 
 static std::array<unsigned, LAST_SIGNAL> signals;
@@ -1269,9 +1264,6 @@ static void webkitWebViewGetProperty(GObject* object, guint propId, GValue* valu
 #endif
         break;
     }
-    case PROP_IS_IMMERSIVE_MODE_ENABLED:
-        g_value_set_boolean(value, webkit_web_view_is_immersive_mode_enabled(webView));
-        break;
 #if ENABLE(2022_GLIB_API)
     case PROP_PAGE_ICONS:
         g_value_set_boxed(value, webkit_web_view_get_page_icons(webView));
@@ -1855,20 +1847,6 @@ static void webkit_web_view_class_init(WebKitWebViewClass* webViewClass)
 #else
         GDK_TYPE_RGBA,
 #endif
-        WEBKIT_PARAM_READABLE);
-
-    /**
-     * WebKitWebView:is-immersive-mode-enabled: (attributes org.gtk.Property.get=webkit_web_view_is_immersive_mode_enabled) (getter is_immersive_mode_enabled):
-     *
-     * Whether the #WebKitWebView is in immersive mode.
-     *
-     * Since: 2.52
-     */
-    sObjProperties[PROP_IS_IMMERSIVE_MODE_ENABLED] =
-    g_param_spec_boolean(
-        "is-immersive-mode-enabled",
-        nullptr, nullptr,
-        FALSE,
         WEBKIT_PARAM_READABLE);
 
     g_object_class_install_properties(gObjectClass, N_PROPERTIES, sObjProperties.data());
@@ -5415,9 +5393,6 @@ void webkitWebViewWebProcessTerminated(WebKitWebView* webView, WebKitWebProcessT
     // Reset the state of the responsiveness property.
     webkitWebViewSetIsWebProcessResponsive(webView, true);
 
-#if ENABLE(WEBXR) && USE(OPENXR)
-    webkitWebViewSetIsImmersiveModeEnabled(webView, false);
-#endif
 }
 
 /**
@@ -6059,70 +6034,6 @@ webkit_web_view_get_default_content_security_policy(WebKitWebView* webView)
     return webView->priv->defaultContentSecurityPolicy.data();
 }
 
-#if ENABLE(WEBXR) && USE(OPENXR)
-void webkitWebViewSetIsImmersiveModeEnabled(WebKitWebView* webView, bool isImmersiveModeEnabled)
-{
-    if (webView->priv->isImmersiveModeEnabled == isImmersiveModeEnabled)
-        return;
-
-    webView->priv->isImmersiveModeEnabled = isImmersiveModeEnabled;
-    g_object_notify_by_pspec(G_OBJECT(webView), sObjProperties[PROP_IS_IMMERSIVE_MODE_ENABLED]);
-}
-#endif
-
-/**
- * webkit_web_view_is_immersive_mode_enabled: (get-property is-immersive-mode-enabled):
- * @web_view: a #WebKitWebView
- *
- * Gets whether @web_view is in immersive mode.
- *
- * An immersive session is a mode in which the user is presented with a fully immersive XR experience
- * (such as VR or AR), typically rendered via a headset.
- *
- * Note that if WebXR is disabled or OPENXR is not used, this API always returns %FALSE.
- *
- * Returns: %TRUE if the @web_view is in immersive mode, or %FALSE otherwise.
- *
- * Since: 2.52
- */
-gboolean webkit_web_view_is_immersive_mode_enabled(WebKitWebView* webView)
-{
-    g_return_val_if_fail(WEBKIT_IS_WEB_VIEW(webView), FALSE);
-#if ENABLE(WEBXR) && USE(OPENXR)
-    return webView->priv->isImmersiveModeEnabled;
-#else
-    return false;
-#endif
-}
-
-/**
- * webkit_web_view_leave_immersive_mode:
- * @web_view: a #WebKitWebView
- *
- * Requests to leave the immersive mode this #WebKitWebView is in.
- *
- * Users interact with web content to start XR sessions, and can typically
- * end the sessions themselves, but applications might need to end a session on their
- * own based on application or platform logic.
- *
- * Note that if WebXR is disabled, or if it is enabled but the @web_view is not in
- * immersive mode, this API does nothing. See also webkit_web_view_is_immersive_mode_enabled().
- *
- * Since: 2.52
- */
-void webkit_web_view_leave_immersive_mode(WebKitWebView* webView)
-{
-    g_return_if_fail(WEBKIT_IS_WEB_VIEW(webView));
-
-#if ENABLE(WEBXR) && USE(OPENXR)
-    if (!webView->priv->isImmersiveModeEnabled)
-        return;
-
-    Ref page = getPage(webView);
-    if (auto xrSystem = page->xrSystem())
-        xrSystem->invalidate(PlatformXRSystem::InvalidationReason::Client);
-#endif
-}
 
 #if ENABLE(2022_GLIB_API)
 /**

@@ -222,9 +222,6 @@ using SessionID = WTF::UUID;
 }
 #endif
 
-#if ENABLE(WEBXR)
-class WebXRSession;
-#endif
 
 struct AXTreeData;
 struct ApplePayAMSUIRequest;
@@ -1261,9 +1258,6 @@ public:
     std::optional<std::pair<uint16_t, uint16_t>> NODELETE portsForUpgradingInsecureSchemeForTesting() const;
     WEBCORE_EXPORT void NODELETE setPortsForUpgradingInsecureSchemeForTesting(uint16_t upgradeFromInsecurePort, uint16_t upgradeToSecurePort);
 
-#if PLATFORM(IOS_FAMILY) && ENABLE(WEBXR)
-    WEBCORE_EXPORT bool hasActiveImmersiveSession() const;
-#endif
 
     void setIsInSwipeAnimation(bool inSwipeAnimation) { m_inSwipeAnimation = inSwipeAnimation; }
     bool isInSwipeAnimation() const { return m_inSwipeAnimation; }
@@ -1467,9 +1461,6 @@ private:
     void updateElementsWithTextRecognitionResults();
 #endif
 
-#if ENABLE(WEBXR)
-    RefPtr<WebXRSession> activeImmersiveXRSession() const;
-#endif
 
 #if PLATFORM(VISION) && ENABLE(GAMEPAD)
     void initializeGamepadAccessForPageLoad();

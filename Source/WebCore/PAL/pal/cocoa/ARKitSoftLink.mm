@@ -74,23 +74,6 @@ SOFT_LINK_FUNCTION_FOR_SOURCE_WITH_EXPORT(PAL, ARKit, ar_world_tracking_provider
 
 SOFT_LINK_FUNCTION_FOR_SOURCE_WITH_EXPORT(PAL, ARKit, ar_world_tracking_provider_query_device_anchor_at_timestamp, ar_device_anchor_query_status_t, (ar_world_tracking_provider_t world_tracking_provider, CFTimeInterval timestamp, ar_device_anchor_t device_anchor), (world_tracking_provider, timestamp, device_anchor), PAL_EXPORT)
 
-#if ENABLE(WEBXR_HANDS) && !PLATFORM(IOS_FAMILY_SIMULATOR)
-
-SOFT_LINK_FUNCTION_FOR_SOURCE_WITH_EXPORT(PAL, ARKit, ar_hand_anchor_create, ar_hand_anchor_t, (void), (), PAL_EXPORT)
-SOFT_LINK_FUNCTION_FOR_SOURCE_WITH_EXPORT(PAL, ARKit, ar_hand_anchor_get_chirality, ar_hand_chirality_t, (ar_hand_anchor_t hand_anchor), (hand_anchor), PAL_EXPORT)
-SOFT_LINK_FUNCTION_FOR_SOURCE_WITH_EXPORT(PAL, ARKit, ar_hand_anchor_get_hand_skeleton, ar_hand_skeleton_t, (ar_hand_anchor_t hand_anchor), (hand_anchor), PAL_EXPORT)
-
-SOFT_LINK_FUNCTION_FOR_SOURCE_WITH_EXPORT(PAL, ARKit, ar_hand_skeleton_get_joint_named, ar_skeleton_joint_t, (ar_hand_skeleton_t hand_skeleton, ar_hand_skeleton_joint_name_t joint_name), (hand_skeleton, joint_name), PAL_EXPORT)
-
-SOFT_LINK_FUNCTION_FOR_SOURCE_WITH_EXPORT(PAL, ARKit, ar_hand_tracking_configuration_create, ar_hand_tracking_configuration_t, (void), (), PAL_EXPORT)
-SOFT_LINK_FUNCTION_FOR_SOURCE_WITH_EXPORT(PAL, ARKit, ar_hand_tracking_provider_create, ar_hand_tracking_provider_t, (ar_hand_tracking_configuration_t hand_tracking_configuration), (hand_tracking_configuration), PAL_EXPORT)
-SOFT_LINK_FUNCTION_FOR_SOURCE_WITH_EXPORT(PAL, ARKit, ar_hand_tracking_provider_get_latest_anchors, bool, (ar_hand_tracking_provider_t hand_tracking_provider, ar_hand_anchor_t hand_anchor_left, ar_hand_anchor_t hand_anchor_right), (hand_tracking_provider, hand_anchor_left, hand_anchor_right), PAL_EXPORT)
-SOFT_LINK_FUNCTION_FOR_SOURCE_WITH_EXPORT(PAL, ARKit, ar_hand_tracking_provider_is_supported, bool, (void), (), PAL_EXPORT)
-
-SOFT_LINK_FUNCTION_FOR_SOURCE_WITH_EXPORT(PAL, ARKit, ar_skeleton_joint_get_anchor_from_joint_transform, simd_float4x4, (ar_skeleton_joint_t joint), (joint), PAL_EXPORT)
-SOFT_LINK_FUNCTION_FOR_SOURCE_WITH_EXPORT(PAL, ARKit, ar_skeleton_joint_is_tracked, bool, (ar_skeleton_joint_t joint), (joint), PAL_EXPORT)
-
-#endif // ENABLE(WEBXR_HANDS) && !PLATFORM(IOS_FAMILY_SIMULATOR)
 
 #if HAVE(SPATIAL_CONTROLLERS)
 
@@ -103,5 +86,5 @@ SOFT_LINK_FUNCTION_FOR_SOURCE_WITH_EXPORT(PAL, ARKit, ar_accessory_tracking_prov
 SOFT_LINK_FUNCTION_FOR_SOURCE_WITH_EXPORT(PAL, ARKit, ar_accessory_tracking_provider_is_supported, bool, (void), (), PAL_EXPORT)
 
 #endif // HAVE(SPATIAL_CONTROLLERS)
-#endif // ENABLE(WEBXR) && HAVE(WEBXR_INTERNALS)
+#endif // PLATFORM(VISION)
 #endif // HAVE(ARKIT)

@@ -741,15 +741,6 @@ Ref<RenderPassEncoder> CommandEncoder::beginRenderPass(const WGPURenderPassDescr
             mtlAttachment.loadAction = loadAction(attachment->depthLoadOp, attachment->depthReadOnly);
             mtlAttachment.storeAction = storeAction(attachment->depthStoreOp);
 
-            if (mtlDescriptor.rasterizationRateMap && metalDepthStencilTexture.sampleCount > 1) {
-                if (auto xrSubImage = m_device->getXRViewSubImage()) {
-                    if (RefPtr depthTexture = xrSubImage->depthTexture()) {
-                        mtlAttachment.resolveTexture = depthTexture->texture();
-                        mtlAttachment.storeAction = storeAction(attachment->depthStoreOp, true);
-                        mtlAttachment.resolveSlice = compositorTextureSlice;
-                    }
-                }
-            }
 
             if (mtlAttachment.loadAction == MTLLoadActionLoad && mtlAttachment.storeAction == MTLStoreActionDontCare && !textureView.previouslyCleared()) {
                 depthStencilAttachmentToClear = mtlAttachment.texture;

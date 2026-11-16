@@ -171,7 +171,6 @@ list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
     "${CMAKE_SOURCE_DIR}/Source/WebCore/Modules/ShapeDetection/Implementation/Cocoa"
     "${CMAKE_SOURCE_DIR}/Source/WebCore/Modules/speech/cocoa"
     "${CMAKE_SOURCE_DIR}/Source/WebCore/platform/video-codecs/cocoa"
-    "${CMAKE_SOURCE_DIR}/Source/WebCore/platform/xr/cocoa"
     "${CMAKE_SOURCE_DIR}/Source/WebCore/platform/mediastream"
     "${CMAKE_SOURCE_DIR}/Source/WebCore/platform/mediastream/cocoa"
     "${CMAKE_BINARY_DIR}/libwebrtc/PrivateHeaders"
@@ -664,10 +663,6 @@ list(REMOVE_ITEM WebCore_PRIVATE_FRAMEWORK_HEADERS
     Modules/WebGPU/Implementation/WebGPUShaderModuleImpl.h
     Modules/WebGPU/Implementation/WebGPUTextureImpl.h
     Modules/WebGPU/Implementation/WebGPUTextureViewImpl.h
-    Modules/WebGPU/Implementation/WebGPUXRBindingImpl.h
-    Modules/WebGPU/Implementation/WebGPUXRProjectionLayerImpl.h
-    Modules/WebGPU/Implementation/WebGPUXRSubImageImpl.h
-    Modules/WebGPU/Implementation/WebGPUXRViewImpl.h
 
     Modules/compression/CompressionStreamEncoder.h
     Modules/compression/DecompressionStreamDecoder.h
@@ -711,7 +706,6 @@ list(REMOVE_ITEM WebCore_PRIVATE_FRAMEWORK_HEADERS
 
     Modules/webcodecs/WebCodecsBase.h
 
-    Modules/webxr/XRHitTestTrackableType.h
 
     accessibility/AXAttributeCacheScope.h
     accessibility/AXComputedObjectAttributeCache.h
@@ -894,7 +888,6 @@ list(REMOVE_ITEM WebCore_PRIVATE_FRAMEWORK_HEADERS
 
     platform/video-codecs/BitReader.h
 
-    platform/xr/XRHitTestSourceIdentifier.h
 
     rendering/EllipsisBoxPainter.h
     rendering/LineClampUpdater.h
@@ -1298,7 +1291,6 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
 
     platform/video-codecs/cocoa/WebRTCVideoDecoder.h
 
-    platform/xr/cocoa/PlatformXRPose.h
 
     rendering/cocoa/RenderThemeCocoa.h
 

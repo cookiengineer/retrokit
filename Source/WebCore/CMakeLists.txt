@@ -81,7 +81,6 @@ set(WebCore_PRIVATE_INCLUDE_DIRECTORIES
     "${WEBCORE_DIR}/Modules/webdriver"
     "${WEBCORE_DIR}/Modules/websockets"
     "${WEBCORE_DIR}/Modules/webtransport"
-    "${WEBCORE_DIR}/Modules/webxr"
     "${WEBCORE_DIR}/accessibility"
     "${WEBCORE_DIR}/accessibility/isolatedtree"
     "${WEBCORE_DIR}/animation"
@@ -198,7 +197,6 @@ set(WebCore_PRIVATE_INCLUDE_DIRECTORIES
     "${WEBCORE_DIR}/platform/network"
     "${WEBCORE_DIR}/platform/sql"
     "${WEBCORE_DIR}/platform/text"
-    "${WEBCORE_DIR}/platform/xr"
     "${WEBCORE_DIR}/plugins"
     "${WEBCORE_DIR}/rendering"
     "${WEBCORE_DIR}/rendering/line"
@@ -1701,74 +1699,6 @@ if (ENABLE_GAMEPAD)
 endif ()
 
 list(APPEND WebCore_NON_SVG_IDL_FILES
-    Modules/webxr/WebXRBoundedReferenceSpace.idl
-    Modules/webxr/WebXRFrame.idl
-    Modules/webxr/WebXRHand.idl
-    Modules/webxr/WebXRHitTestResult.idl
-    Modules/webxr/WebXRHitTestSource.idl
-    Modules/webxr/WebXRInputSource.idl
-    Modules/webxr/WebXRInputSourceArray.idl
-    Modules/webxr/WebXRJointPose.idl
-    Modules/webxr/WebXRJointSpace.idl
-    Modules/webxr/WebXRLayer.idl
-    Modules/webxr/WebXRPose.idl
-    Modules/webxr/WebXRRay.idl
-    Modules/webxr/WebXRReferenceSpace.idl
-    Modules/webxr/WebXRRenderState.idl
-    Modules/webxr/WebXRRigidTransform.idl
-    Modules/webxr/WebXRSession.idl
-    Modules/webxr/WebXRSpace.idl
-    Modules/webxr/WebXRSystem.idl
-    Modules/webxr/WebXRTransientInputHitTestResult.idl
-    Modules/webxr/WebXRTransientInputHitTestSource.idl
-    Modules/webxr/WebXRView.idl
-    Modules/webxr/WebXRViewerPose.idl
-    Modules/webxr/WebXRViewport.idl
-    Modules/webxr/WebXRWebGLLayer.idl
-    Modules/webxr/XRCompositionLayer.idl
-    Modules/webxr/XRCubeLayer.idl
-    Modules/webxr/XRCubeLayerInit.idl
-    Modules/webxr/XRCylinderLayer.idl
-    Modules/webxr/XRCylinderLayerInit.idl
-    Modules/webxr/XREquirectLayer.idl
-    Modules/webxr/XREquirectLayerInit.idl
-    Modules/webxr/XREnvironmentBlendMode.idl
-    Modules/webxr/XREye.idl
-    Modules/webxr/XRFrameRequestCallback.idl
-    Modules/webxr/XRGPUBinding.idl
-    Modules/webxr/XRGPULayerInit.idl
-    Modules/webxr/XRGPUProjectionLayerInit.idl
-    Modules/webxr/XRGPUSubImage.idl
-    Modules/webxr/XRHandJoint.idl
-    Modules/webxr/XRHandedness.idl
-    Modules/webxr/XRHitTestOptionsInit.idl
-    Modules/webxr/XRHitTestTrackableType.idl
-    Modules/webxr/XRInputSourceEvent.idl
-    Modules/webxr/XRInputSourcesChangeEvent.idl
-    Modules/webxr/XRInteractionMode.idl
-    Modules/webxr/XRLayerEvent.idl
-    Modules/webxr/XRLayerInit.idl
-    Modules/webxr/XRLayerLayout.idl
-    Modules/webxr/XRLayerQuality.idl
-    Modules/webxr/XRProjectionLayer.idl
-    Modules/webxr/XRProjectionLayerInit.idl
-    Modules/webxr/XRQuadLayer.idl
-    Modules/webxr/XRQuadLayerInit.idl
-    Modules/webxr/XRRayDirectionInit.idl
-    Modules/webxr/XRReferenceSpaceEvent.idl
-    Modules/webxr/XRReferenceSpaceType.idl
-    Modules/webxr/XRRenderStateInit.idl
-    Modules/webxr/XRSessionEvent.idl
-    Modules/webxr/XRSessionInit.idl
-    Modules/webxr/XRSessionMode.idl
-    Modules/webxr/XRSubImage.idl
-    Modules/webxr/XRTargetRayMode.idl
-    Modules/webxr/XRTextureType.idl
-    Modules/webxr/XRTransientInputHitTestOptionsInit.idl
-    Modules/webxr/XRVisibilityState.idl
-    Modules/webxr/XRWebGLBinding.idl
-    Modules/webxr/XRWebGLLayerInit.idl
-    Modules/webxr/XRWebGLSubImage.idl
 )
 
 list(APPEND WebCore_NON_SVG_IDL_FILES
@@ -2009,15 +1939,6 @@ set(WebCore_SUPPLEMENTAL_IDL_FILES
 
     Modules/webdriver/Navigator+WebDriver.idl
 
-    Modules/webxr/Navigator+WebXR.idl
-    Modules/webxr/WebXRFrame+HandInput.idl
-    Modules/webxr/WebXRFrame+HitTest.idl
-    Modules/webxr/WebXRInputSource+Gamepad.idl
-    Modules/webxr/WebXRInputSource+HandInput.idl
-    Modules/webxr/WebXRRenderState+Layers.idl
-    Modules/webxr/WebXRSession+AR.idl
-    Modules/webxr/WebXRSession+HitTest.idl
-    Modules/webxr/WebXRSession+Layers.idl
 
     accessibility/AccessibilityRole.idl
     accessibility/AriaAttributes.idl
@@ -2621,26 +2542,6 @@ list(APPEND WebCoreTestSupport_SOURCES
     testing/js/WebCoreTestSupport.cpp
 )
 
-if (ENABLE_WEBXR)
-    list(APPEND WebCoreTestSupport_IDL_FILES
-        testing/FakeXRBoundsPoint.idl
-        testing/FakeXRButtonStateInit.idl
-        testing/FakeXRJointStateInit.idl
-        testing/FakeXRInputSourceInit.idl
-        testing/FakeXRRigidTransformInit.idl
-        testing/FakeXRViewInit.idl
-        testing/FakeXRWorldInit.idl
-        testing/WebFakeXRDevice.idl
-        testing/WebFakeXRInputController.idl
-        testing/WebXRTest.idl
-        testing/XRSimulateUserActivationFunction.idl
-    )
-    list(APPEND WebCoreTestSupport_SOURCES
-        testing/WebFakeXRDevice.cpp
-        testing/WebFakeXRInputController.cpp
-        testing/WebXRTest.cpp
-    )
-endif ()
 
 set(MODERN_MEDIA_CONTROLS_STYLE_SHEETS
     "${WEBCORE_DIR}/Modules/modern-media-controls/controls/activity-indicator.css"

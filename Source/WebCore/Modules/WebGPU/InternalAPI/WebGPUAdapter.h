@@ -49,7 +49,6 @@ public:
     bool isFallbackAdapter() const { return m_isFallbackAdapter; }
     uint32_t subgroupMinSize() const { return m_subgroupMinSize; }
     uint32_t subgroupMaxSize() const { return m_subgroupMaxSize; }
-    virtual bool xrCompatible() = 0;
     virtual bool isRemoteAdapterProxy() const { return false; }
     virtual bool isAdapterImpl() const { return false; }
 

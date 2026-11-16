@@ -85,7 +85,6 @@ struct ShaderModuleDescriptor;
 class Surface;
 class Texture;
 struct TextureDescriptor;
-class XRBinding;
 
 class Device : public RefCountedAndCanMakeWeakPtr<Device> {
 public:
@@ -108,7 +107,6 @@ public:
 
     virtual void destroy() = 0;
 
-    virtual RefPtr<XRBinding> createXRBinding() = 0;
     virtual RefPtr<Buffer> createBuffer(const BufferDescriptor&) = 0;
     virtual RefPtr<Texture> createTexture(const TextureDescriptor&) = 0;
     virtual RefPtr<Sampler> createSampler(const SamplerDescriptor&) = 0;

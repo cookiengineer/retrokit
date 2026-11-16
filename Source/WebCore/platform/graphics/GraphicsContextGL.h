@@ -1551,27 +1551,10 @@ public:
     using EGLImageSourceIOSurfaceHandle = GraphicsContextGLExternalImageSourceIOSurfaceHandle;
     using EGLImageSourceMTLSharedTextureHandle = GraphicsContextGLExternalImageSourceMTLSharedTextureHandle;
 #endif
-#if ENABLE(WEBXR)
-    virtual bool addFoveation(IntSize, IntSize, IntSize, std::span<const GCGLfloat>, std::span<const GCGLfloat>, std::span<const GCGLfloat>) = 0;
-    virtual void enableFoveation(GCGLuint) = 0;
-    virtual void disableFoveation() = 0;
-#endif
 
     using ExternalImageSource = GraphicsContextGLExternalImageSource;
-#if ENABLE(WEBXR)
-    virtual GCGLExternalImage createExternalImage(ExternalImageSource&&, GCGLenum internalFormat, GCGLint layer) = 0;
-    virtual void deleteExternalImage(GCGLExternalImage) = 0;
-    virtual void bindExternalImage(GCGLenum target, GCGLExternalImage) = 0;
-#endif
 
     using ExternalSyncSource = GraphicsContextGLExternalSyncSource;
-#if ENABLE(WEBXR)
-    virtual GCGLExternalSync createExternalSync(ExternalSyncSource&&) = 0;
-    virtual void deleteExternalSync(GCGLExternalSync) = 0;
-#if USE(OPENXR)
-    virtual WTF::UnixFileDescriptor exportExternalSync(GCGLExternalSync) { return { }; }
-#endif
-#endif
 
     // ========== Extension related entry points.
 
@@ -1585,9 +1568,6 @@ public:
     // Returns true if extension was supported and thus enabled.
     virtual bool enableExtension(GCGLExtension) = 0;
 
-#if ENABLE(WEBXR)
-    virtual bool enableRequiredWebXRExtensions() { return false; }
-#endif
 
     // GL_ANGLE_translated_shader_source
     virtual CString getTranslatedShaderSourceANGLE(PlatformGLObject) = 0;
@@ -1637,11 +1617,7 @@ public:
     // GL_EXT_discard_framebuffer
     WEBCORE_EXPORT virtual void framebufferDiscard(GCGLenum, std::span<const GCGLenum>);
 
-    // ========== Internal use for WebXR on WebGL1 contexts.
     virtual void renderbufferStorageMultisampleANGLE(GCGLenum target, GCGLsizei samples, GCGLenum internalformat, GCGLsizei width, GCGLsizei height) = 0;
-#if ENABLE(WEBXR)
-    WEBCORE_EXPORT virtual void framebufferResolveRenderbuffer(GCGLenum target, GCGLenum attachment, GCGLenum renderbuffertarget, PlatformGLObject);
-#endif
 
     // ========== Other functions.
     GCGLfloat getFloat(GCGLenum pname);
@@ -1791,9 +1767,6 @@ private:
 using GCGLOwnedFramebuffer = GCGLOwned<PlatformGLObject, &GraphicsContextGL::deleteFramebuffer>;
 using GCGLOwnedRenderbuffer = GCGLOwned<PlatformGLObject, &GraphicsContextGL::deleteRenderbuffer>;
 using GCGLOwnedTexture = GCGLOwned<PlatformGLObject, &GraphicsContextGL::deleteTexture>;
-#if ENABLE(WEBXR)
-using GCGLOwnedExternalImage = GCGLOwned<GCGLExternalImage, &GraphicsContextGL::deleteExternalImage>;
-#endif
 
 } // namespace WebCore
 

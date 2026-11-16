@@ -189,7 +189,7 @@ void Instance::requestAdapter(const WGPURequestAdapterOptions& options, Completi
     }
 
     // FIXME: this should be asynchronous
-    callback(WGPURequestAdapterStatus_Success, Adapter::create(sortedDevices[0], *this, options.xrCompatible, WTF::move(*deviceCapabilities)), { });
+    callback(WGPURequestAdapterStatus_Success, Adapter::create(sortedDevices[0], *this, WTF::move(*deviceCapabilities)), { });
 }
 
 void Instance::retainDevice(Device& device, id<MTLCommandBuffer> commandBuffer)
@@ -383,24 +383,4 @@ WGPUBool wgpuTextureIsValid(WGPUTexture texture)
 WGPUBool wgpuTextureViewIsValid(WGPUTextureView textureView)
 {
     return protect(WebGPU::fromAPI(textureView))->isValid();
-}
-
-WGPUBool wgpuXRBindingIsValid(WGPUXRBinding binding)
-{
-    return protect(WebGPU::fromAPI(binding))->isValid();
-}
-
-WGPUBool wgpuXRSubImageIsValid(WGPUXRSubImage subImage)
-{
-    return protect(WebGPU::fromAPI(subImage))->isValid();
-}
-
-WGPUBool wgpuXRProjectionLayerIsValid(WGPUXRProjectionLayer layer)
-{
-    return protect(WebGPU::fromAPI(layer))->isValid();
-}
-
-WGPUBool wgpuXRViewIsValid(WGPUXRView view)
-{
-    return protect(WebGPU::fromAPI(view))->isValid();
 }

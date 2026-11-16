@@ -199,7 +199,6 @@ MESSAGE_RECEIVERS = \
 	UIProcess/Model/ModelProcessProxy \
 	UIProcess/SpeechRecognitionRemoteRealtimeMediaSourceManager \
 	UIProcess/SpeechRecognitionServer \
-	UIProcess/XR/PlatformXRSystem \
 	UIProcess/WebBackForwardList \
 	WebProcess/Databases/IndexedDB/WebIDBConnectionToServer \
 	WebProcess/DigitalCredentials/DigitalCredentialsCoordinator \
@@ -277,7 +276,6 @@ MESSAGE_RECEIVERS = \
 	WebProcess/WebPage/VisitedLinkTableController \
 	WebProcess/WebPage/Cocoa/TextCheckingControllerProxy \
 	WebProcess/WebPage/ViewUpdateDispatcher \
-	WebProcess/XR/PlatformXRSystemProxy \
 	GPUProcess/GPUConnectionToWebProcess \
 	GPUProcess/RemoteSharedResourceCache \
 	GPUProcess/ShapeDetection/RemoteBarcodeDetector \
@@ -314,10 +312,6 @@ MESSAGE_RECEIVERS = \
 	GPUProcess/graphics/WebGPU/RemoteShaderModule \
 	GPUProcess/graphics/WebGPU/RemoteTexture \
 	GPUProcess/graphics/WebGPU/RemoteTextureView \
-	GPUProcess/graphics/WebGPU/RemoteXRBinding \
-	GPUProcess/graphics/WebGPU/RemoteXRProjectionLayer \
-	GPUProcess/graphics/WebGPU/RemoteXRSubImage \
-	GPUProcess/graphics/WebGPU/RemoteXRView \
 	GPUProcess/webrtc/LibWebRTCCodecsProxy \
 	GPUProcess/webrtc/RemoteSampleBufferDisplayLayerManager \
 	GPUProcess/webrtc/RemoteSampleBufferDisplayLayer \
@@ -948,8 +942,6 @@ SERIALIZATION_DESCRIPTION_FILES = \
 	Shared/WebGPU/WebGPUBlendState.serialization.in \
 	Shared/WebGPU/WebGPUBlendComponent.serialization.in \
 	Shared/WebGPU/WebGPUBindGroupEntry.serialization.in \
-	Shared/XR/PlatformXR.serialization.in \
-	Shared/XR/XRSystem.serialization.in \
 	Shared/WebUserContentControllerDataTypes.serialization.in \
 	UIProcess/Extensions/WebExtension.serialization.in \
 	WebProcess/GPU/GPUProcessConnectionInfo.serialization.in \

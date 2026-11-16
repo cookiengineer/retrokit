@@ -6389,18 +6389,6 @@ OpenPseudoClassEnabled:
     WebCore:
       default: true
 
-OpenXRDMABufRelaxedForTesting:
-  type: bool
-  status: internal
-  humanReadableName: "OpenXR DMA-BUF requirement relaxed for testing"
-  humanReadableDescription: "During testing, allows relaxing the requirement that the GL display used by the OpenXR coordinator has MESA_image_dma_buf_export"
-  webcoreBinding: none
-  condition: ENABLE(DEVELOPER_MODE) && USE(OPENXR)
-  exposed: [ WebKit ]
-  defaultValue:
-    WebKit:
-      default: false
-
 # FIXME: Reenable this on iOS once we can mitigate impact on memory use.
 OpportunisticSweepingAndGarbageCollectionEnabled:
   type: bool
@@ -8975,21 +8963,6 @@ TouchEventDOMAttributesEnabled:
     WebCore:
       default: WebCore::screenHasTouchDevice()
 
-TouchInputCompatibilityEnabled:
-  type: bool
-  status: testable
-  category: dom
-  humanReadableName: "Touch Input Compatibility"
-  humanReadableDescription: "Touch Input Compatibility"
-  condition: ENABLE(WEBXR)
-  defaultValue:
-    WebKitLegacy:
-      default: false
-    WebKit:
-      default: false
-    WebCore:
-      default: false
-
 TrackConfigurationEnabled:
   type: bool
   status: testable
@@ -10589,121 +10562,6 @@ WebTransportEnabled:
   sharedPreferenceForWebProcess: true
   richJavaScript: true
   disableInLockdownMode: true
-
-WebXRAugmentedRealityModuleEnabled:
-  type: bool
-  status: testable
-  category: dom
-  humanReadableName: "WebXR Augmented Reality Module"
-  humanReadableDescription: "Adds support for the WebXR Augmented Reality Module"
-  condition: ENABLE(WEBXR_AR)
-  defaultValue:
-    WebKitLegacy:
-      default: false
-    WebKit:
-      default: false
-    WebCore:
-      default: false
-  disableInLockdownMode: true
-
-WebXREnabled:
-  type: bool
-  status: stable
-  category: dom
-  humanReadableName: "WebXR Device API"
-  humanReadableDescription: "Adds support for accessing virtual reality (VR) and augmented reality (AR) devices, including sensors and head-mounted displays, on the Web"
-  condition: ENABLE(WEBXR)
-  defaultValue:
-    WebKitLegacy:
-      default: true
-    WebKit:
-      default: true
-    WebCore:
-      default: true
-  disableInLockdownMode: true
-  sharedPreferenceForWebProcess: true
-  richJavaScript: true
-
-WebXRGamepadsModuleEnabled:
-  type: bool
-  status: stable
-  category: dom
-  humanReadableName: "WebXR Gamepads Module"
-  humanReadableDescription: "Adds support for the WebXR Gamepads Module"
-  condition: ENABLE(WEBXR)
-  defaultValue:
-    WebKitLegacy:
-      default: true
-    WebKit:
-      default: true
-    WebCore:
-      default: true
-
-WebXRHandInputModuleEnabled:
-  type: bool
-  status: stable
-  category: dom
-  humanReadableName: "WebXR Hand Input Module"
-  humanReadableDescription: "Adds support for the Hands Input Module for WebXR"
-  condition: ENABLE(WEBXR_HANDS)
-  defaultValue:
-    WebKitLegacy:
-      default: true
-    WebKit:
-      default: true
-    WebCore:
-      default: true
-
-WebXRHitTestModuleEnabled:
-  type: bool
-  status: testable
-  category: dom
-  humanReadableName: "WebXR Hit Test Module"
-  humanReadableDescription: "Adds support for the Hit Test Module for WebXR"
-  condition: ENABLE(WEBXR_HIT_TEST)
-  defaultValue:
-    WebKitLegacy:
-      default: false
-    WebKit:
-      default: false
-    WebCore:
-      default: false
-
-WebXRLayersAPIEnabled:
-  type: bool
-  status: Webxr_layers_feature_status
-  category: dom
-  humanReadableName: "WebXR Layers API"
-  humanReadableDescription: "Adds support for the WebXR Layers API"
-  condition: ENABLE(WEBXR_LAYERS)
-  defaultValue:
-    WebKitLegacy:
-      default: false
-    WebKit:
-      "ENABLE(WEBXR_LAYERS) && USE(OPENXR)": true
-      default: false
-    WebCore:
-      "ENABLE(WEBXR_LAYERS) && USE(OPENXR)": true
-      default: false
-
-WebXRWebGPUBindingsEnabled:
-  type: bool
-  status: Webgpu_webxr_feature_status
-  category: dom
-  humanReadableName: "WebGPU support for WebXR"
-  humanReadableDescription: "Adds WebGPU support for WebXR"
-  defaultValue:
-    WebKitLegacy:
-      "PLATFORM(VISION) && ENABLE(WEBXR_WEBGPU)": true
-      default: false
-    WebKit:
-      "PLATFORM(VISION) && ENABLE(WEBXR_WEBGPU)": true
-      default: false
-    WebCore:
-      "PLATFORM(VISION) && ENABLE(WEBXR_WEBGPU)": true
-      default: false
-  disableInLockdownMode: true
-  sharedPreferenceForWebProcess: true
 
 WheelEventGesturesBecomeNonBlocking:
   type: bool

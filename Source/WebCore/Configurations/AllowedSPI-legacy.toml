@@ -138,7 +138,6 @@ symbols = [
 
 [[legacy]]
 selectors = [
-    # In cross-platform cocoa code, but dead-stripped unless ENABLE_WEBXR is active.
     { name = "newSharedEventWithMachPort:", class = "?" },
 ]
 requires = ["!NDEBUG"]

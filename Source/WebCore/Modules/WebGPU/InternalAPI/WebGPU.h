@@ -65,10 +65,6 @@ class Sampler;
 class ShaderModule;
 class Texture;
 class TextureView;
-class XRBinding;
-class XRProjectionLayer;
-class XRSubImage;
-class XRView;
 
 struct PresentationContextDescriptor;
 
@@ -105,10 +101,6 @@ public:
     virtual bool isValid(const ShaderModule&) const = 0;
     virtual bool isValid(const Texture&) const = 0;
     virtual bool isValid(const TextureView&) const = 0;
-    virtual bool isValid(const XRBinding&) const = 0;
-    virtual bool isValid(const XRSubImage&) const = 0;
-    virtual bool isValid(const XRProjectionLayer&) const = 0;
-    virtual bool isValid(const XRView&) const = 0;
 
     virtual bool isRemoteGPUProxy() const { return false; }
     virtual bool isGPUImpl() const { return false; }

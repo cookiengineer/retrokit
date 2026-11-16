@@ -175,11 +175,6 @@ static bool urlRequiresMacintoshPlatform(const String& domain, const String& bas
 
 static bool urlRequiresAndroidPlatform([[maybe_unused]] const String& baseDomain)
 {
-#if ENABLE(WEBXR) && PLATFORM(WPE)
-    // When WebXR is available the model viewer support provides a better UX.
-    if (baseDomain == "ikea.com"_s)
-        return true;
-#endif
 
     return false;
 }

@@ -461,7 +461,6 @@ UIProcess/Cocoa/MediaPermissionUtilities.mm @nonARC
 UIProcess/Cocoa/NavigationState.mm @nonARC
 UIProcess/Cocoa/PageClientImplCocoa.mm @nonARC @cost:3
 UIProcess/Cocoa/PlatformWritingToolsUtilities.mm @nonARC
-UIProcess/Cocoa/PlatformXRCoordinator.mm @nonARC
 UIProcess/Cocoa/PlaybackSessionManagerProxy.mm @nonARC
 UIProcess/Cocoa/ProcessAssertionCocoa.mm @nonARC
 UIProcess/Cocoa/ResourceLoadDelegate.mm @nonARC
@@ -727,15 +726,7 @@ UIProcess/WebAuthentication/Mock/MockCcidService.mm @nonARC
 UIProcess/WebsiteData/Cocoa/ScreenTimeWebsiteDataSupport.mm @nonARC
 UIProcess/WebsiteData/Cocoa/WebsiteDataStoreCocoa.mm @nonARC
 
-UIProcess/XR/ios/PlatformXRARKit.mm @nonARC
-UIProcess/XR/ios/PlatformXRSystemIOS.mm @nonARC
-UIProcess/XR/ios/WKARPresentationSession.mm @nonARC
 
-UIProcess/XR/xros/PlatformXRCompositor.mm @nonARC
-UIProcess/XR/xros/PlatformXRSystemXROS.mm @nonARC
-UIProcess/XR/xros/WKSpatialGestureRecognizer.mm @nonARC
-UIProcess/XR/xros/WKXRControllerManager.mm @nonARC
-UIProcess/XR/xros/WKXRTrackingManager.mm @nonARC
 
 WebProcess/API/Cocoa/WKWebProcess.cpp
 
