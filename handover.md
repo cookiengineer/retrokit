@@ -154,7 +154,7 @@ Removed:
 Verification:
 
 ```text
-equivalence --feature webxr: 674 entries, 0 errors
+equivalence --feature webxr: 673 entries, 0 errors
 leaks --feature webxr:       0 residual occurrences
 CMake configure:             success
 ```
