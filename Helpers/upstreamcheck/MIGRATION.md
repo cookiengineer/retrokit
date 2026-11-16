@@ -10,9 +10,9 @@
   commit that imports RetroKit's downstream files and `upstreamcheck`).
 - `main` and `legacy/2.34` still point at the 2.34.1 fork; promote
   `migrate/2.54` during cutover.
-- Generated manifest: `manifest/divergence.tsv` (6,860 rows, 39 features).
-- Current target work queue: 4,232 pending, 1,775 already gone in 2.54.2,
-  853 manual review entries.
+- Generated manifest: `manifest/divergence.tsv` (9,599 rows, 39 features).
+- The manifest now also records the new upstream WebXR/WebGPU-XR files and
+  the WebXR/systemd/touch-bar migration edits.
 
 The vendor snapshots contain only `CMakeLists.txt`, `Source`, and the minimal
 `Tools` closure needed for the build and MiniBrowser:
@@ -36,6 +36,25 @@ where removed APIs would silently return.
 The migration therefore starts from the clean vendor snapshot and re-applies
 the removal layer feature by feature. The old fork is used as a reference, not
 as a merge parent.
+
+## Progress
+
+Completed feature commits on `migrate/2.54`:
+
+- **WebXR** — full web API removal, including the WebGPU XR bridge,
+  platform XR service, testing hooks, preferences, build flags and IPC.
+  `equivalence --feature webxr` passes with 0 errors; leak scan is clean.
+- **SystemD/journald** — removed `FindJournald`, `ENABLE_JOURNALD_LOG`,
+  journald logging paths and WPE DRM journald integration.
+  `equivalence --feature systemd` passes with 0 errors.
+- **Touch Bar** — removed the remaining `HAVE(TOUCH_BAR)` UI/IPC surface.
+  `equivalence --feature touch-bar` passes with 0 errors.
+- **libnotify** — already absent upstream; the only pending symbol was a
+  WebRTC misattribution, now corrected in the manifest.
+
+FTP is the next larger cleanup: upstream 2.54.2 still has FTP scheme,
+network-process and protection-space code. The old fork removed it fully, so
+this needs a dedicated feature commit rather than the generic candidate.
 
 ## Workflow
 
