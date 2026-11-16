@@ -6,7 +6,10 @@
   against the official 2.34.1 release tarball).
 - Current legacy branch: `legacy/2.34` (formerly `main`).
 - Target vendor snapshot: `vendor/2.54.2`.
-- Migration branch: `migrate/2.54` (starts at `vendor/2.54.2`).
+- Migration branch: `migrate/2.54` (starts at `vendor/2.54.2`, followed by one
+  commit that imports RetroKit's downstream files and `upstreamcheck`).
+- `main` and `legacy/2.34` still point at the 2.34.1 fork; promote
+  `migrate/2.54` during cutover.
 - Generated manifest: `manifest/divergence.tsv` (6,748 rows, 38 features).
 - Current target work queue: 4,172 pending, 1,725 already gone in 2.54.2,
   851 manual review entries.
