@@ -135,6 +135,11 @@ func ignoredLeakPath(path string) bool {
 	if strings.Contains(p, "/thirdparty/") || strings.Contains(p, "/external/") || strings.Contains(p, ".xcodeproj/") {
 		return true
 	}
+	// Translation catalogs are not compiled code and legitimately retain strings
+	// for APIs that have since been removed from the source tree.
+	if strings.Contains(p, "/po/") || strings.Contains(p, "/en.lproj/") || strings.HasSuffix(p, ".strings") {
+		return true
+	}
 	if strings.HasSuffix(p, "/news") || p == "news" {
 		return true
 	}
