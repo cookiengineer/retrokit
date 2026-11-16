@@ -266,8 +266,6 @@ onfullscreenchange
 onfullscreenerror
 onimmersivechange
 onimmersiveerror
-ongamepadconnected
-ongamepaddisconnected
 ongesturechange
 ongestureend
 ongesturestart

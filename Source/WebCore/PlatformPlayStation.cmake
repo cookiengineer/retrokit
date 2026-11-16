@@ -80,21 +80,6 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     rendering/playstation/RenderThemePlayStation.h
 )
 
-if (ENABLE_GAMEPAD)
-    list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
-        "${WEBCORE_DIR}/platform/gamepad/libwpe"
-    )
-
-    list(APPEND WebCore_SOURCES
-        platform/gamepad/libwpe/GamepadLibWPE.cpp
-        platform/gamepad/libwpe/GamepadProviderLibWPE.cpp
-    )
-
-    list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
-        platform/gamepad/libwpe/GamepadProviderLibWPE.h
-    )
-endif ()
-
 if (ENABLE_WEBGL)
     list(APPEND WebCore_SOURCES platform/graphics/angle/PlatformDisplayANGLE.cpp)
 endif ()

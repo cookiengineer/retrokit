@@ -121,7 +121,6 @@
 #include "WebFullScreenManager.h"
 #include "WebFullScreenManagerMessages.h"
 #include "WebFullScreenManagerProxyMessages.h"
-#include "WebGamepadProvider.h"
 #include "WebGeolocationClient.h"
 #include "WebHistoryItemClient.h"
 #include "WebHitTestResultData.h"
@@ -906,10 +905,6 @@ WebPage::WebPage(PageIdentifier pageID, WebPageCreationParameters&& parameters)
 
 #if PLATFORM(IOS_FAMILY)
     pageConfiguration.canShowWhileLocked = parameters.canShowWhileLocked;
-#endif
-
-#if PLATFORM(VISION) && ENABLE(GAMEPAD)
-    pageConfiguration.gamepadAccessRequiresExplicitConsent = parameters.gamepadAccessRequiresExplicitConsent;
 #endif
 
 #if HAVE(AUDIT_TOKEN)
@@ -8781,27 +8776,6 @@ void WebPage::setUserInterfaceLayoutDirection(uint32_t direction)
     m_userInterfaceLayoutDirection = static_cast<WebCore::UserInterfaceLayoutDirection>(direction);
     protect(corePage())->setUserInterfaceLayoutDirection(m_userInterfaceLayoutDirection);
 }
-
-#if ENABLE(GAMEPAD)
-
-void WebPage::gamepadActivity(const Vector<std::optional<GamepadData>>& gamepadDatas, EventMakesGamepadsVisible eventVisibilty)
-{
-    WebGamepadProvider::singleton().gamepadActivity(gamepadDatas, eventVisibilty);
-}
-
-void WebPage::gamepadsRecentlyAccessed()
-{
-    send(Messages::WebPageProxy::GamepadsRecentlyAccessed());
-}
-
-#if PLATFORM(VISION)
-void WebPage::allowGamepadAccess()
-{
-    corePage()->allowGamepadAccess();
-}
-#endif
-
-#endif // ENABLE(GAMEPAD)
 
 #if ENABLE(POINTER_LOCK)
 void WebPage::didAcquirePointerLock()

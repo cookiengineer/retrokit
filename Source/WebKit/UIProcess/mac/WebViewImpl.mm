@@ -64,7 +64,6 @@
 #import "TextCheckerState.h"
 #import "TiledCoreAnimationDrawingAreaProxy.h"
 #import "TransientZoomState.h"
-#import "UIGamepadProvider.h"
 #import "UndoOrRedo.h"
 #import "ViewGestureController.h"
 #import "WKAppKitGestureController.h"
@@ -1859,9 +1858,6 @@ void WebViewImpl::windowDidOrderOnScreen()
 void WebViewImpl::windowDidBecomeKey(NSWindow *keyWindow)
 {
     if (keyWindow == window() || keyWindow == [protect(window()) attachedSheet]) {
-#if ENABLE(GAMEPAD)
-        UIGamepadProvider::singleton().viewBecameActive(m_page.get());
-#endif
         updateSecureInputState();
         m_page->activityStateDidChange(WebCore::ActivityState::WindowIsActive);
     }
@@ -1870,9 +1866,6 @@ void WebViewImpl::windowDidBecomeKey(NSWindow *keyWindow)
 void WebViewImpl::windowDidResignKey(NSWindow *formerKeyWindow)
 {
     if (formerKeyWindow == window() || formerKeyWindow == [protect(window()) attachedSheet]) {
-#if ENABLE(GAMEPAD)
-        UIGamepadProvider::singleton().viewBecameInactive(m_page.get());
-#endif
         updateSecureInputState();
         m_page->activityStateDidChange(WebCore::ActivityState::WindowIsActive);
     }

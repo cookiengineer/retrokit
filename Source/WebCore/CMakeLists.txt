@@ -177,7 +177,6 @@ set(WebCore_PRIVATE_INCLUDE_DIRECTORIES
     "${WEBCORE_DIR}/platform/animation/values/shapes"
     "${WEBCORE_DIR}/platform/audio"
     "${WEBCORE_DIR}/platform/encryptedmedia"
-    "${WEBCORE_DIR}/platform/gamepad"
     "${WEBCORE_DIR}/platform/graphics"
     "${WEBCORE_DIR}/platform/graphics/cpu/arm"
     "${WEBCORE_DIR}/platform/graphics/cpu/arm/filters"
@@ -1667,37 +1666,6 @@ set(WebCore_SVG_IDL_FILES
     svg/SVGViewSpec.idl
 )
 
-list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
-    "${WEBCORE_DIR}/Modules/gamepad"
-)
-
-list(APPEND WebCore_IDL_INCLUDES
-    Modules/gamepad
-)
-
-list(APPEND WebCore_NON_SVG_IDL_FILES
-    Modules/gamepad/Gamepad.idl
-    Modules/gamepad/GamepadButton.idl
-    Modules/gamepad/GamepadEffectParameters.idl
-    Modules/gamepad/GamepadEvent.idl
-    Modules/gamepad/GamepadHapticActuator.idl
-    Modules/gamepad/GamepadHapticEffectType.idl
-)
-
-if (ENABLE_GAMEPAD)
-    list(APPEND WebCore_SOURCES
-        Modules/gamepad/Gamepad.cpp
-        Modules/gamepad/GamepadButton.cpp
-        Modules/gamepad/GamepadEvent.cpp
-        Modules/gamepad/GamepadHapticActuator.cpp
-        Modules/gamepad/GamepadManager.cpp
-        Modules/gamepad/NavigatorGamepad.cpp
-
-        platform/gamepad/EmptyGamepadProvider.cpp
-        platform/gamepad/GamepadProvider.cpp
-    )
-endif ()
-
 list(APPEND WebCore_NON_SVG_IDL_FILES
 )
 
@@ -1888,9 +1856,6 @@ set(WebCore_SUPPLEMENTAL_IDL_FILES
     Modules/fetch/WindowOrWorkerGlobalScope+Fetch.idl
 
     Modules/filesystem/StorageManager+FileSystem.idl
-
-    Modules/gamepad/Navigator+Gamepad.idl
-    Modules/gamepad/WindowEventHandlers+Gamepad.idl
 
     Modules/geolocation/Navigator+Geolocation.idl
 
@@ -2532,8 +2497,6 @@ list(APPEND WebCoreTestSupport_SOURCES
     testing/InternalsSetLike.cpp
     testing/MockCDMFactory.cpp
     testing/MockCaptionDisplaySettingsClientCallback.cpp
-    testing/MockGamepad.cpp
-    testing/MockGamepadProvider.cpp
     testing/MockLibWebRTCPeerConnection.cpp
     testing/MockPageOverlay.cpp
     testing/MockPageOverlayClient.cpp

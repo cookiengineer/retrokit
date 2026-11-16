@@ -251,7 +251,6 @@ enum class DragHandlingMethod : uint8_t;
 enum class DragEventHandled : bool;
 enum class DeviceOrientationOrMotionPermissionState : uint8_t;
 enum class EventHandling : uint8_t;
-enum class EventMakesGamepadsVisible : bool;
 enum class ExceptionCode : uint8_t;
 enum class FinalizeRenderingUpdateFlags : uint8_t;
 enum class HasUserGestureOrNoUserGestureRequired : bool;
@@ -417,7 +416,6 @@ class FindController;
 class FrameState;
 class JavaScriptEvaluationResult;
 class GPUProcessConnection;
-class GamepadData;
 class GeolocationPermissionRequestManager;
 class InjectedBundleScriptWorld;
 class LayerHostingContext;
@@ -1719,14 +1717,6 @@ public:
 
 #if USE(OS_STATE)
     WallTime loadCommitTime() const { return m_loadCommitTime; }
-#endif
-
-#if ENABLE(GAMEPAD)
-    void gamepadActivity(const Vector<std::optional<GamepadData>>&, WebCore::EventMakesGamepadsVisible);
-    void gamepadsRecentlyAccessed();
-#if PLATFORM(VISION)
-    void allowGamepadAccess();
-#endif
 #endif
 
 #if ENABLE(POINTER_LOCK)

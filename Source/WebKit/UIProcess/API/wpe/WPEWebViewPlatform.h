@@ -59,9 +59,6 @@ public:
     void requestExitFullScreen();
 #endif
 
-#if ENABLE(GAMEPAD)
-    static WebKit::WebPageProxy* platformWebPageProxyForGamepadInput();
-#endif
 
     Expected<Ref<WebKit::ViewSnapshot>, String> takeViewSnapshot(std::optional<WebCore::IntRect>&&);
 

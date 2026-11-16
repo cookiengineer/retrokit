@@ -51,10 +51,6 @@
 #include <WebCore/DeviceOrientationUpdateProvider.h>
 #endif
 
-#if PLATFORM(VISION) && ENABLE(GAMEPAD)
-#include <WebCore/ShouldRequireExplicitConsentForGamepadAccess.h>
-#endif
-
 #if ENABLE(IMAGE_ANALYSIS)
 #include <WebCore/ImageAnalysisQueue.h>
 #endif
@@ -238,10 +234,6 @@ public:
     UniqueRef<CryptoClient> cryptoClient;
 
     UniqueRef<DocumentSyncClient> documentSyncClient;
-
-#if PLATFORM(VISION) && ENABLE(GAMEPAD)
-    ShouldRequireExplicitConsentForGamepadAccess gamepadAccessRequiresExplicitConsent { ShouldRequireExplicitConsentForGamepadAccess::No };
-#endif
 
 #if HAVE(AUDIT_TOKEN)
     std::optional<audit_token_t> presentingApplicationAuditToken;

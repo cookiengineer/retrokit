@@ -433,9 +433,6 @@ set(WebCore_PRIVATE_FRAMEWORK_HEADERS
     Modules/filesystem/WorkerFileSystemStorageConnection.h
     Modules/filesystem/WorkerFileSystemStorageConnectionCallbackIdentifier.h
 
-    Modules/gamepad/GamepadEffectParameters.h
-    Modules/gamepad/GamepadHapticEffectType.h
-    Modules/gamepad/NavigatorGamepad.h
 
     Modules/geolocation/Geolocation.h
     Modules/geolocation/GeolocationClient.h
@@ -2426,11 +2423,6 @@ set(WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/encryptedmedia/CDMTypesForward.h
     platform/encryptedmedia/CDMUtilities.h
 
-    platform/gamepad/GamepadProvider.h
-    platform/gamepad/GamepadProviderClient.h
-    platform/gamepad/PlatformGamepad.h
-    platform/gamepad/SharedGamepadValue.h
-    platform/gamepad/ShouldRequireExplicitConsentForGamepadAccess.h
 
     platform/generic/ScrollbarsControllerGeneric.h
 
@@ -3566,8 +3558,6 @@ set(WebCore_PRIVATE_FRAMEWORK_HEADERS
     testing/MockContentFilterManager.h
     testing/MockContentFilterSettings.h
     testing/MockContentFilterSettingsClient.h
-    testing/MockGamepad.h
-    testing/MockGamepadProvider.h
     testing/MockParentalControlsURLFilter.h
     testing/MockWebAuthenticationConfiguration.h
     testing/js/WebCoreTestSupport.h

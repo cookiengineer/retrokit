@@ -55,8 +55,6 @@ static ASCIILiteral toFeatureNameForLogging(PermissionsPolicy::Feature feature)
         return "SpeakerSelection"_s;
     case PermissionsPolicy::Feature::DisplayCapture:
         return "DisplayCapture"_s;
-    case PermissionsPolicy::Feature::Gamepad:
-        return "Gamepad"_s;
     case PermissionsPolicy::Feature::Geolocation:
         return "Geolocation"_s;
     case PermissionsPolicy::Feature::Payment:
@@ -106,7 +104,6 @@ static std::pair<PermissionsPolicy::Feature, StringView> readFeatureIdentifier(S
     constexpr auto microphoneToken { "microphone"_s };
     constexpr auto speakerSelectionToken { "speaker-selection"_s };
     constexpr auto displayCaptureToken { "display-capture"_s };
-    constexpr auto gamepadToken { "gamepad"_s };
     constexpr auto geolocationToken { "geolocation"_s };
     constexpr auto paymentToken { "payment"_s };
     constexpr auto screenWakeLockToken { "screen-wake-lock"_s };
@@ -137,9 +134,6 @@ static std::pair<PermissionsPolicy::Feature, StringView> readFeatureIdentifier(S
     } else if (value.startsWith(displayCaptureToken)) {
         feature = PermissionsPolicy::Feature::DisplayCapture;
         remainingValue = value.substring(displayCaptureToken.length());
-    } else if (value.startsWith(gamepadToken)) {
-        feature = PermissionsPolicy::Feature::Gamepad;
-        remainingValue = value.substring(gamepadToken.length());
     } else if (value.startsWith(geolocationToken)) {
         feature = PermissionsPolicy::Feature::Geolocation;
         remainingValue = value.substring(geolocationToken.length());
@@ -197,7 +191,6 @@ static std::pair<PermissionsPolicy::Feature, StringView> readFeatureIdentifier(S
 static ASCIILiteral defaultAllowlistValue(PermissionsPolicy::Feature feature)
 {
     switch (feature) {
-    case PermissionsPolicy::Feature::Gamepad:
     case PermissionsPolicy::Feature::SyncXHR:
     case PermissionsPolicy::Feature::StorageAccess:
         return "*"_s;

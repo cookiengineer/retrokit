@@ -241,17 +241,6 @@ bool defaultShowModalDialogEnabled()
 #endif
 }
 
-#if ENABLE(GAMEPAD)
-bool defaultGamepadVibrationActuatorEnabled()
-{
-#if HAVE(WIDE_GAMECONTROLLER_SUPPORT) || ENABLE(WPE_PLATFORM) || PLATFORM(GTK)
-    return true;
-#else
-    return false;
-#endif
-}
-#endif
-
 #if ENABLE(WEB_AUTHN)
 SUPPRESS_NODELETE bool defaultDigitalCredentialsEnabled()
 {

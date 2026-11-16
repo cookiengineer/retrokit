@@ -40,8 +40,6 @@
 #include <wpe/WPEEGLError.h>
 #include <wpe/WPEEnumTypes.h>
 #include <wpe/WPEEvent.h>
-#include <wpe/WPEGamepad.h>
-#include <wpe/WPEGamepadManager.h>
 #include <wpe/WPEGestureController.h>
 #include <wpe/WPEInputMethodContext.h>
 #include <wpe/WPEKeymap.h>

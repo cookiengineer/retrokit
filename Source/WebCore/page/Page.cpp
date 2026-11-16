@@ -131,7 +131,6 @@
 #include "ModelPlayerProvider.h"
 #include "NavigationScheduler.h"
 #include "Navigator.h"
-#include "NavigatorGamepad.h"
 #include "NavigatorMediaSession.h"
 #include "OpportunisticTaskScheduler.h"
 #include "PageColorSampler.h"
@@ -259,10 +258,6 @@
 #include "WritingToolsController.h"
 #endif
 
-
-#if PLATFORM(VISION) && ENABLE(GAMEPAD)
-#include "GamepadManager.h"
-#endif
 
 #if ENABLE(MODEL_ELEMENT_IMMERSIVE)
 #include "DocumentImmersive.h"
@@ -481,9 +476,6 @@ Page::Page(PageConfiguration&& pageConfiguration)
     , m_contentSecurityPolicyModeForExtension(WTF::move(pageConfiguration.contentSecurityPolicyModeForExtension))
     , m_badgeClient(WTF::move(pageConfiguration.badgeClient))
     , m_historyItemClient(WTF::move(pageConfiguration.historyItemClient))
-#if PLATFORM(VISION) && ENABLE(GAMEPAD)
-    , m_gamepadAccessRequiresExplicitConsent(pageConfiguration.gamepadAccessRequiresExplicitConsent)
-#endif
 #if ENABLE(WRITING_TOOLS)
     , m_writingToolsController(makeUniqueRef<WritingToolsController>(*this))
 #endif
@@ -524,10 +516,6 @@ Page::Page(PageConfiguration&& pageConfiguration)
 
 #if PLATFORM(COCOA)
     platformInitialize();
-#endif
-
-#if PLATFORM(VISION) && ENABLE(GAMEPAD)
-    initializeGamepadAccessForPageLoad();
 #endif
 
 #if HAVE(SUPPORT_HDR_DISPLAY)
@@ -1882,10 +1870,6 @@ void Page::didCommitLoad()
     m_userHasInteractedSinceLastPageLoadExcludingForcedUserGestures = false;
 
     m_mainFrameURLFragment = { };
-
-#if PLATFORM(VISION) && ENABLE(GAMEPAD)
-    initializeGamepadAccessForPageLoad();
-#endif
 
     resetSeenPlugins();
     resetSeenMediaEngines();
@@ -5533,34 +5517,6 @@ void Page::setDefaultSpatialTrackingLabel(const String& label)
     });
 }
 #endif
-
-#if ENABLE(GAMEPAD)
-void Page::gamepadsRecentlyAccessed()
-{
-    if (MonotonicTime::now() - m_lastAccessNotificationTime < NavigatorGamepad::gamepadsRecentlyAccessedThreshold())
-        return;
-
-    chrome().client().gamepadsRecentlyAccessed();
-    m_lastAccessNotificationTime = MonotonicTime::now();
-}
-
-#if PLATFORM(VISION)
-void Page::allowGamepadAccess()
-{
-    if (m_gamepadAccessGranted)
-        return;
-
-    m_gamepadAccessGranted = true;
-    GamepadManager::singleton().updateQuarantineStatus();
-}
-
-void Page::initializeGamepadAccessForPageLoad()
-{
-    m_gamepadAccessGranted = m_gamepadAccessRequiresExplicitConsent == ShouldRequireExplicitConsentForGamepadAccess::No;
-}
-#endif // PLATFORM(VISION)
-
-#endif // ENABLE(GAMEPAD)
 
 #if ENABLE(WRITING_TOOLS)
 void Page::willBeginWritingToolsSession(const std::optional<WritingTools::Session>& session, WeakHashSet<Node, WeakPtrImplWithEventTargetData>&& preservedNodes, CompletionHandler<void(const Vector<WritingTools::Context>&)>&& completionHandler)

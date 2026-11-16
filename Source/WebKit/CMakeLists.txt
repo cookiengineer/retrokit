@@ -48,7 +48,6 @@ set(WebKit_PRIVATE_INCLUDE_DIRECTORIES
     "${WEBKIT_DIR}/Shared/Extensions"
     "${WEBKIT_DIR}/Shared/FileAPI"
     "${WEBKIT_DIR}/Shared/graphics"
-    "${WEBKIT_DIR}/Shared/Gamepad"
     "${WEBKIT_DIR}/Shared/Model"
     "${WEBKIT_DIR}/Shared/Notifications"
     "${WEBKIT_DIR}/Shared/RemoteLayerTree"
@@ -63,7 +62,6 @@ set(WebKit_PRIVATE_INCLUDE_DIRECTORIES
     "${WEBKIT_DIR}/UIProcess/DigitalCredentials"
     "${WEBKIT_DIR}/UIProcess/Downloads"
     "${WEBKIT_DIR}/UIProcess/Extensions"
-    "${WEBKIT_DIR}/UIProcess/Gamepad"
     "${WEBKIT_DIR}/UIProcess/GPU"
     "${WEBKIT_DIR}/UIProcess/Inspector"
     "${WEBKIT_DIR}/UIProcess/Inspector/Agents"
@@ -92,7 +90,6 @@ set(WebKit_PRIVATE_INCLUDE_DIRECTORIES
     "${WEBKIT_DIR}/WebProcess/Extensions/Bindings"
     "${WEBKIT_DIR}/WebProcess/FileAPI"
     "${WEBKIT_DIR}/WebProcess/FullScreen"
-    "${WEBKIT_DIR}/WebProcess/Gamepad"
     "${WEBKIT_DIR}/WebProcess/Geolocation"
     "${WEBKIT_DIR}/WebProcess/GPU"
     "${WEBKIT_DIR}/WebProcess/GPU/ShapeDetection"
@@ -622,7 +619,6 @@ set(WebKit_SERIALIZATION_IN_FILES
     Shared/Extensions/WebExtensionTab.serialization.in
     Shared/Extensions/WebExtensionWindow.serialization.in
 
-    Shared/Gamepad/GamepadData.serialization.in
 
     Shared/WebGPU/WebGPUBindGroupDescriptor.serialization.in
     Shared/WebGPU/WebGPUBindGroupEntry.serialization.in

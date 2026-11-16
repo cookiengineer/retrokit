@@ -61,10 +61,6 @@ OBJC_PROTOCOL(_UIClickInteractionDriving);
 #include <WebCore/UserInterfaceDirectionPolicy.h>
 #endif
 
-#if PLATFORM(VISION) && ENABLE(GAMEPAD)
-#include <WebCore/ShouldRequireExplicitConsentForGamepadAccess.h>
-#endif
-
 namespace WebCore {
 enum class SandboxFlag : uint16_t;
 using SandboxFlags = OptionSet<SandboxFlag>;
@@ -470,11 +466,6 @@ public:
 
 #if PLATFORM(VISION)
 
-#if ENABLE(GAMEPAD)
-    WebCore::ShouldRequireExplicitConsentForGamepadAccess gamepadAccessRequiresExplicitConsent() const { return m_data.gamepadAccessRequiresExplicitConsent; }
-    void setGamepadAccessRequiresExplicitConsent(WebCore::ShouldRequireExplicitConsentForGamepadAccess value) { m_data.gamepadAccessRequiresExplicitConsent = value; }
-#endif // ENABLE(GAMEPAD)
-
 #if HAVE(CORE_ANIMATION_SEPARATED_LAYERS)
     bool cssTransformStyleSeparatedEnabled() const { return m_data.cssTransformStyleSeparatedEnabled; }
     void setCSSTransformStyleSeparatedEnabled(bool value) { m_data.cssTransformStyleSeparatedEnabled = value; }
@@ -660,10 +651,6 @@ private:
         bool backgroundTextExtractionEnabled { false };
 
 #if PLATFORM(VISION)
-
-#if ENABLE(GAMEPAD)
-        WebCore::ShouldRequireExplicitConsentForGamepadAccess gamepadAccessRequiresExplicitConsent { WebCore::ShouldRequireExplicitConsentForGamepadAccess::No };
-#endif // ENABLE(GAMEPAD)
 
 #if HAVE(CORE_ANIMATION_SEPARATED_LAYERS)
         bool cssTransformStyleSeparatedEnabled { false };

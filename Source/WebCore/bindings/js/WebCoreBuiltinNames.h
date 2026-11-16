@@ -257,10 +257,6 @@ namespace WebCore {
     macro(GPUTextureView) \
     macro(GPUUncapturedErrorEvent) \
     macro(GPUValidationError) \
-    macro(Gamepad) \
-    macro(GamepadButton) \
-    macro(GamepadEvent) \
-    macro(GamepadHapticActuator) \
     macro(Geolocation) \
     macro(GeolocationCoordinates) \
     macro(GeolocationPosition) \

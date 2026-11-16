@@ -36,7 +36,6 @@
 #import "NetworkProcessProxy.h"
 #import "ProcessTerminationReason.h"
 #import "SandboxUtilities.h"
-#import "UIGamepadProvider.h"
 #import "WKAPICast.h"
 #import "WKDownloadInternal.h"
 #import "WKObject.h"
@@ -536,13 +535,6 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
     });
 }
 
-+ (void)_forceGameControllerFramework
-{
-#if ENABLE(GAMEPAD)
-    WebKit::UIGamepadProvider::setUsesGameControllerFramework();
-#endif
-}
-
 + (void)_setLinkedOnOrBeforeEverythingForTesting
 {
     disableAllSDKAlignedBehaviors();
@@ -664,26 +656,6 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 - (void)_garbageCollectJavaScriptObjectsForTesting
 {
     protect(*_processPool)->garbageCollectJavaScriptObjects();
-}
-
-- (size_t)_numberOfConnectedGamepadsForTesting
-{
-    return protect(*_processPool)->numberOfConnectedGamepadsForTesting(WebKit::WebProcessPool::GamepadType::All);
-}
-
-- (size_t)_numberOfConnectedHIDGamepadsForTesting
-{
-    return protect(*_processPool)->numberOfConnectedGamepadsForTesting(WebKit::WebProcessPool::GamepadType::HID);
-}
-
-- (size_t)_numberOfConnectedGameControllerFrameworkGamepadsForTesting
-{
-    return protect(*_processPool)->numberOfConnectedGamepadsForTesting(WebKit::WebProcessPool::GamepadType::GameControllerFramework);
-}
-
-- (void)_setUsesOnlyHIDGamepadProviderForTesting:(BOOL)usesHIDProvider
-{
-    protect(*_processPool)->setUsesOnlyHIDGamepadProviderForTesting(usesHIDProvider);
 }
 
 - (void)_terminateAllWebContentProcesses

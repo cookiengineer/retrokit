@@ -176,7 +176,6 @@
 #import <WebCore/FrameLoader.h>
 #import <WebCore/FrameSelection.h>
 #import <WebCore/FrameTree.h>
-#import <WebCore/GameControllerGamepadProvider.h>
 #import <WebCore/GarbageCollectionController.h>
 #import <WebCore/GeolocationController.h>
 #import <WebCore/GeolocationError.h>
@@ -364,10 +363,6 @@
 
 #if ENABLE(IOS_TOUCH_EVENTS)
 #import <WebCore/WebEventRegion.h>
-#endif
-
-#if ENABLE(GAMEPAD)
-#import <WebCore/HIDGamepadProvider.h>
 #endif
 
 #if ENABLE(WIRELESS_PLAYBACK_TARGET) && !PLATFORM(IOS_FAMILY)
@@ -1094,23 +1089,6 @@ static bool isInternalInstall()
 static bool didOneTimeInitialization = false;
 #endif
 
-#if ENABLE(GAMEPAD)
-static void WebKitInitializeGamepadProviderIfNecessary()
-{
-    static bool initialized = false;
-    if (initialized)
-        return;
-
-#if PLATFORM(MAC)
-    WebCore::GamepadProvider::singleton().setSharedProvider(WebCore::HIDGamepadProvider::singleton());
-#else
-    WebCore::GamepadProvider::singleton().setSharedProvider(WebCore::GameControllerGamepadProvider::singleton());
-#endif
-
-    initialized = true;
-}
-#endif
-
 - (void)_commonInitializationWithFrameName:(NSString *)frameName groupName:(NSString *)groupName
 {
     WebCoreThreadViolationCheckRoundTwo();
@@ -1175,10 +1153,6 @@ static void WebKitInitializeGamepadProviderIfNecessary()
         if ([standardPreferences storageTrackerEnabled])
 #endif
         WebKitInitializeStorageIfNecessary();
-
-#if ENABLE(GAMEPAD)
-        WebKitInitializeGamepadProviderIfNecessary();
-#endif
 
 
 #if PLATFORM(IOS_FAMILY)

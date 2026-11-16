@@ -859,18 +859,6 @@ public:
     virtual String spatialTrackingLabel() const = 0;
 #endif
 
-#if ENABLE(GAMEPAD)
-    enum class GamepadsRecentlyAccessed : bool {
-        No,
-        Yes
-    };
-    virtual void setGamepadsRecentlyAccessed(GamepadsRecentlyAccessed) { }
-
-#if PLATFORM(VISION)
-    virtual void gamepadsConnectedStateChanged() { }
-#endif
-#endif // ENABLE(GAMEPAD)
-
     virtual void hasActiveNowPlayingSessionChanged(bool) { }
 
     virtual void scheduleVisibleContentRectUpdate() { }

@@ -2629,23 +2629,6 @@ enum class WebCore::FocusDirection : uint8_t {
     Right
 };
 
-#if ENABLE(GAMEPAD)
-struct WebCore::GamepadEffectParameters {
-    double duration;
-    double startDelay;
-    double strongMagnitude;
-    double weakMagnitude;
-    double leftTrigger;
-    double rightTrigger;
-};
-
-header: <WebCore/GamepadHapticEffectType.h>
-enum class WebCore::GamepadHapticEffectType : uint8_t {
-    DualRumble,
-    TriggerRumble
-};
-#endif
-
 header: <WebCore/StorageEstimate.h>
 struct WebCore::StorageEstimate {
     uint64_t usage
@@ -6698,14 +6681,6 @@ enum class WebCore::ShouldRestoreFromBackForwardCache : uint8_t {
 };
 enum class WebCore::RestoredFromBackForwardCache : bool
 
-#if ENABLE(GAMEPAD)
-enum class WebCore::EventMakesGamepadsVisible : bool
-
-#if PLATFORM(VISION)
-enum class WebCore::ShouldRequireExplicitConsentForGamepadAccess : bool;
-#endif
-#endif
-
 enum class WebCore::WillInternallyHandleFailure : bool
 enum class WebCore::IsInitialAboutBlank : bool
 enum class WebCore::ShouldSample : bool
@@ -6730,7 +6705,6 @@ struct WebCore::OwnerPermissionsPolicyData {
     Microphone,
     SpeakerSelection,
     DisplayCapture,
-    Gamepad,
     Geolocation,
     Payment,
     ScreenWakeLock,

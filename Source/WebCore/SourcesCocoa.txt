@@ -346,16 +346,6 @@ platform/cocoa/WebCoreNSErrorExtras.mm @nonARC
 platform/cocoa/WebCoreNSURLExtras.mm @nonARC
 platform/cocoa/WebCoreObjCExtras.mm @nonARC
 platform/cocoa/WebNSAttributedStringExtras.mm @nonARC
-platform/gamepad/cocoa/GameControllerGamepad.mm @nonARC
-platform/gamepad/cocoa/GameControllerGamepadProvider.mm @nonARC
-platform/gamepad/mac/Dualshock3HIDGamepad.cpp
-platform/gamepad/mac/GenericHIDGamepad.cpp
-platform/gamepad/mac/HIDGamepad.cpp
-platform/gamepad/mac/HIDGamepadElement.cpp
-platform/gamepad/mac/HIDGamepadProvider.mm @nonARC
-platform/gamepad/mac/LogitechGamepad.cpp
-platform/gamepad/mac/MultiGamepadProvider.mm @nonARC
-platform/gamepad/mac/StadiaHIDGamepad.cpp
 platform/graphics/MediaPlaybackTargetPicker.cpp
 platform/graphics/avfoundation/AVTrackPrivateAVFObjCImpl.mm @nonARC @no-unify-when(bundle<=8)
 platform/graphics/avfoundation/AudioSourceProviderAVFObjC.mm @nonARC @no-unify-when(bundle<=8)

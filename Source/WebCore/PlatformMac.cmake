@@ -160,7 +160,6 @@ list(APPEND WebCore_SOURCES
 
     platform/audio/mac/AudioHardwareListenerMac.cpp
 
-    platform/gamepad/mac/HIDGamepad.cpp
 
     platform/graphics/mac/ColorMac.mm
     platform/graphics/mac/GraphicsChecksMac.cpp
@@ -218,8 +217,6 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
 
     platform/audio/mac/SharedRoutingArbitrator.h
 
-    platform/gamepad/mac/HIDGamepad.h
-    platform/gamepad/mac/HIDGamepadElement.h
 
     platform/graphics/avfoundation/FormatDescriptionUtilities.h
 

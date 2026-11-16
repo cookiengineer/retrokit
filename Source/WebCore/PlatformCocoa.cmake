@@ -196,7 +196,6 @@ list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
     "${WEBCORE_DIR}/platform/audio/cocoa"
     "${WEBCORE_DIR}/platform/cf"
     "${WEBCORE_DIR}/platform/cocoa"
-    "${WEBCORE_DIR}/platform/gamepad/cocoa"
     "${WEBCORE_DIR}/platform/graphics/angle"
     "${WEBCORE_DIR}/platform/graphics/avfoundation"
     "${WEBCORE_DIR}/platform/graphics/avfoundation/cf"
@@ -313,11 +312,7 @@ list(APPEND WebCore_SOURCES
     platform/cocoa/WebCoreNSURLExtras.mm
     platform/cocoa/WebCoreObjCExtras.mm
     platform/cocoa/WebNSAttributedStringExtras.mm
-
-    platform/gamepad/cocoa/CoreHapticsSoftLink.mm
-    platform/gamepad/cocoa/GameControllerHapticEffect.mm
-    platform/gamepad/cocoa/GameControllerHapticEngines.mm
-    platform/gamepad/cocoa/GameControllerSoftLink.mm
+    platform/cocoa/GameControllerMouseSoftLink.mm
 
     platform/graphics/DisplayRefreshMonitor.cpp
     platform/graphics/DisplayRefreshMonitorManager.cpp
@@ -1101,10 +1096,7 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/cocoa/WebCoreObjCExtras.h
     platform/cocoa/WebKitAvailability.h
     platform/cocoa/WebNSAttributedStringExtras.h
-
-    platform/gamepad/cocoa/GameControllerGamepadProvider.h
-    platform/gamepad/cocoa/GameControllerSPI.h
-    platform/gamepad/cocoa/GameControllerSoftLink.h
+    platform/cocoa/GameControllerMouseSoftLink.h
 
     platform/graphics/ImageDecoder.h
     platform/graphics/ImageDecoderIdentifier.h
@@ -1414,8 +1406,6 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     editing/mac/TextUndoInsertionMarkupMac.h
     editing/mac/UniversalAccessZoom.h
 
-    platform/gamepad/mac/HIDGamepadProvider.h
-    platform/gamepad/mac/MultiGamepadProvider.h
 
     platform/mac/LegacyNSPasteboardTypes.h
     platform/mac/NSScrollerImpDetails.h

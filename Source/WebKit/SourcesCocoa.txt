@@ -538,9 +538,6 @@ UIProcess/Extensions/Cocoa/WebExtensionTabCocoa.mm
 UIProcess/Extensions/Cocoa/WebExtensionURLSchemeHandlerCocoa.mm
 UIProcess/Extensions/Cocoa/WebExtensionWindowCocoa.mm
 
-UIProcess/Gamepad/cocoa/UIGamepadProviderCocoa.mm @nonARC
-UIProcess/Gamepad/ios/UIGamepadProviderIOS.mm @nonARC
-UIProcess/Gamepad/mac/UIGamepadProviderMac.mm @nonARC
 
 UIProcess/Inspector/Cocoa/InspectorExtensionDelegate.mm @nonARC
 

@@ -53,8 +53,6 @@ page/glib/DragControllerGLib.cpp
 page/linux/ResourceUsageOverlayLinux.cpp
 page/linux/ResourceUsageThreadLinux.cpp
 
-platform/gamepad/manette/ManetteGamepad.cpp
-platform/gamepad/manette/ManetteGamepadProvider.cpp
 
 platform/generic/ScrollbarsControllerGeneric.cpp
 

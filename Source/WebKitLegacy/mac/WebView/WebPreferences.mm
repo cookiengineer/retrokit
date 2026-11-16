@@ -2215,16 +2215,6 @@ static RetainPtr<NSString>& NODELETE classIBCreatorID()
     [self _setBoolValue:enabled forKey:WebKitServiceControlsEnabledPreferenceKey];
 }
 
-- (BOOL)gamepadsEnabled
-{
-    return [self _boolValueForKey:WebKitGamepadsEnabledPreferenceKey];
-}
-
-- (void)setGamepadsEnabled:(BOOL)flag
-{
-    [self _setBoolValue:flag forKey:WebKitGamepadsEnabledPreferenceKey];
-}
-
 - (BOOL)shouldConvertPositionStyleOnCopy
 {
     return [self _boolValueForKey:WebKitShouldConvertPositionStyleOnCopyPreferenceKey];

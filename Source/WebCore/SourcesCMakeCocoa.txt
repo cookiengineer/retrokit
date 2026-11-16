@@ -49,12 +49,6 @@ Modules/encryptedmedia/legacy/WebKitMediaKeyNeededEvent.cpp
 Modules/encryptedmedia/legacy/WebKitMediaKeySession.cpp
 Modules/encryptedmedia/legacy/WebKitMediaKeys.cpp
 
-Modules/gamepad/Gamepad.cpp
-Modules/gamepad/GamepadButton.cpp
-Modules/gamepad/GamepadEvent.cpp
-Modules/gamepad/GamepadHapticActuator.cpp
-Modules/gamepad/GamepadManager.cpp
-Modules/gamepad/NavigatorGamepad.cpp
 
 Modules/geolocation/cocoa/GeolocationPositionDataCocoa.mm @nonARC
 
@@ -87,11 +81,7 @@ platform/cocoa/SharedVideoFrameInfo.mm @nonARC
 platform/cocoa/SystemBattery.mm @nonARC
 platform/cocoa/VideoFullscreenCaptions.mm @nonARC
 platform/cocoa/WebAVPlayerLayer.mm @nonARC
-
-platform/gamepad/cocoa/CoreHapticsSoftLink.mm @nonARC @no-unify // SOFT_LINK_*_FOR_SOURCE defines non-inline symbols.
-platform/gamepad/cocoa/GameControllerHapticEffect.mm @nonARC
-platform/gamepad/cocoa/GameControllerHapticEngines.mm @nonARC
-platform/gamepad/cocoa/GameControllerSoftLink.mm @nonARC @no-unify // SOFT_LINK_*_FOR_SOURCE defines non-inline symbols.
+platform/cocoa/GameControllerMouseSoftLink.mm @nonARC @no-unify // SOFT_LINK_*_FOR_SOURCE defines non-inline symbols.
 
 platform/graphics/FormatConverter.cpp
 

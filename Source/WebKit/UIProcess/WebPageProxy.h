@@ -204,7 +204,6 @@ enum class DragEventHandled : bool;
 enum class DragHandlingMethod : uint8_t;
 enum class DragOperation : uint8_t;
 enum class DragSourceAction : uint8_t;
-enum class EventMakesGamepadsVisible : bool;
 enum class FocusDirection : uint8_t;
 enum class FrameLoadType : uint8_t;
 enum class HasInsecureContent : bool;
@@ -510,7 +509,6 @@ class ContextMenuContextData;
 class DownloadProxy;
 class DrawingAreaProxy;
 class FrameState;
-class GamepadData;
 class GeolocationPermissionRequestManagerProxy;
 class JavaScriptEvaluationResult;
 class LayerTreeContext;
@@ -2265,18 +2263,6 @@ public:
     bool hasFocusedElementWithUserInteraction() const { return m_hasFocusedElementWithUserInteraction; }
 
 
-#if ENABLE(GAMEPAD)
-    static constexpr Seconds gamepadsRecentlyAccessedThreshold { 1500_ms };
-
-    void gamepadActivity(const Vector<std::optional<GamepadData>>&, WebCore::EventMakesGamepadsVisible);
-    void gamepadsRecentlyAccessed();
-#if PLATFORM(VISION)
-    bool gamepadsConnected() const { return m_gamepadsConnected; }
-    void setGamepadsConnected(bool);
-    void allowGamepadAccess();
-#endif
-#endif
-
     void isLoadingChanged();
 
     void clearUserMediaState();
@@ -3671,11 +3657,6 @@ private:
 
     void frameNameChanged(IPC::Connection&, WebCore::FrameIdentifier, const String& frameName);
 
-#if ENABLE(GAMEPAD)
-    void recentGamepadAccessStateChanged(PAL::HysteresisState);
-    void resetRecentGamepadAccessState();
-#endif
-
     void adjustAdvancedPrivacyProtectionsIfNeeded(API::WebsitePolicies&);
 
     void setAllowsLayoutViewportHeightExpansion(bool);
@@ -4297,12 +4278,6 @@ private:
 
 #if ENABLE(WRITING_TOOLS)
     bool m_isWritingToolsActive { false };
-#endif
-
-#if ENABLE(GAMEPAD)
-#if PLATFORM(VISION)
-    bool m_gamepadsConnected { false };
-#endif
 #endif
 
 #if ENABLE(MODEL_ELEMENT_IMMERSIVE)

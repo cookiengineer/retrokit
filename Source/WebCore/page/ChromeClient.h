@@ -750,10 +750,6 @@ public:
 
     virtual void didAdjustVisibilityWithSelectors(Vector<String>&&) { }
 
-#if ENABLE(GAMEPAD)
-    virtual void gamepadsRecentlyAccessed() { }
-#endif
-
     virtual double baseViewportLayoutSizeScaleFactor() const { return 1; }
 
 #if ENABLE(WRITING_TOOLS)

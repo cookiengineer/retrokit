@@ -54,9 +54,6 @@ public:
     WebKit::TouchGestureController& touchGestureController() const { return *m_touchGestureController; }
 #endif
 
-#if ENABLE(GAMEPAD)
-    static WebKit::WebPageProxy* platformWebPageProxyForGamepadInput();
-#endif
 
 #if USE(ATK)
     WebKitWebViewAccessible* accessible() const;

@@ -61,7 +61,6 @@
 #include "WebFileSystemStorageConnection.h"
 #include "WebFrame.h"
 #include "WebFrameMessages.h"
-#include "WebGamepadProvider.h"
 #include "WebGeolocationManager.h"
 #include "WebIDBConnectionToServer.h"
 #include "WebLoaderStrategy.h"
@@ -124,7 +123,6 @@
 #include <WebCore/MemoryRelease.h>
 #include <WebCore/MessagePort.h>
 #include <WebCore/MockRealtimeMediaSourceCenter.h>
-#include <WebCore/NavigatorGamepad.h>
 #include <WebCore/NetworkStorageSession.h>
 #include <WebCore/Notification.h>
 #include <WebCore/Page.h>
@@ -742,10 +740,6 @@ void WebProcess::initializeWebProcess(WebProcessCreationParameters&& parameters,
         Inspector::RemoteInspector::singleton().connectToWebInspector();
 #endif
 
-#if ENABLE(GAMEPAD)
-    GamepadProvider::singleton().setSharedProvider(WebGamepadProvider::singleton());
-#endif
-
     ServiceWorkerProvider::setSharedProvider(WebServiceWorkerProvider::singleton());
     SharedWorkerProvider::setSharedProvider(WebSharedWorkerProvider::singleton());
 
@@ -767,13 +761,6 @@ void WebProcess::initializeWebProcess(WebProcessCreationParameters&& parameters,
     updateStorageAccessUserAgentStringQuirks(WTF::move(parameters.storageAccessUserAgentStringQuirksData));
     updateDomainsWithStorageAccessQuirks(WTF::move(parameters.storageAccessPromptQuirksDomains));
     updateScriptTrackingPrivacyFilter(WTF::move(parameters.scriptTrackingPrivacyRules));
-
-#if ENABLE(GAMEPAD)
-    // Web processes need to periodically notify the UI process of gamepad access at least as frequently
-    // as the WebPageProxy::gamepadsRecentlyAccessedThreshold value.
-    // 3-times-as-often seems like it will guarantee proper behavior for almost all web pages.
-    WebCore::NavigatorGamepad::setGamepadsRecentlyAccessedThreshold(WebPageProxy::gamepadsRecentlyAccessedThreshold / 3);
-#endif
 
 #if ENABLE(INITIALIZE_ACCESSIBILITY_ON_DEMAND)
     m_shouldInitializeAccessibility = parameters.shouldInitializeAccessibility;
@@ -1298,25 +1285,6 @@ void WebProcess::setHasStylusDevice(bool hasStylusDevice)
 }
 
 #endif // HAVE(STYLUS_DEVICE_OBSERVATION)
-
-#if ENABLE(GAMEPAD)
-
-void WebProcess::setInitialGamepads(const Vector<std::optional<GamepadData>>& gamepadDatas)
-{
-    WebGamepadProvider::singleton().setInitialGamepads(gamepadDatas);
-}
-
-void WebProcess::gamepadConnected(const GamepadData& gamepadData, WebCore::EventMakesGamepadsVisible eventVisibility)
-{
-    WebGamepadProvider::singleton().gamepadConnected(gamepadData, eventVisibility);
-}
-
-void WebProcess::gamepadDisconnected(unsigned index)
-{
-    WebGamepadProvider::singleton().gamepadDisconnected(index);
-}
-
-#endif
 
 void WebProcess::setJavaScriptGarbageCollectorTimerEnabled(bool flag)
 {

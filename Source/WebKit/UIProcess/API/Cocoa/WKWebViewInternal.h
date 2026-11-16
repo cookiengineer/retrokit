@@ -554,10 +554,6 @@ struct LiveResizeSnapshotState {
     RetainPtr<NSString> _pendingPageLoadObserverHost;
 #endif
 
-#if ENABLE(GAMEPAD)
-    BOOL _gamepadsRecentlyAccessed;
-    RetainPtr<id> _gamepadsRecentlyAccessedState;
-#endif
 
 #if ENABLE(OVERLAY_REGIONS_IN_EVENT_REGION)
     BOOL _isScrollingWithOverlayRegion;
@@ -703,16 +699,6 @@ struct LiveResizeSnapshotState {
 
 - (BOOL)_shouldAdjustColorExtensionsForHorizontalBannerViewOverlays;
 
-#if ENABLE(GAMEPAD)
-- (void)_setGamepadsRecentlyAccessed:(BOOL)gamepadsRecentlyAccessed;
-
-#if PLATFORM(VISION)
-@property (nonatomic, readonly) BOOL _gamepadsConnected;
-- (void)_gamepadsConnectedStateChanged;
-- (void)_setAllowGamepadsInput:(BOOL)allowGamepadsInput;
-- (void)_setAllowGamepadsAccess;
-#endif
-#endif
 
 #if ENABLE(MANAGED_UIREFRESHCONTROL_APPEARANCE)
 - (void)_updateRefreshControlAppearance;

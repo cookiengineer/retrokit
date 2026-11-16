@@ -114,12 +114,6 @@ list(APPEND WebKit_PRIVATE_INCLUDE_DIRECTORIES
     "${WEBKIT_DIR}/WebProcess/WebPage/libwpe"
 )
 
-if (ENABLE_GAMEPAD)
-    list(APPEND WebKit_SOURCES
-        UIProcess/Gamepad/libwpe/UIGamepadProviderLibWPE.cpp
-    )
-endif ()
-
 if (ENABLE_WEBDRIVER AND USE_WPE_BACKEND_PLAYSTATION)
     list(APPEND WebKit_SOURCES
         UIProcess/Automation/libwpe/WebAutomationSessionLibWPE.cpp

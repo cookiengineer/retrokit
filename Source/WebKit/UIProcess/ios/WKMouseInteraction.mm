@@ -44,7 +44,7 @@
 
 #import "WKMouseDeviceObserver.h"
 #import <GameController/GameController.h>
-#import <WebCore/GameControllerSoftLink.h>
+#import <WebCore/GameControllerMouseSoftLink.h>
 
 struct PointerLockState {
     bool isActive { false };

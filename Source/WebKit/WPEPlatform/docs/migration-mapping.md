@@ -128,31 +128,6 @@ GBytes-based, change tracking) than the old singleton.
 | `struct wpe_pasteboard_string` / `_string_vector` / `_string_pair` / `_string_map` | — | Removed | Replaced by GBytes + string arrays. |
 | `wpe_pasteboard_string_initialize()` / `_string_free()` / `_string_vector_free()` | — | Removed | No equivalent needed: standard GLib types do this work. |
 
-### `wpe/gamepad.h`
-
-Maps to [class@Gamepad] / [class@GamepadManager], both GObject.
-
-| libwpe symbol | WPEPlatform | Kind | Notes |
-|---|---|---|---|
-| `struct wpe_gamepad_provider` | [class@GamepadManager] | Reshape | |
-| `struct wpe_gamepad` | [class@Gamepad] | Reshape | |
-| `enum wpe_gamepad_axis` (4 axes) | [enum@GamepadAxis] | Reshape | Member names changed: `LEFT_STICK_X` → `LEFT_X`, etc. |
-| `enum wpe_gamepad_button` (17 buttons) | [enum@GamepadButton] | Reshape | Member names changed: `BOTTOM`/`RIGHT`/`LEFT`/`TOP` → `RIGHT_CLUSTER_BOTTOM/RIGHT/LEFT/TOP`, etc. |
-| `wpe_gamepad_provider_create()` / `_destroy()` | [method@Display.create_gamepad_manager] / `g_object_unref()` | Reshape | Manager comes from the display, not a global factory. |
-| `wpe_gamepad_provider_set_client()` | [signal@GamepadManager::device-added] / `device-removed` | Reshape | |
-| `wpe_gamepad_provider_start()` / `_stop()` | — | Removed | Lifecycle is implicit: the manager is active from creation until its last reference is dropped. [method@Display.create_gamepad_manager] returns a new reference owned by the caller, and falls back to a libmanette-based manager only when WebKit is built with libmanette. |
-| `wpe_gamepad_provider_get_backend()` | — | Removed | No equivalent; per-implementation private data is accessed via the GObject subclass directly. |
-| `wpe_gamepad_provider_get_view_backend()` | — | Removed | Gamepads are not associated with a specific view in WPEPlatform. |
-| `wpe_gamepad_provider_dispatch_gamepad_connected()` / `_disconnected()` | [method@GamepadManager.add_device] / `_remove_device()` | Direct | |
-| `wpe_gamepad_create()` / `_destroy()` | Subclass [class@Gamepad] in the platform implementation | Reshape | |
-| `wpe_gamepad_set_client()` | [signal@Gamepad::button-event] / `axis-event` | Reshape | |
-| `wpe_gamepad_get_id()` | [method@Gamepad.get_name] | Direct | Renamed. |
-| `wpe_gamepad_dispatch_button_changed()` / `_analog_button_changed()` | [method@Gamepad.button_event] | Reshape | Single API for both press/release events. |
-| `wpe_gamepad_dispatch_axis_changed()` | [method@Gamepad.axis_event] | Direct | |
-| `wpe_gamepad_set_handler()` | Subclassing | Reshape | The C-callback handler is replaced by GObject subclassing of both [class@Gamepad] and [class@GamepadManager]. |
-| `struct wpe_gamepad_provider_interface` | [class@GamepadManager] subclass (no vfuncs) | Reshape | The manager has no virtual methods to override; device enumeration drives [method@GamepadManager.add_device] / `_remove_device`. |
-| `struct wpe_gamepad_interface` | [class@Gamepad] virtual methods (`start_input_monitor`, `stop_input_monitor`, `has_rumble`, `rumble`) | Reshape | New WPEPlatform additions: rumble support. |
-
 ### `wpe/loader.h`
 
 The `dlopen-the-.so-you-passed` model is replaced by GIO extension

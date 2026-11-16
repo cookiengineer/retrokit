@@ -124,10 +124,6 @@ bool defaultVisualTranslationEnabled();
 bool defaultRemoveBackgroundEnabled();
 #endif
 
-#if ENABLE(GAMEPAD)
-bool NODELETE defaultGamepadVibrationActuatorEnabled();
-#endif
-
 #if ENABLE(WEB_AUTHN)
 bool NODELETE defaultDigitalCredentialsEnabled();
 #endif

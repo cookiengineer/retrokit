@@ -35,7 +35,6 @@
 #include "NativeWebTouchEvent.h"
 #include "NativeWebWheelEvent.h"
 #include "ScreenManager.h"
-#include "UIGamepadProvider.h"
 #include "ViewSnapshotStore.h"
 #include "WebPreferences.h"
 #include <WebCore/Cursor.h>
@@ -219,33 +218,6 @@ void ViewPlatform::requestExitFullScreen()
 }
 #endif // ENABLE(FULLSCREEN_API)
 
-#if ENABLE(GAMEPAD)
-WebPageProxy* ViewPlatform::platformWebPageProxyForGamepadInput()
-{
-    // Find the visible view getting the input focus in the active toplevel.
-    GUniquePtr<GList> toplevels(wpe_toplevel_list());
-    for (GList* iter = toplevels.get(); iter; iter = g_list_next(iter)) {
-        auto* toplevel = WPE_TOPLEVEL(iter->data);
-        if (!(wpe_toplevel_get_state(toplevel) & WPE_TOPLEVEL_STATE_ACTIVE))
-            continue;
-
-        WPEView* view = nullptr;
-        wpe_toplevel_foreach_view(toplevel, +[](WPEToplevel* toplevel, WPEView* view, gpointer userData) -> gboolean {
-            if (wpe_view_get_visible(view) && wpe_view_get_has_focus(view)) {
-                *static_cast<WPEView**>(userData) = view;
-                return TRUE;
-            }
-            return FALSE;
-        }, &view);
-
-        if (view) {
-            if (auto* wkView = g_object_get_data(G_OBJECT(view), "wk-view"))
-                return &static_cast<View*>(wkView)->page();
-        }
-    }
-    return nullptr;
-}
-#endif
 
 void ViewPlatform::updateAcceleratedSurface(uint64_t surfaceID)
 {
@@ -277,20 +249,12 @@ bool ViewPlatform::activityStateChanged(WebCore::ActivityState state, bool value
         if (m_viewStateFlags.contains(state))
             return false;
 
-#if ENABLE(GAMEPAD)
-        if (state == WebCore::ActivityState::WindowIsActive)
-            UIGamepadProvider::singleton().viewBecameActive(page());
-#endif
 
         m_viewStateFlags.add(state);
     } else {
         if (!m_viewStateFlags.contains(state))
             return false;
 
-#if ENABLE(GAMEPAD)
-        if (state == WebCore::ActivityState::WindowIsActive)
-            UIGamepadProvider::singleton().viewBecameInactive(page());
-#endif
 
         m_viewStateFlags.remove(state);
     }

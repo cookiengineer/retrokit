@@ -195,15 +195,9 @@ struct UIEdgeInsets;
 
 - (void)_webView:(WKWebView *)webView didAdjustVisibilityWithSelectors:(NSArray<NSString *> *)selectors WK_API_AVAILABLE(macos(15.0), ios(18.0), visionos(2.0));
 
-- (void)_webViewRecentlyAccessedGamepadsForTesting:(WKWebView *)webView WK_API_AVAILABLE(macos(15.0), ios(18.0), visionos(2.0));
-- (void)_webViewStoppedAccessingGamepadsForTesting:(WKWebView *)webView WK_API_AVAILABLE(macos(15.0), ios(18.0), visionos(2.0));
-
 - (bool)_focusWebViewFromServiceWorker:(WKWebView *)webView WK_API_AVAILABLE(macos(13.0), ios(16.0));
 
 #if defined(TARGET_OS_VISION) && TARGET_OS_VISION
-- (void)_webView:(WKWebView *)webView setRecentlyAccessedGamepads:(BOOL)recentlyAccessedGamepads WK_API_AVAILABLE(visionos(2.0));
-- (void)_webView:(WKWebView *)webView gamepadsConnectedStateDidChange:(BOOL)gamepadsConnected WK_API_AVAILABLE(visionos(2.0));
-
 - (void)_webViewWillPresentModalUI:(WKWebView *)webView WK_API_AVAILABLE(visionos(26.4));
 #endif
 

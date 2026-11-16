@@ -99,7 +99,6 @@ public:
     virtual bool isNavigatorClipboard() const { return false; }
     virtual bool isNavigatorContacts() const { return false; }
     virtual bool isNavigatorCredentials() const { return false; }
-    virtual bool isNavigatorGamepad() const { return false; }
     virtual bool isNavigatorGeolocation() const { return false; }
     virtual bool isNavigatorLoginStatus() const { return false; }
     virtual bool isNavigatorMediaCapabilities() const { return false; }

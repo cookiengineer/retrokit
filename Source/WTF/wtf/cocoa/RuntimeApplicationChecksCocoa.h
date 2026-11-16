@@ -129,7 +129,6 @@ enum class SDKAlignedBehavior {
     DispatchFocusEventBeforeNotifyingClient,
     EnableTrustedTypesByDefault,
     BlobFileAccessEnforcement,
-    SupportGameControllerEventInteractionAPI,
     DidFailProvisionalNavigationWithErrorForFileURLNavigation,
     CrashWhenPreconnectingFromBackgroundThread,
     ExecutionTimingChangeOfModuleScripts,

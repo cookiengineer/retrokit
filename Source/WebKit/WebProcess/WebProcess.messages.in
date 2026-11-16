@@ -112,12 +112,6 @@ messages -> WebProcess : AuxiliaryProcess WantsAsyncDispatchMessage {
 
     BackgroundResponsivenessPing()
 
-#if ENABLE(GAMEPAD)
-    SetInitialGamepads(Vector<std::optional<WebKit::GamepadData>> gamepadDatas)
-    GamepadConnected(WebKit::GamepadData gamepadData, enum:bool WebCore::EventMakesGamepadsVisible eventVisibility)
-    GamepadDisconnected(unsigned index)
-#endif
-
     EstablishRemoteWorkerContextConnectionToNetworkProcess(enum:uint8_t WebKit::RemoteWorkerType workerType, WebKit::PageGroupIdentifier pageGroupID, WebKit::WebPageProxyIdentifier webPageProxyID, WebCore::PageIdentifier pageID, struct WebKit::WebPreferencesStore store, WebCore::Site site, std::optional<WebCore::ScriptExecutionContextIdentifier> serviceWorkerPageIdentifier, struct WebKit::RemoteWorkerInitializationData initializationData, enum:bool WebCore::CrossOriginEmbedderPolicyValue workerCrossOriginEmbedderPolicy) -> ()
 
     RegisterServiceWorkerClients() -> (bool isSuccess)

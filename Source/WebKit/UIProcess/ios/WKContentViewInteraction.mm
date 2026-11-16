@@ -53,7 +53,6 @@
 #import "TextCheckerState.h"
 #import "TextInputSPI.h"
 #import "TextRecognitionUpdateResult.h"
-#import "UIGamepadProvider.h"
 #import "UIKitSPI.h"
 #import "UIKitUtilities.h"
 #import "WKActionSheetAssistant.h"
@@ -1484,14 +1483,6 @@ static WKDragSessionContext *ensureLocalDragSessionContext(id <UIDragSession> se
     [_keyboardDismissalGestureRecognizer setEnabled:protect(_page->preferences())->keyboardDismissalGestureEnabled()];
     [self addGestureRecognizer:_keyboardDismissalGestureRecognizer.get()];
 
-#if ENABLE(GAMEPAD)
-    _gamepadInteractionGestureRecognizer = adoptNS([[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(_gamepadInteractionGestureRecognized:)]);
-    [_gamepadInteractionGestureRecognizer setDelegate:self];
-    [_gamepadInteractionGestureRecognizer setName:@"Gamepad interaction menu gesture"];
-    _gamepadInteractionGestureRecognizer.get().allowedTouchTypes = @[];
-    _gamepadInteractionGestureRecognizer.get().allowedPressTypes = @[@(UIPressTypeMenu)];
-    [self addGestureRecognizer:_gamepadInteractionGestureRecognizer.get()];
-#endif
 
 #if HAVE(UI_PASTE_CONFIGURATION)
     self.pasteConfiguration = adoptNS([[UIPasteConfiguration alloc] initWithAcceptableTypeIdentifiers:protect([&] {
@@ -1811,9 +1802,6 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     [self addGestureRecognizer:_touchActionDownSwipeGestureRecognizer.get()];
     [self addGestureRecognizer:_keyboardDismissalGestureRecognizer.get()];
 
-#if ENABLE(GAMEPAD)
-    [self addGestureRecognizer:_gamepadInteractionGestureRecognizer.get()];
-#endif
 }
 
 - (void)_didChangeLinkPreviewAvailability
@@ -2048,9 +2036,6 @@ ALLOW_DEPRECATED_DECLARATIONS_END
             [strongSelf stopDeferringInputViewUpdates:WebKit::InputViewUpdateDeferralSource::BecomeFirstResponder];
         });
 
-#if ENABLE(GAMEPAD)
-        WebKit::UIGamepadProvider::singleton().viewBecameActive(*protect(_page));
-#endif
 
         protect(_page)->activityStateDidChange(WebCore::ActivityState::IsFocused, WebKit::WebPageProxy::ActivityStateChangeDispatchMode::Immediate);
 
@@ -2168,9 +2153,6 @@ typedef NS_ENUM(NSInteger, EndEditingReason) {
         [self _handleDOMPasteRequestWithResult:WebCore::DOMPasteAccessResponse::DeniedForGesture];
         protect(_page)->activityStateDidChange(WebCore::ActivityState::IsFocused, WebKit::WebPageProxy::ActivityStateChangeDispatchMode::Immediate);
 
-#if ENABLE(GAMEPAD)
-        WebKit::UIGamepadProvider::singleton().viewBecameInactive(*protect(_page));
-#endif
 
         _isHandlingActiveKeyEvent = NO;
         _isHandlingActivePressesEvent = NO;
@@ -3105,12 +3087,6 @@ static inline bool isSamePair(UIGestureRecognizer *a, UIGestureRecognizer *b, UI
 
 - (BOOL)gestureRecognizer:(UIGestureRecognizer *)gestureRecognizer shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)otherGestureRecognizer
 {
-#if ENABLE(GAMEPAD)
-    if (gestureRecognizer == _gamepadInteractionGestureRecognizer || otherGestureRecognizer == _gamepadInteractionGestureRecognizer) {
-        if (WebKit::UIGamepadProvider::singleton().platformWebPageProxyForGamepadInput() == _page)
-            return NO;
-    }
-#endif
 
     if (gestureRecognizer == _keyboardDismissalGestureRecognizer || otherGestureRecognizer == _keyboardDismissalGestureRecognizer)
         return YES;
@@ -3225,12 +3201,6 @@ static inline bool isSamePair(UIGestureRecognizer *a, UIGestureRecognizer *b, UI
 
 - (BOOL)gestureRecognizer:(UIGestureRecognizer *)gestureRecognizer shouldBeRequiredToFailByGestureRecognizer:(UIGestureRecognizer *)otherGestureRecognizer
 {
-#if ENABLE(GAMEPAD)
-    if (gestureRecognizer == _gamepadInteractionGestureRecognizer || otherGestureRecognizer == _gamepadInteractionGestureRecognizer) {
-        if (WebKit::UIGamepadProvider::singleton().platformWebPageProxyForGamepadInput() == _page)
-            return NO;
-    }
-#endif
 
 #if ENABLE(MODEL_PROCESS)
     if (gestureRecognizer == _modelInteractionPanGestureRecognizer && otherGestureRecognizer == [_webView.get() scrollView].panGestureRecognizer)
@@ -4052,12 +4022,6 @@ static void cancelPotentialTapIfNecessary(WKContentView* contentView)
     [self stopDeferringInputViewUpdates:WebKit::InputViewUpdateDeferralSource::TapGesture];
 }
 
-#if ENABLE(GAMEPAD)
-- (void)_gamepadInteractionGestureRecognized:(UITapGestureRecognizer *)gestureRecognizer
-{
-    // This space intentionally left blank.
-}
-#endif
 
 #if ENABLE(MODEL_PROCESS)
 - (void)_modelInteractionPanGestureRecognized:(UIPanGestureRecognizer *)gestureRecognizer

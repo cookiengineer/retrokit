@@ -234,10 +234,6 @@ void UIDelegate::setDelegate(id<WKUIDelegate> delegate)
 
     m_delegateMethods.webViewDidAdjustVisibilityWithSelectors = [delegate respondsToSelector:@selector(_webView:didAdjustVisibilityWithSelectors:)];
 
-#if ENABLE(GAMEPAD)
-    m_delegateMethods.webViewRecentlyAccessedGamepadsForTesting = [delegate respondsToSelector:@selector(_webViewRecentlyAccessedGamepadsForTesting:)];
-    m_delegateMethods.webViewStoppedAccessingGamepadsForTesting = [delegate respondsToSelector:@selector(_webViewStoppedAccessingGamepadsForTesting:)];
-#endif
 
 #if PLATFORM(IOS_FAMILY)
     m_delegateMethods.webViewDidEnterStandby = [delegate respondsToSelector:@selector(_webViewDidEnterStandbyForTesting:)];
@@ -1994,39 +1990,6 @@ void UIDelegate::UIClient::didAdjustVisibilityWithSelectors(WebPageProxy&, Vecto
     [delegate _webView:uiDelegate->m_webView.get().get() didAdjustVisibilityWithSelectors:nsSelectors.get()];
 }
 
-#if ENABLE(GAMEPAD)
-void UIDelegate::UIClient::recentlyAccessedGamepadsForTesting(WebPageProxy&)
-{
-    RefPtr uiDelegate = m_uiDelegate.get();
-    if (!uiDelegate)
-        return;
-
-    if (!uiDelegate->m_delegateMethods.webViewRecentlyAccessedGamepadsForTesting)
-        return;
-
-    RetainPtr delegate = uiDelegatePrivate();
-    if (!delegate)
-        return;
-
-    [delegate _webViewRecentlyAccessedGamepadsForTesting:uiDelegate->m_webView.get().get()];
-}
-
-void UIDelegate::UIClient::stoppedAccessingGamepadsForTesting(WebPageProxy&)
-{
-    RefPtr uiDelegate = m_uiDelegate.get();
-    if (!uiDelegate)
-        return;
-
-    if (!uiDelegate->m_delegateMethods.webViewStoppedAccessingGamepadsForTesting)
-        return;
-
-    RetainPtr delegate = uiDelegatePrivate();
-    if (!delegate)
-        return;
-
-    [delegate _webViewStoppedAccessingGamepadsForTesting:uiDelegate->m_webView.get().get()];
-}
-#endif
 
 
 #if PLATFORM(IOS_FAMILY)

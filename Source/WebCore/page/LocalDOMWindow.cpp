@@ -182,10 +182,6 @@
 #include "WebKitNamespace.h"
 #endif
 
-#if ENABLE(GAMEPAD)
-#include "GamepadManager.h"
-#endif
-
 #if ENABLE(GEOLOCATION)
 #include "NavigatorGeolocation.h"
 #endif
@@ -516,11 +512,6 @@ LocalDOMWindow::~LocalDOMWindow()
     removeAllUnloadEventListeners(this);
     removeAllBeforeUnloadEventListeners(this);
 
-#if ENABLE(GAMEPAD)
-    if (m_gamepadEventListenerCount)
-        GamepadManager::singleton().unregisterDOMWindow(*this);
-#endif
-
     removeLanguageChangeObserver(this);
 
     windowsInterestedInStorageEvents().remove(*this);
@@ -596,24 +587,6 @@ void LocalDOMWindow::setCachedMainWorldGlobalObject(JSDOMGlobalObject* globalObj
 {
     m_cachedMainWorldGlobalObject = JSC::Weak<JSDOMGlobalObject> { globalObject };
 }
-
-#if ENABLE(GAMEPAD)
-
-void LocalDOMWindow::incrementGamepadEventListenerCount()
-{
-    if (++m_gamepadEventListenerCount == 1)
-        GamepadManager::singleton().registerDOMWindow(*this);
-}
-
-void LocalDOMWindow::decrementGamepadEventListenerCount()
-{
-    ASSERT(m_gamepadEventListenerCount);
-
-    if (!--m_gamepadEventListenerCount)
-        GamepadManager::singleton().unregisterDOMWindow(*this);
-}
-
-#endif
 
 void LocalDOMWindow::registerObserver(LocalDOMWindowObserver& observer)
 {
@@ -2138,10 +2111,6 @@ bool LocalDOMWindow::addEventListener(const AtomString& eventType, Ref<EventList
         if (typeInfo.isInCategory(EventCategory::Gesture))
             ++m_touchAndGestureEventListenerCount;
 #endif
-#if ENABLE(GAMEPAD)
-        if (typeInfo.isInCategory(EventCategory::Gamepad))
-            incrementGamepadEventListenerCount();
-#endif
         break;
     }
 
@@ -2410,10 +2379,6 @@ bool LocalDOMWindow::removeEventListener(const AtomString& eventType, EventListe
             ASSERT(m_touchAndGestureEventListenerCount > 0);
             --m_touchAndGestureEventListenerCount;
         }
-#endif
-#if ENABLE(GAMEPAD)
-        if (typeInfo.isInCategory(EventCategory::Gamepad))
-            decrementGamepadEventListenerCount();
 #endif
         break;
     }

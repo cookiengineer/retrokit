@@ -50,7 +50,6 @@ public:
         Microphone,
         SpeakerSelection,
         DisplayCapture,
-        Gamepad,
         Geolocation,
         Payment,
         ScreenWakeLock,

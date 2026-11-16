@@ -67,9 +67,6 @@
 #import "_WKWebExtensionController.h"
 #endif
 
-#if PLATFORM(VISION) && ENABLE(GAMEPAD)
-#import <WebCore/ShouldRequireExplicitConsentForGamepadAccess.h>
-#endif
 
 #if PLATFORM(IOS_FAMILY)
 
@@ -261,7 +258,6 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     [coder encodeBool:self._scrollToTextFragmentMarkingEnabled forKey:@"scrollToTextFragmentMarkingEnabled"];
     [coder encodeBool:self._multiRepresentationHEICInsertionEnabled forKey:@"multiRepresentationHEICInsertionEnabled"];
 #if PLATFORM(VISION)
-    [coder encodeBool:self._gamepadAccessRequiresExplicitConsent forKey:@"gamepadAccessRequiresExplicitConsent"];
     [coder encodeBool:self._cssTransformStyleSeparatedEnabled forKey:@"cssTransformStyleSeparatedEnabled"];
 #endif
 }
@@ -316,7 +312,6 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     self._scrollToTextFragmentMarkingEnabled = [coder decodeBoolForKey:@"scrollToTextFragmentMarkingEnabled"];
     self._multiRepresentationHEICInsertionEnabled = [coder decodeBoolForKey:@"multiRepresentationHEICInsertionEnabled"];
 #if PLATFORM(VISION)
-    self._gamepadAccessRequiresExplicitConsent = [coder decodeBoolForKey:@"gamepadAccessRequiresExplicitConsent"];
     self._cssTransformStyleSeparatedEnabled = [coder decodeBoolForKey:@"cssTransformStyleSeparatedEnabled"];
 #endif
 
@@ -1606,22 +1601,6 @@ static WebKit::AttributionOverrideTesting toAttributionOverrideTesting(_WKAttrib
 }
 
 #if PLATFORM(VISION)
-- (BOOL)_gamepadAccessRequiresExplicitConsent
-{
-#if ENABLE(GAMEPAD)
-    return _pageConfiguration->gamepadAccessRequiresExplicitConsent() == WebCore::ShouldRequireExplicitConsentForGamepadAccess::Yes;
-#else
-    return NO;
-#endif
-}
-
-- (void)_setGamepadAccessRequiresExplicitConsent:(BOOL)gamepadAccessRequiresExplicitConsent
-{
-#if ENABLE(GAMEPAD)
-    _pageConfiguration->setGamepadAccessRequiresExplicitConsent(gamepadAccessRequiresExplicitConsent ? WebCore::ShouldRequireExplicitConsentForGamepadAccess::Yes : WebCore::ShouldRequireExplicitConsentForGamepadAccess::No);
-#endif
-}
-
 - (BOOL)_cssTransformStyleSeparatedEnabled
 {
 #if HAVE(CORE_ANIMATION_SEPARATED_LAYERS)

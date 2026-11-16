@@ -20,7 +20,7 @@ below) and simply depends on the core module.
 
 | Module | Header | What it provides |
 |---|---|---|
-| `wpe-platform-2.0` | `<wpe/wpe-platform.h>` | The core API: [class@Display], [class@View], [class@Toplevel], [class@Buffer], events, settings, keymap, clipboard, gamepad, input-method, screens. |
+| `wpe-platform-2.0` | `<wpe/wpe-platform.h>` | The core API: [class@Display], [class@View], [class@Toplevel], [class@Buffer], events, settings, keymap, clipboard, input-method, screens. |
 | `wpe-platform-wayland-2.0` | `<wpe/wayland/wpe-wayland.h>` | The built-in Wayland implementation (`wpe_display_wayland_new()`, `WPEScreenWayland`, `WPEToplevelWayland`, `WPEViewWayland`, `WPEClipboardWayland`). |
 | `wpe-platform-drm-2.0` | `<wpe/drm/wpe-drm.h>` | The built-in DRM/KMS implementation (`wpe_display_drm_new()`, related screen/toplevel/view classes). |
 | `wpe-platform-headless-2.0` | `<wpe/headless/wpe-headless.h>` | The built-in headless implementation (`wpe_display_headless_new()`, headless toplevel/view). |

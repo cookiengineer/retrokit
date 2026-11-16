@@ -163,7 +163,6 @@ WK_CLASS_AVAILABLE(macos(14.5), ios(17.5), visionos(1.2))
 - (size_t)_webPageContentProcessCount WK_API_AVAILABLE(macos(10.13.4), ios(11.3));
 
 // Test only. Should be called before any web content processes are launched.
-+ (void)_forceGameControllerFramework WK_API_AVAILABLE(macos(10.13), ios(11.0));
 + (void)_setLinkedOnOrAfterEverythingForTesting WK_API_AVAILABLE(macos(12.0), ios(15.0));
 + (void)_crashOnMessageCheckFailureForTesting WK_API_AVAILABLE(macos(15.4), ios(18.4), visionos(2.4));
 + (void)_forceUseSharedMemoryForSendingForTesting:(BOOL)force WK_API_AVAILABLE(macos(27.0), ios(27.0), visionos(27.0));
@@ -191,10 +190,6 @@ WK_CLASS_AVAILABLE(macos(14.5), ios(17.5), visionos(1.2))
 // Test only.
 - (void)_seedResourceLoadStatisticsForTestingWithFirstParty:(NSURL *)firstPartyURL thirdParty:(NSURL *)thirdPartyURL shouldScheduleNotification:(BOOL)shouldScheduleNotification completionHandler:(void(^)(void))completionHandler  WK_API_AVAILABLE(macos(10.15.4), ios(13.4));
 - (void)_garbageCollectJavaScriptObjectsForTesting WK_API_AVAILABLE(macos(11.0), ios(14.0));
-- (size_t)_numberOfConnectedGamepadsForTesting WK_API_AVAILABLE(macos(11.0), ios(14.0));
-- (size_t)_numberOfConnectedHIDGamepadsForTesting WK_API_AVAILABLE(macos(11.0), ios(15.0));
-- (size_t)_numberOfConnectedGameControllerFrameworkGamepadsForTesting WK_API_AVAILABLE(macos(11.0), ios(14.0));
-- (void)_setUsesOnlyHIDGamepadProviderForTesting:(BOOL)usesHIDProvider WK_API_AVAILABLE(macos(11.0), ios(14.0));
 
 + (_WKProcessInfo *)_gpuProcessInfo WK_API_AVAILABLE(macos(14.5));
 + (NSArray<_WKProcessInfo *> *)_networkingProcessInfo WK_API_AVAILABLE(macos(14.5));

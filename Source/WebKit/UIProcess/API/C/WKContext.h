@@ -209,8 +209,6 @@ WK_EXPORT void WKContextRefreshPlugIns(WKContextRef context);
 
 WK_EXPORT void WKContextSetCustomWebContentServiceBundleIdentifier(WKContextRef contextRef, WKStringRef name) WK_C_API_DEPRECATED;
 
-WK_EXPORT void WKContextClearMockGamepadsForTesting(WKContextRef contextRef);
-
 typedef void (*WKContextSetResourceMonitorURLsFunction)(void* functionContext);
 WK_EXPORT void WKContextSetResourceMonitorURLsForTesting(WKContextRef contextRef, WKStringRef rulesText, void* context, WKContextSetResourceMonitorURLsFunction callback);
 

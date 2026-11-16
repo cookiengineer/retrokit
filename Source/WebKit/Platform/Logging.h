@@ -105,7 +105,6 @@ extern "C" {
     M(Extensions) \
     M(FrameTree) \
     M(Fullscreen) \
-    M(Gamepad) \
     M(GestureHandling) \
     M(IPC) \
     M(IPCMessages) \

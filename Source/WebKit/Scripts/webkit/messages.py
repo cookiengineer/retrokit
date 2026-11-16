@@ -1217,7 +1217,6 @@ def headers_for_type(type, for_implementation_file=False):
         'WebCore::ElementAnimationContext': ['<WebCore/ElementAnimationContext.h>'],
         'WebCore::ElementContext': ['<WebCore/ElementContext.h>'],
         'WebCore::EncryptionBoxType': ['<WebCore/TrackInfo.h>'],
-        'WebCore::EventMakesGamepadsVisible': ['<WebCore/GamepadProviderClient.h>'],
         'WebCore::ExceptionDetails': ['<WebCore/JSDOMExceptionHandling.h>'],
         'WebCore::FontInternalAttributes': ['<WebCore/Font.h>'],
         'WebCore::FileChooserSettings': ['<WebCore/FileChooser.h>'],

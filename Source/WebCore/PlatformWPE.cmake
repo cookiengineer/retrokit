@@ -145,16 +145,6 @@ if (USE_LIBHYPHEN)
     list(APPEND WebCore_PRIVATE_LIBRARIES Hyphen::Hyphen)
 endif ()
 
-if (ENABLE_GAMEPAD)
-    list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
-        "${WEBCORE_DIR}/platform/gamepad/libwpe"
-    )
-
-    list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
-        platform/gamepad/libwpe/GamepadProviderLibWPE.h
-    )
-endif ()
-
 if (USE_VULKAN)
     list(APPEND WebCore_PRIVATE_LIBRARIES volk::volk)
     list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES

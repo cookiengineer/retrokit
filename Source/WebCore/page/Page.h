@@ -65,10 +65,6 @@
 #include <WebCore/ApplicationManifest.h>
 #endif
 
-#if PLATFORM(VISION) && ENABLE(GAMEPAD)
-#include <WebCore/ShouldRequireExplicitConsentForGamepadAccess.h>
-#endif
-
 #if ENABLE(THREADED_ANIMATIONS)
 #include <WebCore/AcceleratedTimelinesUpdater.h>
 #endif
@@ -1267,14 +1263,6 @@ public:
     String defaultSpatialTrackingLabel() const { return m_defaultSpatialTrackingLabel; }
 #endif
 
-#if ENABLE(GAMEPAD)
-    void gamepadsRecentlyAccessed();
-#if PLATFORM(VISION)
-    WEBCORE_EXPORT void allowGamepadAccess();
-    bool gamepadAccessGranted() const { return m_gamepadAccessGranted; }
-#endif
-#endif
-
 #if ENABLE(WRITING_TOOLS)
     WEBCORE_EXPORT void willBeginWritingToolsSession(const std::optional<WritingTools::Session>&, WeakHashSet<Node, WeakPtrImplWithEventTargetData>&&, CompletionHandler<void(const Vector<WritingTools::Context>&)>&&);
 
@@ -1461,10 +1449,6 @@ private:
     void updateElementsWithTextRecognitionResults();
 #endif
 
-
-#if PLATFORM(VISION) && ENABLE(GAMEPAD)
-    void initializeGamepadAccessForPageLoad();
-#endif
 
     void computeSampledPageTopColorIfNecessary();
     void clearSampledPageTopColor();
@@ -1819,14 +1803,6 @@ private:
 
 #if HAVE(SPATIAL_TRACKING_LABEL)
     String m_defaultSpatialTrackingLabel;
-#endif
-
-#if ENABLE(GAMEPAD)
-    MonotonicTime m_lastAccessNotificationTime;
-#if PLATFORM(VISION)
-    bool m_gamepadAccessGranted { true };
-    ShouldRequireExplicitConsentForGamepadAccess m_gamepadAccessRequiresExplicitConsent { ShouldRequireExplicitConsentForGamepadAccess::No };
-#endif
 #endif
 
 #if ENABLE(WRITING_TOOLS)

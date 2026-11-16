@@ -89,7 +89,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgudev-1.0-dev \
     libenchant-2-dev \
     libhyphen-dev \
-    libmanette-0.2-dev \
     libgcrypt20-dev \
     libtasn1-6-dev \
     libseccomp-dev \

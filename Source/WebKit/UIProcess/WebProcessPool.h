@@ -101,10 +101,7 @@ class PageConfiguration;
 namespace WebCore {
 class RegistrableDomain;
 class Site;
-enum class EventMakesGamepadsVisible : bool;
-enum class GamepadHapticEffectType : uint8_t;
 enum class ProcessSwapDisposition : uint8_t;
-struct GamepadEffectParameters;
 struct MockMediaDevice;
 #if PLATFORM(COCOA)
 class PowerSourceNotifier;
@@ -118,7 +115,6 @@ class ExtensionCapabilityGranter;
 class LockdownModeObserver;
 class PerActivityStateCPUUsageSampler;
 class SuspendedPageProxy;
-class UIGamepad;
 class WebAutomationSession;
 class WebBackForwardCache;
 class WebCompiledContentRuleList;
@@ -359,14 +355,6 @@ public:
     void garbageCollectJavaScriptObjects();
     void setJavaScriptGarbageCollectorTimerEnabled(bool flag);
 
-    enum class GamepadType {
-        All,
-        HID,
-        GameControllerFramework,
-    };
-    size_t numberOfConnectedGamepadsForTesting(GamepadType);
-    void NODELETE setUsesOnlyHIDGamepadProviderForTesting(bool);
-
 #if PLATFORM(COCOA)
     static bool omitPDFSupport();
 #endif
@@ -457,11 +445,6 @@ public:
     bool alwaysRunsAtBackgroundPriority() const { return m_alwaysRunsAtBackgroundPriority; }
     bool shouldTakeUIBackgroundAssertion() const { return m_shouldTakeUIBackgroundAssertion; }
     static bool anyProcessPoolNeedsUIBackgroundAssertion();
-
-#if ENABLE(GAMEPAD)
-    void gamepadConnected(const UIGamepad&, WebCore::EventMakesGamepadsVisible);
-    void gamepadDisconnected(const UIGamepad&);
-#endif
 
 #if PLATFORM(COCOA)
     bool cookieStoragePartitioningEnabled() const { return m_cookieStoragePartitioningEnabled; }
@@ -653,15 +636,6 @@ private:
 
     void handleMessage(IPC::Connection&, const String& messageName, const UserData& messageBody);
     void handleSynchronousMessage(IPC::Connection&, const String& messageName, const UserData& messageBody, CompletionHandler<void(UserData&&)>&&);
-
-#if ENABLE(GAMEPAD)
-    void startedUsingGamepads(IPC::Connection&);
-    void stoppedUsingGamepads(IPC::Connection&, CompletionHandler<void()>&&);
-    void playGamepadEffect(unsigned gamepadIndex, const String& gamepadID, WebCore::GamepadHapticEffectType, const WebCore::GamepadEffectParameters&, CompletionHandler<void(bool)>&&);
-    void stopGamepadEffects(unsigned gamepadIndex, const String& gamepadID, CompletionHandler<void()>&&);
-
-    void processStoppedUsingGamepads(WebProcessProxy&);
-#endif
 
 #if ENABLE(MODEL_PROCESS)
     void startedPlayingModels(IPC::Connection&);
@@ -900,10 +874,6 @@ private:
 
 #if PLATFORM(COCOA)
     RetainPtr<NSMutableDictionary> m_bundleParameters;
-#endif
-
-#if ENABLE(GAMEPAD)
-    WeakHashSet<WebProcessProxy> m_processesUsingGamepads;
 #endif
 
 #if PLATFORM(COCOA)

@@ -237,8 +237,6 @@ UIProcess/Extensions/glib/WebExtensionGLib.cpp
 
 UIProcess/Extensions/gtk/WebExtensionGTK.cpp
 
-UIProcess/Gamepad/gtk/UIGamepadProviderGtk.cpp
-UIProcess/Gamepad/manette/UIGamepadProviderManette.cpp
 
 UIProcess/geoclue/GeoclueGeolocationProvider.cpp
 

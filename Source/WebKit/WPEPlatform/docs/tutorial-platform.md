@@ -96,12 +96,10 @@ have:
 - [vfunc@Display.get_egl_display] — an `EGLDisplay` for
   hardware-accelerated rendering.
 - [vfunc@Display.get_keymap], [vfunc@Display.get_clipboard],
-  [vfunc@Display.create_input_method_context],
-  [vfunc@Display.create_gamepad_manager] — keyboard, clipboard, input
-  method, and gamepad support. A display that provides no keymap gets a
-  fallback XKB one automatically, one that provides no clipboard gets a
-  local one, and one that provides no gamepad manager gets a
-  libmanette-based one when WebKit is built with libmanette.
+  [vfunc@Display.create_input_method_context] — keyboard, clipboard and
+  input method support. A display that provides no keymap gets a
+  fallback XKB one automatically, and one that provides no clipboard
+  gets a local one.
 - [vfunc@Display.get_n_screens] / [vfunc@Display.get_screen] — the
   monitors the platform exposes (see
   [The display's screens](#the-displays-screens)).
@@ -112,8 +110,8 @@ have:
   whether the platform has monitors: even an offscreen implementation
   has to agree on buffer formats.
 
-Only some of the optional slots have a fallback (the keymap, clipboard,
-gamepad manager and, when built with libdrm, the preferred buffer
+Only some of the optional slots have a fallback (the keymap, clipboard
+and, when built with libdrm, the preferred buffer
 formats). The others simply report the capability as missing: without
 `get_egl_display` there is no `EGLDisplay` (a
 `WPE_DISPLAY_ERROR_NOT_SUPPORTED` error), without `create_toplevel` views

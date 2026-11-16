@@ -110,7 +110,6 @@ class SecurityOriginData;
 class Site;
 class UserGestureToken;
 
-enum class EventMakesGamepadsVisible : bool;
 enum class PlatformMediaSessionRemoteControlCommandType : uint8_t;
 enum class RenderAsTextFlag : uint16_t;
 enum class RenderingPurpose : uint8_t;
@@ -134,7 +133,6 @@ namespace WebKit {
 
 class AudioMediaStreamTrackRendererInternalUnitManager;
 class AudioSessionRoutingArbitrator;
-class GamepadData;
 class GPUProcessConnection;
 class InjectedBundle;
 class LibWebRTCCodecs;
@@ -629,12 +627,6 @@ private:
     void setJavaScriptGarbageCollectorTimerEnabled(bool flag);
 
     void backgroundResponsivenessPing();
-
-#if ENABLE(GAMEPAD)
-    void setInitialGamepads(const Vector<std::optional<GamepadData>>&);
-    void gamepadConnected(const GamepadData&, WebCore::EventMakesGamepadsVisible);
-    void gamepadDisconnected(unsigned index);
-#endif
 
     void establishRemoteWorkerContextConnectionToNetworkProcess(RemoteWorkerType, PageGroupIdentifier, WebPageProxyIdentifier, WebCore::PageIdentifier, const WebPreferencesStore&, WebCore::Site&&, std::optional<WebCore::ScriptExecutionContextIdentifier> serviceWorkerPageIdentifier, RemoteWorkerInitializationData&&, WebCore::CrossOriginEmbedderPolicyValue, CompletionHandler<void()>&&);
     void registerServiceWorkerClients(CompletionHandler<void(bool)>&&);

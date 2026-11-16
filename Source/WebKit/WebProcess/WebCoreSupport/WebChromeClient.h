@@ -543,10 +543,6 @@ private:
 
     void didAdjustVisibilityWithSelectors(Vector<String>&&) final;
 
-#if ENABLE(GAMEPAD)
-    void gamepadsRecentlyAccessed() final;
-#endif
-
 #if ENABLE(WRITING_TOOLS)
     void proofreadingSessionShowDetailsForSuggestionWithIDRelativeToRect(const WebCore::WritingTools::TextSuggestionID&, WebCore::IntRect selectionBoundsInRootView) final;
 

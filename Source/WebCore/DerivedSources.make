@@ -359,14 +359,6 @@ JS_BINDING_IDLS := \
     $(WebCore)/Modules/filesystem/FileSystemSyncAccessHandle.idl \
 	$(WebCore)/Modules/filesystem/FileSystemWritableFileStream.idl \
     $(WebCore)/Modules/filesystem/StorageManager+FileSystem.idl \
-    $(WebCore)/Modules/gamepad/Gamepad.idl \
-    $(WebCore)/Modules/gamepad/GamepadButton.idl \
-    $(WebCore)/Modules/gamepad/GamepadEffectParameters.idl \
-    $(WebCore)/Modules/gamepad/GamepadEvent.idl \
-    $(WebCore)/Modules/gamepad/GamepadHapticActuator.idl \
-    $(WebCore)/Modules/gamepad/GamepadHapticEffectType.idl \
-    $(WebCore)/Modules/gamepad/Navigator+Gamepad.idl \
-    $(WebCore)/Modules/gamepad/WindowEventHandlers+Gamepad.idl \
     $(WebCore)/Modules/geolocation/Geolocation.idl \
     $(WebCore)/Modules/geolocation/GeolocationCoordinates.idl \
     $(WebCore)/Modules/geolocation/GeolocationPosition.idl \

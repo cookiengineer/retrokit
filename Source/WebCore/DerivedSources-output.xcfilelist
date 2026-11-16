@@ -1461,18 +1461,6 @@ $(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSGainNode.cpp
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSGainNode.h
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSGainOptions.cpp
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSGainOptions.h
-$(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSGamepad.cpp
-$(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSGamepad.h
-$(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSGamepadButton.cpp
-$(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSGamepadButton.h
-$(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSGamepadEffectParameters.cpp
-$(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSGamepadEffectParameters.h
-$(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSGamepadEvent.cpp
-$(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSGamepadEvent.h
-$(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSGamepadHapticActuator.cpp
-$(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSGamepadHapticActuator.h
-$(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSGamepadHapticEffectType.cpp
-$(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSGamepadHapticEffectType.h
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSGenericTransformStream.cpp
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSGenericTransformStream.h
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSGeolocation.cpp
@@ -2078,8 +2066,6 @@ $(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSNavigator+Credentials.cpp
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSNavigator+Credentials.h
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSNavigator+EME.cpp
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSNavigator+EME.h
-$(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSNavigator+Gamepad.cpp
-$(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSNavigator+Gamepad.h
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSNavigator+Geolocation.cpp
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSNavigator+Geolocation.h
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSNavigator+LoginStatus.cpp
@@ -3479,8 +3465,6 @@ $(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSWebTransportSendStreamStats.cpp
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSWebTransportSendStreamStats.h
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSWheelEvent.cpp
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSWheelEvent.h
-$(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSWindowEventHandlers+Gamepad.cpp
-$(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSWindowEventHandlers+Gamepad.h
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSWindowEventHandlers.cpp
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSWindowEventHandlers.h
 $(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore/JSWindowLocalStorage.cpp

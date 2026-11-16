@@ -673,10 +673,6 @@ messages -> WebPageProxy {
 
     [EnabledBy=SiteIsolationEnabled] FrameNameChanged(WebCore::FrameIdentifier frameID, String frameName)
 
-#if ENABLE(GAMEPAD)
-    [EnabledBy=GamepadsEnabled] GamepadsRecentlyAccessed()
-#endif
-
     HasActiveNowPlayingSessionChanged(bool hasActiveNowPlayingSessionChanged)
 
     SetAllowsLayoutViewportHeightExpansion(bool newValue)

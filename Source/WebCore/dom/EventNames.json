@@ -111,8 +111,6 @@
     "formdata": { },
     "fullscreenchange": { },
     "fullscreenerror": { },
-    "gamepadconnected": { "categories": ["Gamepad"] },
-    "gamepaddisconnected": { "categories": ["Gamepad"] },
     "gatheringstatechange": { },
     "gesturechange": { "categories": ["Gesture"] },
     "gestureend": { "categories": ["Gesture"] },

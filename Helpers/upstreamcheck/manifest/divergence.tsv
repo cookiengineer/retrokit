@@ -1128,8 +1128,8 @@ ftp	file	-	Source/WebCore/loader/FTPDirectoryParser.cpp	removed	source	bb8adb1d3
 ftp	file	-	Source/WebCore/loader/FTPDirectoryParser.h	removed	source	bb8adb1d3b752d717edaf65cd17a708247ea75eb	origin=bb8adb1d3b752d717edaf65cd17a708247ea75eb :unicorn: FTP Support
 ftp	file	-	Source/WebCore/page/SecurityOriginData.cpp	modified	source	manual:ftp-2.54	FTP plumbing added after 2.34.1; removed in the 2.54 migration
 ftp	file	-	Source/WebCore/platform/LocalizedStrings.cpp	modified	source	manual:ftp-2.54	FTP plumbing added after 2.34.1; removed in the 2.54 migration
-ftp	file	-	Source/WebCore/platform/LocalizedStrings.h	modified	source	manual:ftp-2.54	FTP plumbing added after 2.34.1; removed in the 2.54 migration
 ftp	function	WebCore::unknownFileSizeText	Source/WebCore/platform/LocalizedStrings.cpp	removed	source	manual:ftp-2.54	FTP plumbing added after 2.34.1; removed in the 2.54 migration; only used by FTP directory listings; definition lives in the .cpp (header not indexed)
+ftp	file	-	Source/WebCore/platform/LocalizedStrings.h	modified	source	manual:ftp-2.54	FTP plumbing added after 2.34.1; removed in the 2.54 migration
 ftp	file	-	Source/WebCore/platform/Logging.h	modified	source	manual:ftp-2.54	FTP plumbing added after 2.34.1; removed in the 2.54 migration
 ftp	file	-	Source/WebCore/platform/network/CredentialStorage.cpp	modified	source	bb8adb1d3b752d717edaf65cd17a708247ea75eb	origin=bb8adb1d3b752d717edaf65cd17a708247ea75eb :unicorn: FTP Support
 ftp	file	-	Source/WebCore/platform/network/ProtectionSpaceBase.cpp	modified	source	bb8adb1d3b752d717edaf65cd17a708247ea75eb	origin=bb8adb1d3b752d717edaf65cd17a708247ea75eb :unicorn: FTP Support
@@ -1666,13 +1666,15 @@ fullscreen-pip	flag	WEBKIT_OPTION_DEFINE(ENABLE_VIDEO_PRESENTATION_MODE "Toggle 
 fullscreen-pip	flag	WEBKIT_OPTION_DEFINE(ENABLE_VIDEO_USES_ELEMENT_FULLSCREEN "Toggle video element fullscreen support" PRIVATE ON)	Source/cmake/WebKitFeatures.cmake	removed	source	a00029424f3eb0d4590b91542fd74cf377dc11c3	line=211; commit=a00029424f3e
 fullscreen-pip	flag	WEBKIT_OPTION_DEPEND(ENABLE_VIDEO_PRESENTATION_MODE ENABLE_VIDEO)	Source/cmake/WebKitFeatures.cmake	removed	source	a00029424f3eb0d4590b91542fd74cf377dc11c3	line=246; commit=a00029424f3e
 fullscreen-pip	flag	WEBKIT_OPTION_DEPEND(ENABLE_VIDEO_USES_ELEMENT_FULLSCREEN ENABLE_VIDEO)	Source/cmake/WebKitFeatures.cmake	removed	source	a00029424f3eb0d4590b91542fd74cf377dc11c3	line=247; commit=a00029424f3e
-gamepad	config_line	add_subdirectory(PerformanceTests)	CMakeLists.txt	removed	vendor-root	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	line=42; line=42; commit=a7047cfe057b
-gamepad	config_line	if (DEVELOPER_MODE)	CMakeLists.txt	removed	vendor-root	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	line=41; line=41; commit=a7047cfe057b
-gamepad	file	-	CMakeLists.txt	modified	vendor-root	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
 gamepad	pref	GamepadsEnabled:	Source/WTF/Scripts/Preferences/WebPreferences.yaml	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	line=857; commit=a7047cfe057b
 gamepad	pref	condition: ENABLE(GAMEPAD)	Source/WTF/Scripts/Preferences/WebPreferences.yaml	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	line=861; commit=a7047cfe057b
 gamepad	pref	humanReadableDescription: "Web Gamepad API support"	Source/WTF/Scripts/Preferences/WebPreferences.yaml	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	line=860; commit=a7047cfe057b
 gamepad	pref	humanReadableName: "Gamepads"	Source/WTF/Scripts/Preferences/WebPreferences.yaml	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	line=859; commit=a7047cfe057b
+gamepad	file	-	Source/WTF/wtf/PlatformEnable.h	modified	source	manual:gamepad-2.54	Gamepad API removal (2.54); removal integration
+gamepad	file	-	Source/WTF/wtf/PlatformEnableCocoa.h	modified	source	manual:gamepad-2.54	Gamepad API removal (2.54); removal integration
+gamepad	file	-	Source/WTF/wtf/PlatformHave.h	modified	source	manual:gamepad-2.54	Gamepad API removal (2.54); removal integration
+gamepad	file	-	Source/WTF/wtf/cocoa/RuntimeApplicationChecksCocoa.h	modified	source	manual:gamepad-2.54	Gamepad API removal (2.54); removal integration
+gamepad	file	-	Source/WTF/wtf/cocoa/RuntimeApplicationChecksCocoa.mm	modified	source	manual:gamepad-2.54	Gamepad API removal (2.54); removal integration
 gamepad	build_ref	"${WEBCORE_DIR}/Modules/gamepad"	Source/WebCore/CMakeLists.txt	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	line=1313; commit=a7047cfe057b
 gamepad	build_ref	"${WEBCORE_DIR}/platform/gamepad"	Source/WebCore/CMakeLists.txt	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	line=132; commit=a7047cfe057b
 gamepad	build_ref	Modules/gamepad	Source/WebCore/CMakeLists.txt	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	line=1317; commit=a7047cfe057b
@@ -1700,20 +1702,29 @@ gamepad	build_ref	platform/gamepad/PlatformGamepad.h	Source/WebCore/Headers.cmak
 gamepad	build_ref	platform/gamepad/SharedGamepadValue.h	Source/WebCore/Headers.cmake	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	line=1197; commit=a7047cfe057b
 gamepad	build_ref	testing/MockGamepad.h	Source/WebCore/Headers.cmake	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	line=1690; commit=a7047cfe057b
 gamepad	build_ref	testing/MockGamepadProvider.h	Source/WebCore/Headers.cmake	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	line=1691; commit=a7047cfe057b
+gamepad	behavior	gamepad-api-removed	Source/WebCore/Modules/gamepad	removed	source	manual:gamepad-2.54	Gamepad API files and all browser integration removed; GameController framework soft-linking is retained only for pointer-lock mouse input
 gamepad	file	-	Source/WebCore/Modules/gamepad/Gamepad.cpp	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
 gamepad	file	-	Source/WebCore/Modules/gamepad/Gamepad.h	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
 gamepad	file	-	Source/WebCore/Modules/gamepad/Gamepad.idl	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
 gamepad	file	-	Source/WebCore/Modules/gamepad/GamepadButton.cpp	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
 gamepad	file	-	Source/WebCore/Modules/gamepad/GamepadButton.h	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
 gamepad	file	-	Source/WebCore/Modules/gamepad/GamepadButton.idl	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
+gamepad	file	-	Source/WebCore/Modules/gamepad/GamepadEffectParameters.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54); deleted file
+gamepad	file	-	Source/WebCore/Modules/gamepad/GamepadEffectParameters.idl	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54); deleted file
 gamepad	file	-	Source/WebCore/Modules/gamepad/GamepadEvent.cpp	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
 gamepad	file	-	Source/WebCore/Modules/gamepad/GamepadEvent.h	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
 gamepad	file	-	Source/WebCore/Modules/gamepad/GamepadEvent.idl	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
+gamepad	file	-	Source/WebCore/Modules/gamepad/GamepadHapticActuator.cpp	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54); deleted file
+gamepad	file	-	Source/WebCore/Modules/gamepad/GamepadHapticActuator.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54); deleted file
+gamepad	file	-	Source/WebCore/Modules/gamepad/GamepadHapticActuator.idl	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54); deleted file
+gamepad	file	-	Source/WebCore/Modules/gamepad/GamepadHapticEffectType.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54); deleted file
+gamepad	file	-	Source/WebCore/Modules/gamepad/GamepadHapticEffectType.idl	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54); deleted file
 gamepad	file	-	Source/WebCore/Modules/gamepad/GamepadManager.cpp	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
 gamepad	file	-	Source/WebCore/Modules/gamepad/GamepadManager.h	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
 gamepad	file	-	Source/WebCore/Modules/gamepad/Navigator+Gamepad.idl	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
 gamepad	file	-	Source/WebCore/Modules/gamepad/NavigatorGamepad.cpp	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
 gamepad	file	-	Source/WebCore/Modules/gamepad/NavigatorGamepad.h	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
+gamepad	file	-	Source/WebCore/Modules/gamepad/WindowEventHandlers+Gamepad.idl	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54); deleted file
 gamepad	build_ref	platform/gamepad/manette/ManetteGamepadProvider.h	Source/WebCore/PlatformGTK.cmake	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	line=146; commit=a7047cfe057b
 gamepad	config_line	Manette::Manette	Source/WebCore/PlatformGTK.cmake	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	line=149; commit=a7047cfe057b
 gamepad	flag	if (ENABLE_GAMEPAD)	Source/WebCore/PlatformGTK.cmake	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	line=144; commit=a7047cfe057b
@@ -1735,10 +1746,52 @@ gamepad	build_ref	platform/gamepad/mac/MultiGamepadProvider.mm	Source/WebCore/So
 gamepad	build_ref	platform/gamepad/mac/StadiaHIDGamepad.cpp	Source/WebCore/SourcesCocoa.txt	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	line=283; commit=a7047cfe057b
 gamepad	build_ref	platform/gamepad/manette/ManetteGamepad.cpp	Source/WebCore/SourcesGTK.txt	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	line=71; commit=a7047cfe057b
 gamepad	build_ref	platform/gamepad/manette/ManetteGamepadProvider.cpp	Source/WebCore/SourcesGTK.txt	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	line=72; commit=a7047cfe057b
+gamepad	config_line	macro(Gamepad)	Source/WebCore/bindings/js/WebCoreBuiltinNames.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54)
+gamepad	config_line	macro(GamepadButton)	Source/WebCore/bindings/js/WebCoreBuiltinNames.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54)
+gamepad	config_line	macro(GamepadEvent)	Source/WebCore/bindings/js/WebCoreBuiltinNames.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54)
+gamepad	config_line	macro(GamepadHapticActuator)	Source/WebCore/bindings/js/WebCoreBuiltinNames.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54)
+gamepad	file	-	Source/WebCore/bindings/js/WebCoreBuiltinNames.h	modified	source	manual:gamepad-2.54	Gamepad API removal (2.54); removal integration
+gamepad	config_line	GamepadEvent conditional=GAMEPAD	Source/WebCore/dom/EventInterfaces.in	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54)
+gamepad	file	-	Source/WebCore/dom/EventInterfaces.in	modified	source	manual:gamepad-2.54	Gamepad API removal (2.54); removal integration
 gamepad	config_line	GamepadEvent conditional=GAMEPAD	Source/WebCore/dom/EventNames.in	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	line=89; commit=a7047cfe057b
+gamepad	config_line	"gamepadconnected": { "categories": ["Gamepad"] },	Source/WebCore/dom/EventNames.json	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54)
+gamepad	config_line	"gamepaddisconnected": { "categories": ["Gamepad"] },	Source/WebCore/dom/EventNames.json	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54)
+gamepad	file	-	Source/WebCore/dom/EventNames.json	modified	source	manual:gamepad-2.54	Gamepad API removal (2.54); removal integration
+gamepad	enum_value	WebCore::TaskSource::Gamepad	Source/WebCore/dom/TaskSource.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54)
+gamepad	file	-	Source/WebCore/dom/TaskSource.h	modified	source	manual:gamepad-2.54	Gamepad API removal (2.54); removal integration
 gamepad	build_ref	"url": "https://www.w3.org/TR/gamepad/",	Source/WebCore/features.json	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	line=444; commit=a7047cfe057b
 gamepad	config_line	"keywords": ["gamepad", "gaming", "games", "controller"],	Source/WebCore/features.json	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	line=446; commit=a7047cfe057b
 gamepad	config_line	"name": "Gamepad",	Source/WebCore/features.json	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	line=440; commit=a7047cfe057b
+gamepad	config_line	ongamepadconnected	Source/WebCore/html/HTMLAttributeNames.in	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54)
+gamepad	config_line	ongamepaddisconnected	Source/WebCore/html/HTMLAttributeNames.in	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54)
+gamepad	file	-	Source/WebCore/html/HTMLAttributeNames.in	modified	source	manual:gamepad-2.54	Gamepad API removal (2.54); removal integration
+gamepad	config_line	case PermissionsPolicy::Feature::Gamepad:	Source/WebCore/html/PermissionsPolicy.cpp	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54)
+gamepad	config_line	constexpr auto gamepadToken { "gamepad"_s };	Source/WebCore/html/PermissionsPolicy.cpp	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54)
+gamepad	file	-	Source/WebCore/html/PermissionsPolicy.cpp	modified	source	manual:gamepad-2.54	Gamepad API removal (2.54); removal integration
+gamepad	enum_value	WebCore::PermissionsPolicy::Feature::Gamepad	Source/WebCore/html/PermissionsPolicy.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54)
+gamepad	file	-	Source/WebCore/html/PermissionsPolicy.h	modified	source	manual:gamepad-2.54	Gamepad API removal (2.54); removal integration
+gamepad	file	-	Source/WebCore/page/ChromeClient.h	modified	source	manual:gamepad-2.54	Gamepad API removal (2.54); removal integration
+gamepad	method	WebCore::ChromeClient::gamepadsRecentlyAccessed	Source/WebCore/page/ChromeClient.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54)
+gamepad	file	-	Source/WebCore/page/LocalDOMWindow.cpp	modified	source	manual:gamepad-2.54	Gamepad API removal (2.54); removal integration
+gamepad	field	WebCore::LocalDOMWindow::m_gamepadEventListenerCount	Source/WebCore/page/LocalDOMWindow.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54)
+gamepad	file	-	Source/WebCore/page/LocalDOMWindow.h	modified	source	manual:gamepad-2.54	Gamepad API removal (2.54); removal integration
+gamepad	method	WebCore::LocalDOMWindow::decrementGamepadEventListenerCount	Source/WebCore/page/LocalDOMWindow.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54)
+gamepad	method	WebCore::LocalDOMWindow::incrementGamepadEventListenerCount	Source/WebCore/page/LocalDOMWindow.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54)
+gamepad	file	-	Source/WebCore/page/Page.cpp	modified	source	manual:gamepad-2.54	Gamepad API removal (2.54); removal integration
+gamepad	field	WebCore::Page::m_gamepadAccessGranted	Source/WebCore/page/Page.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54)
+gamepad	field	WebCore::Page::m_gamepadAccessRequiresExplicitConsent	Source/WebCore/page/Page.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54)
+gamepad	field	WebCore::Page::m_lastAccessNotificationTime	Source/WebCore/page/Page.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54)
+gamepad	file	-	Source/WebCore/page/Page.h	modified	source	manual:gamepad-2.54	Gamepad API removal (2.54); removal integration
+gamepad	method	WebCore::Page::allowGamepadAccess	Source/WebCore/page/Page.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54)
+gamepad	method	WebCore::Page::gamepadAccessGranted	Source/WebCore/page/Page.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54)
+gamepad	method	WebCore::Page::gamepadsRecentlyAccessed	Source/WebCore/page/Page.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54)
+gamepad	method	WebCore::Page::initializeGamepadAccessForPageLoad	Source/WebCore/page/Page.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54)
+gamepad	field	WebCore::PageConfiguration::gamepadAccessRequiresExplicitConsent	Source/WebCore/page/PageConfiguration.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54)
+gamepad	file	-	Source/WebCore/page/PageConfiguration.h	modified	source	manual:gamepad-2.54	Gamepad API removal (2.54); removal integration
+gamepad	file	-	Source/WebCore/platform/Supplementable.h	modified	source	manual:gamepad-2.54	Gamepad API removal (2.54); removal integration
+gamepad	method	WebCore::Supplement::isNavigatorGamepad	Source/WebCore/platform/Supplementable.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54)
+gamepad	file	-	Source/WebCore/platform/cocoa/GameControllerMouseSoftLink.h	added	source	manual:gamepad-2.54	retained GameController soft link for pointer-lock mouse support
+gamepad	file	-	Source/WebCore/platform/cocoa/GameControllerMouseSoftLink.mm	added	source	manual:gamepad-2.54	retained GameController soft link for pointer-lock mouse support
 gamepad	file	-	Source/WebCore/platform/gamepad/EmptyGamepadProvider.cpp	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
 gamepad	file	-	Source/WebCore/platform/gamepad/EmptyGamepadProvider.h	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
 gamepad	file	-	Source/WebCore/platform/gamepad/GamepadConstants.cpp	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
@@ -1749,6 +1802,41 @@ gamepad	file	-	Source/WebCore/platform/gamepad/GamepadProviderClient.h	removed	s
 gamepad	file	-	Source/WebCore/platform/gamepad/KnownGamepads.h	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
 gamepad	file	-	Source/WebCore/platform/gamepad/PlatformGamepad.h	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
 gamepad	file	-	Source/WebCore/platform/gamepad/SharedGamepadValue.h	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
+gamepad	file	-	Source/WebCore/platform/gamepad/ShouldRequireExplicitConsentForGamepadAccess.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54); deleted file
+gamepad	file	-	Source/WebCore/platform/gamepad/cocoa/CoreHapticsSoftLink.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54); deleted file
+gamepad	file	-	Source/WebCore/platform/gamepad/cocoa/CoreHapticsSoftLink.mm	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54); deleted file
+gamepad	file	-	Source/WebCore/platform/gamepad/cocoa/GameControllerGamepad.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54); deleted file
+gamepad	file	-	Source/WebCore/platform/gamepad/cocoa/GameControllerGamepad.mm	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54); deleted file
+gamepad	file	-	Source/WebCore/platform/gamepad/cocoa/GameControllerGamepadProvider.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54); deleted file
+gamepad	file	-	Source/WebCore/platform/gamepad/cocoa/GameControllerGamepadProvider.mm	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54); deleted file
+gamepad	file	-	Source/WebCore/platform/gamepad/cocoa/GameControllerHapticEffect.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54); deleted file
+gamepad	file	-	Source/WebCore/platform/gamepad/cocoa/GameControllerHapticEffect.mm	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54); deleted file
+gamepad	file	-	Source/WebCore/platform/gamepad/cocoa/GameControllerHapticEngines.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54); deleted file
+gamepad	file	-	Source/WebCore/platform/gamepad/cocoa/GameControllerHapticEngines.mm	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54); deleted file
+gamepad	file	-	Source/WebCore/platform/gamepad/cocoa/GameControllerSPI.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54); deleted file
+gamepad	file	-	Source/WebCore/platform/gamepad/cocoa/GameControllerSoftLink.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54); deleted file
+gamepad	file	-	Source/WebCore/platform/gamepad/cocoa/GameControllerSoftLink.mm	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54); deleted file
+gamepad	file	-	Source/WebCore/platform/gamepad/libwpe/GamepadLibWPE.cpp	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54); deleted file
+gamepad	file	-	Source/WebCore/platform/gamepad/libwpe/GamepadLibWPE.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54); deleted file
+gamepad	file	-	Source/WebCore/platform/gamepad/libwpe/GamepadProviderLibWPE.cpp	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54); deleted file
+gamepad	file	-	Source/WebCore/platform/gamepad/libwpe/GamepadProviderLibWPE.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54); deleted file
+gamepad	file	-	Source/WebCore/platform/gamepad/mac/Dualshock3HIDGamepad.cpp	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54); deleted file
+gamepad	file	-	Source/WebCore/platform/gamepad/mac/Dualshock3HIDGamepad.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54); deleted file
+gamepad	file	-	Source/WebCore/platform/gamepad/mac/GamepadConstantsMac.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54); deleted file
+gamepad	file	-	Source/WebCore/platform/gamepad/mac/GenericHIDGamepad.cpp	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54); deleted file
+gamepad	file	-	Source/WebCore/platform/gamepad/mac/GenericHIDGamepad.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54); deleted file
+gamepad	file	-	Source/WebCore/platform/gamepad/mac/HIDGamepad.cpp	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54); deleted file
+gamepad	file	-	Source/WebCore/platform/gamepad/mac/HIDGamepad.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54); deleted file
+gamepad	file	-	Source/WebCore/platform/gamepad/mac/HIDGamepadElement.cpp	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54); deleted file
+gamepad	file	-	Source/WebCore/platform/gamepad/mac/HIDGamepadElement.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54); deleted file
+gamepad	file	-	Source/WebCore/platform/gamepad/mac/HIDGamepadProvider.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54); deleted file
+gamepad	file	-	Source/WebCore/platform/gamepad/mac/HIDGamepadProvider.mm	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54); deleted file
+gamepad	file	-	Source/WebCore/platform/gamepad/mac/LogitechGamepad.cpp	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54); deleted file
+gamepad	file	-	Source/WebCore/platform/gamepad/mac/LogitechGamepad.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54); deleted file
+gamepad	file	-	Source/WebCore/platform/gamepad/mac/MultiGamepadProvider.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54); deleted file
+gamepad	file	-	Source/WebCore/platform/gamepad/mac/MultiGamepadProvider.mm	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54); deleted file
+gamepad	file	-	Source/WebCore/platform/gamepad/mac/StadiaHIDGamepad.cpp	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54); deleted file
+gamepad	file	-	Source/WebCore/platform/gamepad/mac/StadiaHIDGamepad.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54); deleted file
 gamepad	file	-	Source/WebCore/platform/gamepad/manette/GUniquePtrManette.h	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
 gamepad	file	-	Source/WebCore/platform/gamepad/manette/ManetteGamepad.cpp	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
 gamepad	file	-	Source/WebCore/platform/gamepad/manette/ManetteGamepad.h	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
@@ -1776,6 +1864,14 @@ gamepad	flag	"${WEBKIT_DIR}/UIProcess/Gamepad"	Source/WebKit/CMakeLists.txt	remo
 gamepad	flag	"${WEBKIT_DIR}/WebProcess/Gamepad"	Source/WebKit/CMakeLists.txt	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	line=85; commit=a7047cfe057b
 gamepad	file	-	Source/WebKit/Shared/Gamepad/GamepadData.cpp	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
 gamepad	file	-	Source/WebKit/Shared/Gamepad/GamepadData.h	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
+gamepad	file	-	Source/WebKit/Shared/Gamepad/GamepadData.serialization.in	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54); deleted file
+gamepad	file	-	Source/WebKit/Shared/WebCoreArgumentCoders.serialization.in	modified	source	manual:gamepad-2.54	Gamepad API removal (2.54); removal integration
+gamepad	field	WebKit::WebPageCreationParameters::gamepadAccessRequiresExplicitConsent	Source/WebKit/Shared/WebPageCreationParameters.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54)
+gamepad	file	-	Source/WebKit/Shared/WebPageCreationParameters.h	modified	source	manual:gamepad-2.54	Gamepad API removal (2.54); removal integration
+gamepad	file	-	Source/WebKit/Shared/WebPageCreationParameters.serialization.in	modified	source	manual:gamepad-2.54	Gamepad API removal (2.54); removal integration
+gamepad	file	-	Source/WebKit/Shared/WebPreferencesDefaultValues.cpp	modified	source	manual:gamepad-2.54	Gamepad API removal (2.54); removal integration
+gamepad	file	-	Source/WebKit/Shared/WebPreferencesDefaultValues.h	modified	source	manual:gamepad-2.54	Gamepad API removal (2.54); removal integration
+gamepad	function	WebKit::defaultGamepadVibrationActuatorEnabled	Source/WebKit/Shared/WebPreferencesDefaultValues.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54)
 gamepad	build_ref	Shared/Gamepad/GamepadData.cpp	Source/WebKit/Sources.txt	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	line=280; commit=a7047cfe057b
 gamepad	build_ref	UIProcess/Gamepad/UIGamepad.cpp	Source/WebKit/Sources.txt	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	line=457; commit=a7047cfe057b
 gamepad	build_ref	UIProcess/Gamepad/UIGamepadProvider.cpp	Source/WebKit/Sources.txt	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	line=458; commit=a7047cfe057b
@@ -1786,23 +1882,119 @@ gamepad	build_ref	UIProcess/Gamepad/ios/UIGamepadProviderIOS.mm	Source/WebKit/So
 gamepad	build_ref	UIProcess/Gamepad/mac/UIGamepadProviderMac.mm	Source/WebKit/SourcesCocoa.txt	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	line=435; commit=a7047cfe057b
 gamepad	build_ref	UIProcess/Gamepad/gtk/UIGamepadProviderGtk.cpp	Source/WebKit/SourcesGTK.txt	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	line=221; commit=a7047cfe057b
 gamepad	build_ref	UIProcess/Gamepad/manette/UIGamepadProviderManette.cpp	Source/WebKit/SourcesGTK.txt	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	line=222; commit=a7047cfe057b
+gamepad	file	-	Source/WebKit/UIProcess/API/APIPageConfiguration.h	modified	source	manual:gamepad-2.54	Gamepad API removal (2.54); removal integration
+gamepad	method	WebKit::API::PageConfiguration::gamepadAccessRequiresExplicitConsent	Source/WebKit/UIProcess/API/APIPageConfiguration.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54)
+gamepad	file	-	Source/WebKit/UIProcess/API/APIUIClient.h	modified	source	manual:gamepad-2.54	Gamepad API removal (2.54); removal integration
+gamepad	method	WebKit::API::UIClient::recentlyAccessedGamepadsForTesting	Source/WebKit/UIProcess/API/APIUIClient.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54)
+gamepad	method	WebKit::API::UIClient::stoppedAccessingGamepadsForTesting	Source/WebKit/UIProcess/API/APIUIClient.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54)
+gamepad	file	-	Source/WebKit/UIProcess/API/C/WKContext.cpp	modified	source	manual:gamepad-2.54	Gamepad API removal (2.54); removal integration
+gamepad	file	-	Source/WebKit/UIProcess/API/C/WKContext.h	modified	source	manual:gamepad-2.54	Gamepad API removal (2.54); removal integration
+gamepad	function	WKContextClearMockGamepadsForTesting	Source/WebKit/UIProcess/API/C/WKContext.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54)
+gamepad	file	-	Source/WebKit/UIProcess/API/C/WKPreferences.cpp	modified	source	manual:gamepad-2.54	Gamepad API removal (2.54); removal integration
+gamepad	function	WKPreferencesGetGamepadsEnabled	Source/WebKit/UIProcess/API/C/WKPreferences.cpp	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54)
+gamepad	function	WKPreferencesSetGamepadsEnabled	Source/WebKit/UIProcess/API/C/WKPreferences.cpp	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54)
+gamepad	file	-	Source/WebKit/UIProcess/API/C/WKPreferencesRefPrivate.h	modified	source	manual:gamepad-2.54	Gamepad API removal (2.54); removal integration
+gamepad	file	-	Source/WebKit/UIProcess/API/Cocoa/WKProcessPool.mm	modified	source	manual:gamepad-2.54	Gamepad API removal (2.54); removal integration
+gamepad	file	-	Source/WebKit/UIProcess/API/Cocoa/WKProcessPoolPrivate.h	modified	source	manual:gamepad-2.54	Gamepad API removal (2.54); removal integration
+gamepad	file	-	Source/WebKit/UIProcess/API/Cocoa/WKUIDelegatePrivate.h	modified	source	manual:gamepad-2.54	Gamepad API removal (2.54); removal integration
+gamepad	file	-	Source/WebKit/UIProcess/API/Cocoa/WKWebView.mm	modified	source	manual:gamepad-2.54	Gamepad API removal (2.54); removal integration
+gamepad	file	-	Source/WebKit/UIProcess/API/Cocoa/WKWebViewConfiguration.mm	modified	source	manual:gamepad-2.54	Gamepad API removal (2.54); removal integration
+gamepad	file	-	Source/WebKit/UIProcess/API/Cocoa/WKWebViewConfigurationPrivate.h	modified	source	manual:gamepad-2.54	Gamepad API removal (2.54); removal integration
+gamepad	file	-	Source/WebKit/UIProcess/API/Cocoa/WKWebViewInternal.h	modified	source	manual:gamepad-2.54	Gamepad API removal (2.54); removal integration
+gamepad	file	-	Source/WebKit/UIProcess/API/wpe/WPEWebViewLegacy.cpp	modified	source	manual:gamepad-2.54	Gamepad API removal (2.54); removal integration
+gamepad	file	-	Source/WebKit/UIProcess/API/wpe/WPEWebViewLegacy.h	modified	source	manual:gamepad-2.54	Gamepad API removal (2.54); removal integration
+gamepad	file	-	Source/WebKit/UIProcess/API/wpe/WPEWebViewPlatform.cpp	modified	source	manual:gamepad-2.54	Gamepad API removal (2.54); removal integration
+gamepad	file	-	Source/WebKit/UIProcess/API/wpe/WPEWebViewPlatform.h	modified	source	manual:gamepad-2.54	Gamepad API removal (2.54); removal integration
+gamepad	file	-	Source/WebKit/UIProcess/Cocoa/PageClientImplCocoa.h	modified	source	manual:gamepad-2.54	Gamepad API removal (2.54); removal integration
+gamepad	file	-	Source/WebKit/UIProcess/Cocoa/PageClientImplCocoa.mm	modified	source	manual:gamepad-2.54	Gamepad API removal (2.54); removal integration
+gamepad	file	-	Source/WebKit/UIProcess/Cocoa/UIDelegate.h	modified	source	manual:gamepad-2.54	Gamepad API removal (2.54); removal integration
+gamepad	file	-	Source/WebKit/UIProcess/Cocoa/UIDelegate.mm	modified	source	manual:gamepad-2.54	Gamepad API removal (2.54); removal integration
 gamepad	file	-	Source/WebKit/UIProcess/Gamepad/UIGamepad.cpp	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
 gamepad	file	-	Source/WebKit/UIProcess/Gamepad/UIGamepad.h	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
 gamepad	file	-	Source/WebKit/UIProcess/Gamepad/UIGamepadProvider.cpp	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
 gamepad	file	-	Source/WebKit/UIProcess/Gamepad/UIGamepadProvider.h	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
+gamepad	file	-	Source/WebKit/UIProcess/Gamepad/cocoa/UIGamepadProviderCocoa.mm	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54); deleted file
 gamepad	file	-	Source/WebKit/UIProcess/Gamepad/gtk/UIGamepadProviderGtk.cpp	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
+gamepad	file	-	Source/WebKit/UIProcess/Gamepad/ios/UIGamepadProviderIOS.mm	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54); deleted file
+gamepad	file	-	Source/WebKit/UIProcess/Gamepad/libwpe/UIGamepadProviderLibWPE.cpp	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54); deleted file
+gamepad	file	-	Source/WebKit/UIProcess/Gamepad/mac/UIGamepadProviderMac.mm	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54); deleted file
 gamepad	file	-	Source/WebKit/UIProcess/Gamepad/manette/UIGamepadProviderManette.cpp	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
+gamepad	file	-	Source/WebKit/UIProcess/Gamepad/wpe/GamepadProviderWPE.cpp	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54); deleted file
+gamepad	file	-	Source/WebKit/UIProcess/Gamepad/wpe/GamepadProviderWPE.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54); deleted file
+gamepad	file	-	Source/WebKit/UIProcess/Gamepad/wpe/PlatformGamepadWPE.cpp	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54); deleted file
+gamepad	file	-	Source/WebKit/UIProcess/Gamepad/wpe/PlatformGamepadWPE.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54); deleted file
+gamepad	file	-	Source/WebKit/UIProcess/PageClient.h	modified	source	manual:gamepad-2.54	Gamepad API removal (2.54); removal integration
+gamepad	method	WebKit::PageClient::gamepadsConnectedStateChanged	Source/WebKit/UIProcess/PageClient.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54)
+gamepad	method	WebKit::PageClient::setGamepadsRecentlyAccessed	Source/WebKit/UIProcess/PageClient.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54)
+gamepad	file	-	Source/WebKit/UIProcess/WebPageProxy.cpp	modified	source	manual:gamepad-2.54	Gamepad API removal (2.54); removal integration
+gamepad	field	WebKit::WebPageProxy::m_gamepadsConnected	Source/WebKit/UIProcess/WebPageProxy.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54)
+gamepad	method	WebKit::WebPageProxy::allowGamepadAccess	Source/WebKit/UIProcess/WebPageProxy.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54)
+gamepad	method	WebKit::WebPageProxy::gamepadActivity	Source/WebKit/UIProcess/WebPageProxy.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54)
+gamepad	method	WebKit::WebPageProxy::gamepadsRecentlyAccessed	Source/WebKit/UIProcess/WebPageProxy.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54)
+gamepad	method	WebKit::WebPageProxy::recentGamepadAccessStateChanged	Source/WebKit/UIProcess/WebPageProxy.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54)
+gamepad	method	WebKit::WebPageProxy::resetRecentGamepadAccessState	Source/WebKit/UIProcess/WebPageProxy.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54)
+gamepad	method	WebKit::WebPageProxy::setGamepadsConnected	Source/WebKit/UIProcess/WebPageProxy.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54)
+gamepad	file	-	Source/WebKit/UIProcess/WebPageProxy.messages.in	modified	source	manual:gamepad-2.54	Gamepad API removal (2.54); removal integration
+gamepad	field	WebKit::WebPageProxyInternals::recentGamepadAccessHysteresis	Source/WebKit/UIProcess/WebPageProxyInternals.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54)
+gamepad	file	-	Source/WebKit/UIProcess/WebPageProxyInternals.h	modified	source	manual:gamepad-2.54	Gamepad API removal (2.54); removal integration
+gamepad	file	-	Source/WebKit/UIProcess/WebProcessPool.cpp	modified	source	manual:gamepad-2.54	Gamepad API removal (2.54); removal integration
+gamepad	enum	WebKit::WebProcessPool::GamepadType	Source/WebKit/UIProcess/WebProcessPool.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54)
+gamepad	field	WebKit::WebProcessPool::m_processesUsingGamepads	Source/WebKit/UIProcess/WebProcessPool.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54)
+gamepad	method	WebKit::WebProcessPool::gamepadConnected	Source/WebKit/UIProcess/WebProcessPool.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54)
+gamepad	method	WebKit::WebProcessPool::gamepadDisconnected	Source/WebKit/UIProcess/WebProcessPool.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54)
+gamepad	method	WebKit::WebProcessPool::numberOfConnectedGamepadsForTesting	Source/WebKit/UIProcess/WebProcessPool.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54)
+gamepad	method	WebKit::WebProcessPool::playGamepadEffect	Source/WebKit/UIProcess/WebProcessPool.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54)
+gamepad	method	WebKit::WebProcessPool::processStoppedUsingGamepads	Source/WebKit/UIProcess/WebProcessPool.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54)
+gamepad	method	WebKit::WebProcessPool::setUsesOnlyHIDGamepadProviderForTesting	Source/WebKit/UIProcess/WebProcessPool.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54)
+gamepad	method	WebKit::WebProcessPool::startedUsingGamepads	Source/WebKit/UIProcess/WebProcessPool.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54)
+gamepad	method	WebKit::WebProcessPool::stopGamepadEffects	Source/WebKit/UIProcess/WebProcessPool.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54)
+gamepad	method	WebKit::WebProcessPool::stoppedUsingGamepads	Source/WebKit/UIProcess/WebProcessPool.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54)
 gamepad	config_line	StartedUsingGamepads() WantsConnection	Source/WebKit/UIProcess/WebProcessPool.messages.in	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	line=28; line=28; commit=a7047cfe057b
 gamepad	config_line	StoppedUsingGamepads() WantsConnection	Source/WebKit/UIProcess/WebProcessPool.messages.in	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	line=29; line=29; commit=a7047cfe057b
 gamepad	file	-	Source/WebKit/UIProcess/WebProcessPool.messages.in	modified	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
+gamepad	file	-	Source/WebKit/UIProcess/ios/WKContentViewInteraction.h	modified	source	manual:gamepad-2.54	Gamepad API removal (2.54); removal integration
+gamepad	file	-	Source/WebKit/UIProcess/ios/WKContentViewInteraction.mm	modified	source	manual:gamepad-2.54	Gamepad API removal (2.54); removal integration
+gamepad	file	-	Source/WebKit/UIProcess/ios/WKMouseInteraction.mm	modified	source	manual:gamepad-2.54	Gamepad API removal (2.54); removal integration
+gamepad	file	-	Source/WebKit/UIProcess/mac/WebViewImpl.mm	modified	source	manual:gamepad-2.54	Gamepad API removal (2.54); removal integration
+gamepad	file	-	Source/WebKit/WPEPlatform/wpe/WPEDisplay.cpp	modified	source	manual:gamepad-2.54	Gamepad API removal (2.54); removal integration
+gamepad	file	-	Source/WebKit/WPEPlatform/wpe/WPEDisplay.h	modified	source	manual:gamepad-2.54	Gamepad API removal (2.54); removal integration
+gamepad	file	-	Source/WebKit/WPEPlatform/wpe/WPEGamepad.cpp	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54); deleted file
+gamepad	file	-	Source/WebKit/WPEPlatform/wpe/WPEGamepad.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54); deleted file
+gamepad	file	-	Source/WebKit/WPEPlatform/wpe/WPEGamepadManager.cpp	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54); deleted file
+gamepad	file	-	Source/WebKit/WPEPlatform/wpe/WPEGamepadManager.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54); deleted file
+gamepad	file	-	Source/WebKit/WPEPlatform/wpe/WPEGamepadManagerManette.cpp	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54); deleted file
+gamepad	file	-	Source/WebKit/WPEPlatform/wpe/WPEGamepadManagerManette.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54); deleted file
+gamepad	file	-	Source/WebKit/WPEPlatform/wpe/WPEGamepadManette.cpp	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54); deleted file
+gamepad	file	-	Source/WebKit/WPEPlatform/wpe/WPEGamepadManette.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54); deleted file
+gamepad	file	-	Source/WebKit/WPEPlatform/wpe/wpe-platform.h	modified	source	manual:gamepad-2.54	Gamepad API removal (2.54); removal integration
 gamepad	file	-	Source/WebKit/WebProcess/Gamepad/WebGamepad.cpp	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
 gamepad	file	-	Source/WebKit/WebProcess/Gamepad/WebGamepad.h	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
 gamepad	file	-	Source/WebKit/WebProcess/Gamepad/WebGamepadProvider.cpp	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
 gamepad	file	-	Source/WebKit/WebProcess/Gamepad/WebGamepadProvider.h	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	origin=a7047cfe057b2db23b7fb320741d54f7d43b3f0f :unicorn: Gamepad API
+gamepad	file	-	Source/WebKit/WebProcess/WebCoreSupport/WebChromeClient.cpp	modified	source	manual:gamepad-2.54	Gamepad API removal (2.54); removal integration
+gamepad	file	-	Source/WebKit/WebProcess/WebCoreSupport/WebChromeClient.h	modified	source	manual:gamepad-2.54	Gamepad API removal (2.54); removal integration
+gamepad	method	WebKit::WebChromeClient::gamepadsRecentlyAccessed	Source/WebKit/WebProcess/WebCoreSupport/WebChromeClient.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54)
+gamepad	file	-	Source/WebKit/WebProcess/WebPage/WebPage.cpp	modified	source	manual:gamepad-2.54	Gamepad API removal (2.54); removal integration
+gamepad	file	-	Source/WebKit/WebProcess/WebPage/WebPage.h	modified	source	manual:gamepad-2.54	Gamepad API removal (2.54); removal integration
+gamepad	method	WebKit::WebPage::allowGamepadAccess	Source/WebKit/WebProcess/WebPage/WebPage.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54)
+gamepad	method	WebKit::WebPage::gamepadActivity	Source/WebKit/WebProcess/WebPage/WebPage.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54)
+gamepad	method	WebKit::WebPage::gamepadsRecentlyAccessed	Source/WebKit/WebProcess/WebPage/WebPage.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54)
 gamepad	config_line	GamepadActivity(Vector<WebKit::GamepadData> gamepadDatas, enum:bool WebCore::EventMakesGamepadsVisible eventVisibility)	Source/WebKit/WebProcess/WebPage/WebPage.messages.in	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	line=548; commit=a7047cfe057b
+gamepad	file	-	Source/WebKit/WebProcess/WebPage/WebPage.messages.in	modified	source	manual:gamepad-2.54	Gamepad API removal (2.54); removal integration
+gamepad	file	-	Source/WebKit/WebProcess/WebProcess.cpp	modified	source	manual:gamepad-2.54	Gamepad API removal (2.54); removal integration
+gamepad	file	-	Source/WebKit/WebProcess/WebProcess.h	modified	source	manual:gamepad-2.54	Gamepad API removal (2.54); removal integration
+gamepad	method	WebKit::WebProcess::gamepadConnected	Source/WebKit/WebProcess/WebProcess.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54)
+gamepad	method	WebKit::WebProcess::gamepadDisconnected	Source/WebKit/WebProcess/WebProcess.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54)
+gamepad	method	WebKit::WebProcess::setInitialGamepads	Source/WebKit/WebProcess/WebProcess.h	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54)
 gamepad	config_line	GamepadConnected(WebKit::GamepadData gamepadData, enum:bool WebCore::EventMakesGamepadsVisible eventVisibility)	Source/WebKit/WebProcess/WebProcess.messages.in	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	line=99; commit=a7047cfe057b
 gamepad	config_line	GamepadDisconnected(unsigned index)	Source/WebKit/WebProcess/WebProcess.messages.in	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	line=100; commit=a7047cfe057b
 gamepad	config_line	SetInitialGamepads(Vector<WebKit::GamepadData> gamepadDatas)	Source/WebKit/WebProcess/WebProcess.messages.in	removed	source	a7047cfe057b2db23b7fb320741d54f7d43b3f0f	line=98; commit=a7047cfe057b
+gamepad	file	-	Source/WebKit/WebProcess/WebProcess.messages.in	modified	source	manual:gamepad-2.54	Gamepad API removal (2.54); removal integration
+gamepad	file	-	Source/WebKitLegacy/mac/WebView/WebPreferenceKeysPrivate.h	modified	source	manual:gamepad-2.54	Gamepad API removal (2.54); removal integration
+gamepad	file	-	Source/WebKitLegacy/mac/WebView/WebPreferences.mm	modified	source	manual:gamepad-2.54	Gamepad API removal (2.54); removal integration
+gamepad	file	-	Source/WebKitLegacy/mac/WebView/WebPreferencesPrivate.h	modified	source	manual:gamepad-2.54	Gamepad API removal (2.54); removal integration
+gamepad	file	-	Source/WebKitLegacy/mac/WebView/WebView.mm	modified	source	manual:gamepad-2.54	Gamepad API removal (2.54); removal integration
+gamepad	file	-	Source/cmake/FindManette.cmake	removed	source	manual:gamepad-2.54	Gamepad API removal (2.54); deleted file
 gamepad	flag	WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_GAMEPAD PUBLIC ON)	Source/cmake/OptionsGTK.cmake	removed	source	cbd7373a323420a6d5d865845eb9da823401bcf4	line=126; commit=cbd7373a3234
 gamepad	flag	if (ENABLE_GAMEPAD)	Source/cmake/OptionsGTK.cmake	removed	source	cbd7373a323420a6d5d865845eb9da823401bcf4	line=288; commit=cbd7373a3234
 gamepad	flag	message(FATAL_ERROR "libmanette is required for ENABLE_GAMEPAD")	Source/cmake/OptionsGTK.cmake	removed	source	cbd7373a323420a6d5d865845eb9da823401bcf4	line=291; commit=cbd7373a3234

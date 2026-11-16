@@ -278,10 +278,6 @@ enum class WebCore::UserInterfaceLayoutDirection : bool;
 #endif
 #endif
 
-#if PLATFORM(VISION) && ENABLE(GAMEPAD)
-    WebCore::ShouldRequireExplicitConsentForGamepadAccess gamepadAccessRequiresExplicitConsent;
-#endif
-
 #if ENABLE(MODEL_ELEMENT_IMMERSIVE)
     bool allowsImmersiveEnvironments;
 #endif

@@ -101,7 +101,7 @@ instantiated but is normally subclassed by platform implementations:
 Around them are helper and support classes — [class@Screen],
 [class@Settings], [class@Keymap], [struct@Event], [class@Clipboard],
 [class@InputMethodContext], [iface@GestureController],
-[class@GamepadManager] / [class@Gamepad], [iface@ViewAccessible] (an
+[iface@ViewAccessible] (an
 interface) — and concrete [class@Buffer] subclasses
 ([class@BufferDMABuf], [class@BufferSHM], `WPEBufferAndroid`).
 

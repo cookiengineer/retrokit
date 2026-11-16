@@ -84,10 +84,6 @@
 #include "HardwareKeyboardState.h"
 #endif
 
-#if PLATFORM(VISION) && ENABLE(GAMEPAD)
-#include <WebCore/ShouldRequireExplicitConsentForGamepadAccess.h>
-#endif
-
 #if HAVE(AUDIT_TOKEN)
 #include "CoreIPCAuditToken.h"
 #endif
@@ -362,10 +358,6 @@ struct WebPageCreationParameters {
 #if USE(GBM) || OS(ANDROID)
     Vector<RendererBufferFormat> preferredBufferFormats { };
 #endif
-#endif
-
-#if PLATFORM(VISION) && ENABLE(GAMEPAD)
-    WebCore::ShouldRequireExplicitConsentForGamepadAccess gamepadAccessRequiresExplicitConsent { WebCore::ShouldRequireExplicitConsentForGamepadAccess::No };
 #endif
 
 #if ENABLE(MODEL_ELEMENT_IMMERSIVE)

@@ -288,9 +288,6 @@ static const BOOL defaultFastClickingEnabled = NO;
 static void *screenTimeWebpageControllerBlockedKVOContext = &screenTimeWebpageControllerBlockedKVOContext;
 #endif
 
-#if ENABLE(GAMEPAD) && PLATFORM(VISION) && __has_include(<GameController/GCEventInteraction.h>)
-#import <WebCore/GameControllerSoftLink.h>
-#endif
 
 #define THROW_IF_SUSPENDED if (_page && _page->isSuspended()) [[unlikely]] \
     [NSException raise:NSInternalInconsistencyException format:@"The WKWebView is suspended"]
@@ -3204,92 +3201,6 @@ std::optional<WebCore::JSHandleIdentifier> WebKit::jsHandleIdentifierInFrame(con
 
 #endif
 
-#if ENABLE(GAMEPAD)
-
-- (void)_setGamepadsRecentlyAccessed:(BOOL)gamepadsRecentlyAccessed
-{
-    if (_gamepadsRecentlyAccessed == gamepadsRecentlyAccessed)
-        return;
-
-    _gamepadsRecentlyAccessed = gamepadsRecentlyAccessed;
-
-#if PLATFORM(VISION)
-    if (self._gamepadAccessRequiresExplicitConsent) {
-        id<WKUIDelegatePrivate> uiDelegate = (id<WKUIDelegatePrivate>)self.UIDelegate;
-        if ([uiDelegate respondsToSelector:@selector(_webView:setRecentlyAccessedGamepads:)])
-            [uiDelegate _webView:self setRecentlyAccessedGamepads:gamepadsRecentlyAccessed];
-        return;
-    }
-
-    [self _tryUpdatingGamepadsAccessStateForImplicitConsentCase];
-#endif
-}
-
-#if PLATFORM(VISION)
-- (BOOL)_gamepadsConnected
-{
-    return _page->gamepadsConnected();
-}
-
-- (void)_gamepadsConnectedStateChanged
-{
-    if (self._gamepadAccessRequiresExplicitConsent) {
-        id<WKUIDelegatePrivate> uiDelegate = (id<WKUIDelegatePrivate>)self.UIDelegate;
-        if ([uiDelegate respondsToSelector:@selector(_webView:gamepadsConnectedStateDidChange:)])
-            [uiDelegate _webView:self gamepadsConnectedStateDidChange:_page->gamepadsConnected()];
-        return;
-    }
-
-    [self _tryUpdatingGamepadsAccessStateForImplicitConsentCase];
-}
-
-- (void)_setAllowGamepadsAccess
-{
-    _page->allowGamepadAccess();
-}
-
-- (BOOL)_gamepadAccessRequiresExplicitConsent
-{
-    return [_configuration _gamepadAccessRequiresExplicitConsent];
-}
-
-- (BOOL)_supportsGameControllerEventInteractionAPI
-{
-    static bool supportsGameControllerEventInteractionAPI = linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::SupportGameControllerEventInteractionAPI);
-    return supportsGameControllerEventInteractionAPI;
-}
-
-- (void)_tryUpdatingGamepadsAccessStateForImplicitConsentCase
-{
-    // We only automatically switch to receiving game controller events over
-    // the Game Controller framework on user interactions on game controller
-    // if the app is linked before visionOS 2.0. On visionOS 2.0 and later,
-    // apps are responsible for adding the GCEventInteraction themselves.
-    if (self._supportsGameControllerEventInteractionAPI)
-        return;
-
-    [self _setAllowGamepadsInput:_gamepadsRecentlyAccessed && self._gamepadsConnected];
-}
-
-- (void)_setAllowGamepadsInput:(BOOL)allowGamepadsInput
-{
-#if __has_include(<GameController/GCEventInteraction.h>)
-    if (allowGamepadsInput == !!_gamepadsRecentlyAccessedState)
-        return;
-
-    if (allowGamepadsInput) {
-        _gamepadsRecentlyAccessedState = adoptNS([[WebCore::getGCEventInteractionClassSingleton() alloc] init]);
-        ((GCEventInteraction *)_gamepadsRecentlyAccessedState.get()).handledEventTypes = GCUIEventTypeGamepad;
-        [self addInteraction:(id<UIInteraction>)_gamepadsRecentlyAccessedState.get()];
-    } else {
-        [self removeInteraction:(id<UIInteraction>)_gamepadsRecentlyAccessedState.get()];
-        _gamepadsRecentlyAccessedState = nil;
-    }
-#endif // __has_include(<GameController/GCEventInteraction.h>)
-}
-
-#endif // PLATFORM(VISION)
-#endif // ENABLE(GAMEPAD)
 
 WebCore::CocoaColor *sampledFixedPositionContentColor(const WebCore::FixedContainerEdges& edges, WebCore::BoxSide side)
 {

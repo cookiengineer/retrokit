@@ -197,10 +197,6 @@ private:
 
         void didAdjustVisibilityWithSelectors(WebPageProxy&, Vector<String>&&) final;
 
-#if ENABLE(GAMEPAD)
-        void recentlyAccessedGamepadsForTesting(WebPageProxy&) final;
-        void stoppedAccessingGamepadsForTesting(WebPageProxy&) final;
-#endif
 
 #if PLATFORM(IOS_FAMILY)
         void didEnterStandby(WebPageProxy&) final;
@@ -314,10 +310,6 @@ private:
         bool webViewUpdatedAppBadge : 1;
         bool webViewDidAdjustVisibilityWithSelectors : 1;
 
-#if ENABLE(GAMEPAD)
-        bool webViewRecentlyAccessedGamepadsForTesting : 1;
-        bool webViewStoppedAccessingGamepadsForTesting : 1;
-#endif
 
 #if PLATFORM(IOS_FAMILY)
         bool webViewDidEnterStandby : 1;

@@ -29,12 +29,6 @@ module WebKit_Internal [system] {
         export *
     }
 
-    module GamepadData {
-        requires cplusplus20
-        header "../../Shared/Gamepad/GamepadData.h"
-        export *
-    }
-
     module GestureTypes {
         requires cplusplus20
         header "../../Shared/Cocoa/GestureTypes.h"

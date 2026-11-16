@@ -1200,16 +1200,6 @@ bool WKPreferencesGetImageControlsEnabled(WKPreferencesRef preferencesRef)
     return protect(toImpl(preferencesRef))->imageControlsEnabled();
 }
 
-void WKPreferencesSetGamepadsEnabled(WKPreferencesRef preferencesRef, bool enabled)
-{
-    protect(toImpl(preferencesRef))->setGamepadsEnabled(enabled);
-}
-
-bool WKPreferencesGetGamepadsEnabled(WKPreferencesRef preferencesRef)
-{
-    return protect(toImpl(preferencesRef))->gamepadsEnabled();
-}
-
 void WKPreferencesSetMinimumZoomFontSize(WKPreferencesRef preferencesRef, double size)
 {
     protect(toImpl(preferencesRef))->setMinimumZoomFontSize(size);

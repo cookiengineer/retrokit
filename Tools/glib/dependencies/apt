@@ -58,7 +58,6 @@ PACKAGES=(
     libhyphen-dev
     libkate-dev
     liblcms2-dev
-    libmanette-0.2-dev
     libnghttp2-dev
     libopenjp2-7-dev
     libopenxr-dev

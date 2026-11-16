@@ -108,7 +108,6 @@ namespace WebCore {
     M(Frames) \
     M(Fullscreen) \
     M(GLContext) \
-    M(Gamepad) \
     M(GraphicsBuffer) \
     M(HDR) \
     M(HID) \

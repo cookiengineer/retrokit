@@ -3523,53 +3523,6 @@ GStreamerEnabled:
     WebKit:
       default: true
 
-GamepadTriggerRumbleEnabled:
-  type: bool
-  status: testable
-  category: dom
-  humanReadableName: "Gamepad trigger vibration support"
-  humanReadableDescription: "Support for Gamepad trigger vibration"
-  condition: ENABLE(GAMEPAD)
-  defaultValue:
-    WebKitLegacy:
-      default: false
-    WebKit:
-      default: false
-    WebCore:
-      default: false
-
-GamepadVibrationActuatorEnabled:
-  type: bool
-  status: stable
-  category: dom
-  humanReadableName: "Gamepad.vibrationActuator support"
-  humanReadableDescription: "Support for Gamepad.vibrationActuator"
-  condition: ENABLE(GAMEPAD)
-  defaultValue:
-    WebKitLegacy:
-      default: false
-    WebKit:
-      default: defaultGamepadVibrationActuatorEnabled()
-    WebCore:
-      default: false
-
-GamepadsEnabled:
-  type: bool
-  status: embedder
-  humanReadableName: "Gamepads"
-  humanReadableDescription: "Web Gamepad API support"
-  condition: ENABLE(GAMEPAD)
-  defaultValue:
-    WebKitLegacy:
-      default: false
-    WebKit:
-      default: true
-    WebCore:
-      default: false
-  disableInLockdownMode: true
-  sharedPreferenceForWebProcess: true
-  richJavaScript: true
-
 # FIXME: This is on by default in WebKit2. Perhaps we should consider turning it on for WebKitLegacy as well.
 GenericCueAPIEnabled:
   type: bool

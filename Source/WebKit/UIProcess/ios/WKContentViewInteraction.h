@@ -392,9 +392,6 @@ struct ImageAnalysisContextMenuActionData {
     RetainPtr<UISwipeGestureRecognizer> _touchActionUpSwipeGestureRecognizer;
     RetainPtr<UISwipeGestureRecognizer> _touchActionDownSwipeGestureRecognizer;
 
-#if ENABLE(GAMEPAD)
-    RetainPtr<UITapGestureRecognizer> _gamepadInteractionGestureRecognizer;
-#endif
 
 #if HAVE(LOOKUP_GESTURE_RECOGNIZER)
     RetainPtr<_UILookupGestureRecognizer> _lookupGestureRecognizer;

@@ -425,19 +425,6 @@ void PageClientImplCocoa::viewIsBecomingInvisible()
 #endif
 }
 
-#if ENABLE(GAMEPAD)
-void PageClientImplCocoa::setGamepadsRecentlyAccessed(GamepadsRecentlyAccessed gamepadsRecentlyAccessed)
-{
-    [webView() _setGamepadsRecentlyAccessed:(gamepadsRecentlyAccessed == GamepadsRecentlyAccessed::No) ? NO : YES];
-}
-
-#if PLATFORM(VISION)
-void PageClientImplCocoa::gamepadsConnectedStateChanged()
-{
-    [m_webView _gamepadsConnectedStateChanged];
-}
-#endif
-#endif
 
 void PageClientImplCocoa::hasActiveNowPlayingSessionChanged(bool hasActiveNowPlayingSession)
 {

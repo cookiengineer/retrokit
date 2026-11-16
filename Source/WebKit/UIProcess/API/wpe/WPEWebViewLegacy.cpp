@@ -39,9 +39,6 @@
 #include <wpe/wpe.h>
 #include <wtf/NeverDestroyed.h>
 
-#if ENABLE(GAMEPAD)
-#include <WebCore/GamepadProviderLibWPE.h>
-#endif
 
 using namespace WebKit;
 
@@ -382,36 +379,6 @@ bool ViewLegacy::setFullScreen(bool fullScreenState)
 };
 #endif
 
-#if ENABLE(GAMEPAD)
-WebKit::WebPageProxy* ViewLegacy::platformWebPageProxyForGamepadInput()
-{
-    const auto& views = viewsVector();
-    if (views.isEmpty())
-        return nullptr;
-
-    struct wpe_view_backend* viewBackend = WebCore::GamepadProviderLibWPE::singleton().inputView();
-
-    size_t index = notFound;
-
-    if (viewBackend) {
-        index = views.findIf([&](ViewLegacy* view) {
-            return view->backend() == viewBackend
-                && view->viewState().contains(WebCore::ActivityState::IsVisible)
-                && view->viewState().contains(WebCore::ActivityState::IsFocused);
-        });
-    } else {
-        index = views.findIf([](ViewLegacy* view) {
-            return view->viewState().contains(WebCore::ActivityState::IsVisible)
-                && view->viewState().contains(WebCore::ActivityState::IsFocused);
-        });
-    }
-
-    if (index != notFound)
-        return &(views[index]->page());
-
-    return nullptr;
-}
-#endif
 
 void ViewLegacy::callAfterNextPresentationUpdate(CompletionHandler<void()>&& callback)
 {

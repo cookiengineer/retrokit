@@ -46,7 +46,6 @@
 #include "EnhancedSecurity.h"
 #include "FrameProcess.h"
 #include "GPUProcessConnectionParameters.h"
-#include "GamepadData.h"
 #include "LegacyGlobalSettings.h"
 #include "LoadedWebArchive.h"
 #include "Logging.h"
@@ -65,8 +64,6 @@
 #include "SandboxExtension.h"
 #include "SuspendedPageProxy.h"
 #include "TextChecker.h"
-#include "UIGamepad.h"
-#include "UIGamepadProvider.h"
 #include "UIProcessLogInitialization.h"
 #include "WKAPICast.h"
 #include "WKContextPrivate.h"
@@ -99,7 +96,6 @@
 #include "WebsiteDataStore.h"
 #include "WebsiteDataStoreParameters.h"
 #include <JavaScriptCore/JSCInlines.h>
-#include <WebCore/GamepadProvider.h>
 #include <WebCore/MockRealtimeMediaSourceCenter.h>
 #include <WebCore/NetworkStorageSession.h>
 #include <WebCore/NotImplemented.h>
@@ -148,9 +144,6 @@
 #if PLATFORM(COCOA)
 #include "DefaultWebBrowserChecks.h"
 #include "WebPrivacyHelpers.h"
-#include <WebCore/GameControllerGamepadProvider.h>
-#include <WebCore/HIDGamepadProvider.h>
-#include <WebCore/MultiGamepadProvider.h>
 #include <WebCore/PowerSourceNotifier.h>
 #include <wtf/cocoa/Entitlements.h>
 #include <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
@@ -372,11 +365,6 @@ WebProcessPool::~WebProcessPool()
     }
 
     platformInvalidateContext();
-
-#if ENABLE(GAMEPAD)
-    if (!m_processesUsingGamepads.isEmptyIgnoringNullReferences())
-        UIGamepadProvider::singleton().processPoolStoppedUsingGamepads(*this);
-#endif
 
     // Only remaining processes should be pre-warmed ones as other keep the process pool alive.
     while (!m_processes.isEmpty()) {
@@ -1248,11 +1236,6 @@ void WebProcessPool::disconnectProcess(WebProcessProxy& process)
 
     m_processes.removeFirstMatching([&](auto& item) { return item.ptr() == &process; });
 
-#if ENABLE(GAMEPAD)
-    if (m_processesUsingGamepads.contains(process))
-        processStoppedUsingGamepads(process);
-#endif
-
 #if ENABLE(MODEL_PROCESS)
     if (m_processesWithModelPlayers.contains(process)) {
         WEBPROCESSPOOL_RELEASE_LOG(Process, "disconnectProcess stop tracking WebProcess (process=%p, PID=%i) with connection to Model Process", &process, process.processID());
@@ -1924,103 +1907,6 @@ void WebProcessPool::handleSynchronousMessage(IPC::Connection& connection, const
     m_injectedBundleClient->didReceiveSynchronousMessageFromInjectedBundle(*this, messageName, webProcessProxy->transformHandlesToObjects(protect(messageBody.object()).get()).get(), [webProcessProxy = protect(*webProcessProxy), completionHandler = WTF::move(completionHandler)] (RefPtr<API::Object>&& returnData) mutable {
         completionHandler(UserData(webProcessProxy->transformObjectsToHandles(returnData.get())));
     });
-}
-
-#if ENABLE(GAMEPAD)
-
-void WebProcessPool::startedUsingGamepads(IPC::Connection& connection)
-{
-    RefPtr proxy = webProcessProxyFromConnection(connection);
-    if (!proxy)
-        return;
-
-    bool wereAnyProcessesUsingGamepads = !m_processesUsingGamepads.isEmptyIgnoringNullReferences();
-    if (!wereAnyProcessesUsingGamepads)
-        UIGamepadProvider::singleton().processPoolStartedUsingGamepads(*this);
-
-    // Add the process proxy after notifying the UIGamepadProvider so that any gamepad connected while starting
-    // to monitor gamepads doesn't produce a GamepadConnected message, and it's only sent as initial gamepad.
-    ASSERT(!m_processesUsingGamepads.contains(*proxy));
-    m_processesUsingGamepads.add(*proxy);
-
-    proxy->send(Messages::WebProcess::SetInitialGamepads(UIGamepadProvider::singleton().snapshotGamepads()), 0);
-}
-
-void WebProcessPool::stoppedUsingGamepads(IPC::Connection& connection, CompletionHandler<void()>&& completionHandler)
-{
-    CompletionHandlerCallingScope callCompletionHandlerOnExit(WTF::move(completionHandler));
-    RefPtr proxy = webProcessProxyFromConnection(connection);
-    if (!proxy)
-        return;
-
-    ASSERT(m_processesUsingGamepads.contains(*proxy));
-    processStoppedUsingGamepads(*proxy);
-}
-
-void WebProcessPool::playGamepadEffect(unsigned gamepadIndex, const String& gamepadID, WebCore::GamepadHapticEffectType type, const WebCore::GamepadEffectParameters& parameters, CompletionHandler<void(bool)>&& completionHandler)
-{
-    GamepadProvider::singleton().playEffect(gamepadIndex, gamepadID, type, parameters, WTF::move(completionHandler));
-}
-
-void WebProcessPool::stopGamepadEffects(unsigned gamepadIndex, const String& gamepadID, CompletionHandler<void()>&& completionHandler)
-{
-    GamepadProvider::singleton().stopEffects(gamepadIndex, gamepadID, WTF::move(completionHandler));
-}
-
-void WebProcessPool::processStoppedUsingGamepads(WebProcessProxy& process)
-{
-    bool wereAnyProcessesUsingGamepads = !m_processesUsingGamepads.isEmptyIgnoringNullReferences();
-
-    ASSERT(m_processesUsingGamepads.contains(process));
-    m_processesUsingGamepads.remove(process);
-
-    if (wereAnyProcessesUsingGamepads && m_processesUsingGamepads.isEmptyIgnoringNullReferences())
-        UIGamepadProvider::singleton().processPoolStoppedUsingGamepads(*this);
-}
-
-void WebProcessPool::gamepadConnected(const UIGamepad& gamepad, EventMakesGamepadsVisible eventVisibility)
-{
-    for (Ref process : m_processesUsingGamepads)
-        process->send(Messages::WebProcess::GamepadConnected(gamepad.gamepadData(), eventVisibility), 0);
-}
-
-void WebProcessPool::gamepadDisconnected(const UIGamepad& gamepad)
-{
-    for (Ref process : m_processesUsingGamepads)
-        process->send(Messages::WebProcess::GamepadDisconnected(gamepad.index()), 0);
-}
-
-#endif // ENABLE(GAMEPAD)
-
-size_t WebProcessPool::numberOfConnectedGamepadsForTesting(GamepadType gamepadType)
-{
-#if ENABLE(GAMEPAD)
-    switch (gamepadType) {
-    case GamepadType::All:
-        return UIGamepadProvider::singleton().numberOfConnectedGamepads();
-#if PLATFORM(MAC)
-    case GamepadType::HID:
-        return HIDGamepadProvider::singleton().numberOfConnectedGamepads();
-    case GamepadType::GameControllerFramework:
-        return GameControllerGamepadProvider::singleton().numberOfConnectedGamepads();
-#else
-    case GamepadType::HID:
-    case GamepadType::GameControllerFramework:
-        return 0;
-    default:
-        return 0;
-#endif
-    }
-#else
-    return 0;
-#endif
-}
-
-void WebProcessPool::setUsesOnlyHIDGamepadProviderForTesting(bool hidProviderOnly)
-{
-#if ENABLE(GAMEPAD) && HAVE(MULTIGAMEPADPROVIDER_SUPPORT)
-    MultiGamepadProvider::singleton().setUsesOnlyHIDGamepadProvider(hidProviderOnly);
-#endif
 }
 
 void WebProcessPool::setJavaScriptConfigurationFileEnabled(bool flag)

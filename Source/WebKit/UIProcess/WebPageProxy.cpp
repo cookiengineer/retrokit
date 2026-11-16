@@ -90,7 +90,6 @@
 #include "FrameProcess.h"
 #include "FrameTreeCreationParameters.h"
 #include "FrameTreeNodeData.h"
-#include "GamepadData.h"
 #include "GoToBackForwardItemParameters.h"
 #include "ImageOptions.h"
 #include "JavaScriptEvaluationResult.h"
@@ -827,12 +826,6 @@ WebPageProxy::Internals::Internals(WebPageProxy& page, bool processInheritedFrom
     , resetRecentCrashCountTimer(RunLoop::mainSingleton(), "WebPageProxy::Internals::ResetRecentCrashCountTimer"_s, &page, &WebPageProxy::resetRecentCrashCount)
     , tryCloseTimeoutTimer(RunLoop::mainSingleton(), "WebPageProxy::Internals::TryCloseTimeoutTimer"_s, &page, &WebPageProxy::tryCloseTimedOut)
     , updateReportedMediaCaptureStateTimer(RunLoop::mainSingleton(), "updateReportedMediaCaptureStateTimer"_s, &page, &WebPageProxy::updateReportedMediaCaptureState)
-#if ENABLE(GAMEPAD)
-    , recentGamepadAccessHysteresis([weakPage = WeakPtr { page }](PAL::HysteresisState state) {
-        if (RefPtr page = weakPage.get())
-            page->recentGamepadAccessStateChanged(state);
-    }, gamepadsRecentlyAccessedThreshold)
-#endif
 
 #if HAVE(DISPLAY_LINK)
     , wheelEventActivityHysteresis([weakPage = WeakPtr { page }](PAL::HysteresisState state) {
@@ -2016,10 +2009,6 @@ void WebPageProxy::close()
     internals().audibleActivityTimer.stop();
 
     stopAllURLSchemeTasks();
-
-#if ENABLE(GAMEPAD)
-    m_internals->recentGamepadAccessHysteresis.cancel();
-#endif
 
     if (protect(preferences())->siteIsolationEnabled())
         protect(browsingContextGroup())->removePage(*this);
@@ -8836,9 +8825,6 @@ void WebPageProxy::didCommitLoadForFrame(IPC::Connection& connection, FrameIdent
 #if ENABLE(PDF_PAGE_NUMBER_INDICATOR)
         protectedPageClient->removeAnyPDFPageNumberIndicator();
 #endif
-#if ENABLE(GAMEPAD)
-        resetRecentGamepadAccessState();
-#endif
     }
 
     protectedPageLoadState->commitChanges();
@@ -14076,10 +14062,6 @@ void WebPageProxy::resetStateAfterProcessExited(ProcessTerminationReason termina
     internals().currentFullscreenVideoSessionIdentifier = std::nullopt;
 #endif
 
-#if ENABLE(GAMEPAD)
-    resetRecentGamepadAccessState();
-#endif
-
     // FIXME: <rdar://problem/38676604> In case of process swaps, the old process should gracefully suspend instead of terminating.
     protect(legacyMainFrameProcess())->processTerminated();
 
@@ -14282,10 +14264,6 @@ WebPageCreationParameters WebPageProxy::creationParameters(WebProcessProxy& proc
     parameters.hardwareKeyboardState = protect(protect(m_configuration)->processPool())->cachedHardwareKeyboardState();
     parameters.canShowWhileLocked = m_configuration->canShowWhileLocked();
     parameters.insertionPointColor = pageClient ? pageClient->insertionPointColor() : WebCore::Color { };
-#endif
-
-#if PLATFORM(VISION) && ENABLE(GAMEPAD)
-    parameters.gamepadAccessRequiresExplicitConsent = m_configuration->gamepadAccessRequiresExplicitConsent();
 #endif
 
 #if ENABLE(MODEL_ELEMENT_IMMERSIVE)
@@ -14567,69 +14545,6 @@ void WebPageProxy::updateAcceleratedCompositingMode(const LayerTreeContext& laye
     if (RefPtr pageClient = this->pageClient())
         pageClient->updateAcceleratedCompositingMode(layerTreeContext);
 }
-
-#if ENABLE(GAMEPAD)
-
-void WebPageProxy::gamepadActivity(const Vector<std::optional<GamepadData>>& gamepadDatas, EventMakesGamepadsVisible eventVisibility)
-{
-    send(Messages::WebPage::GamepadActivity(gamepadDatas, eventVisibility));
-}
-
-void WebPageProxy::recentGamepadAccessStateChanged(PAL::HysteresisState state)
-{
-    RefPtr pageClient = this->pageClient();
-    switch (state) {
-    case PAL::HysteresisState::Started:
-        if (pageClient)
-            pageClient->setGamepadsRecentlyAccessed(PageClient::GamepadsRecentlyAccessed::Yes);
-        m_uiClient->recentlyAccessedGamepadsForTesting(*this);
-        break;
-    case PAL::HysteresisState::Stopped:
-        if (pageClient)
-            pageClient->setGamepadsRecentlyAccessed(PageClient::GamepadsRecentlyAccessed::No);
-        m_uiClient->stoppedAccessingGamepadsForTesting(*this);
-    }
-}
-
-void WebPageProxy::gamepadsRecentlyAccessed()
-{
-    // FIXME: We'd like to message_check here to validate the process should be allowed
-    // to refresh the "recently using gamepads" state.
-    // We could check our "set of processes using gamepads" but it is already driven
-    // by web process messages, therefore a compromised WebProcess can add itself.
-    // Is there something meaningful we can do here?
-
-    m_internals->recentGamepadAccessHysteresis.impulse();
-}
-
-void WebPageProxy::resetRecentGamepadAccessState()
-{
-    if (m_internals->recentGamepadAccessHysteresis.state() == PAL::HysteresisState::Started)
-        recentGamepadAccessStateChanged(PAL::HysteresisState::Stopped);
-
-    m_internals->recentGamepadAccessHysteresis.cancel();
-}
-
-#if PLATFORM(VISION)
-
-void WebPageProxy::setGamepadsConnected(bool gamepadsConnected)
-{
-    if (m_gamepadsConnected == gamepadsConnected)
-        return;
-
-    m_gamepadsConnected = gamepadsConnected;
-    if (auto pageClient = this->pageClient())
-        pageClient->gamepadsConnectedStateChanged();
-}
-
-void WebPageProxy::allowGamepadAccess()
-{
-    send(Messages::WebPage::AllowGamepadAccess());
-}
-
-#endif // PLATFORM(VISION)
-
-#endif // ENABLE(GAMEPAD)
 
 void WebPageProxy::didReceiveAuthenticationChallengeProxy(Ref<AuthenticationChallengeProxy>&& authenticationChallenge, NegotiatedLegacyTLS negotiatedLegacyTLS)
 {

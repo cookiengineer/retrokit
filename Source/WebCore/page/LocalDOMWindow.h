@@ -419,11 +419,6 @@ private:
 
     bool isSameSecurityOriginAsMainFrame() const;
 
-#if ENABLE(GAMEPAD)
-    void incrementGamepadEventListenerCount();
-    void decrementGamepadEventListenerCount();
-#endif
-
     void processPostMessage(JSC::JSGlobalObject&, Ref<SecurityOrigin>&&, const MessageWithMessagePorts&, RefPtr<WindowProxy>&&, RefPtr<SecurityOrigin>&&);
 
 #if ENABLE(DECLARATIVE_WEB_PUSH)
@@ -489,10 +484,6 @@ private:
 
 #if ENABLE(IOS_TOUCH_EVENTS) || ENABLE(IOS_GESTURE_EVENTS)
     unsigned m_touchAndGestureEventListenerCount { 0 };
-#endif
-
-#if ENABLE(GAMEPAD)
-    uint64_t m_gamepadEventListenerCount { 0 };
 #endif
 
     mutable RefPtr<Storage> m_sessionStorage;

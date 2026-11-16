@@ -233,10 +233,7 @@ UIProcess/Extensions/glib/WebExtensionGLib.cpp
 
 UIProcess/Extensions/wpe/WebExtensionWPE.cpp
 
-UIProcess/Gamepad/libwpe/UIGamepadProviderLibWPE.cpp
 
-UIProcess/Gamepad/wpe/GamepadProviderWPE.cpp
-UIProcess/Gamepad/wpe/PlatformGamepadWPE.cpp
 
 UIProcess/geoclue/GeoclueGeolocationProvider.cpp
 

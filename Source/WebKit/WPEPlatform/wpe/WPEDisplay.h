@@ -35,7 +35,6 @@
 #include <wpe/WPEClipboard.h>
 #include <wpe/WPEDRMDevice.h>
 #include <wpe/WPEDefines.h>
-#include <wpe/WPEGamepadManager.h>
 #include <wpe/WPEInputMethodContext.h>
 #include <wpe/WPEKeymap.h>
 #include <wpe/WPEScreen.h>
@@ -78,7 +77,6 @@ struct _WPEDisplayClass
                                                               WPEView    *view);
     WPEToplevel            *(* create_toplevel)              (WPEDisplay *display,
                                                               guint       max_views);
-    WPEGamepadManager      *(* create_gamepad_manager)       (WPEDisplay *display);
 
     gpointer padding[32];
 };
@@ -128,7 +126,6 @@ WPE_API void                     wpe_display_set_available_input_devices  (WPEDi
                                                                            WPEAvailableInputDevices devices);
 WPE_API WPEToplevel             *wpe_display_create_toplevel              (WPEDisplay *display,
                                                                            guint       max_views);
-WPE_API WPEGamepadManager       *wpe_display_create_gamepad_manager       (WPEDisplay *display);
 
 G_END_DECLS
 

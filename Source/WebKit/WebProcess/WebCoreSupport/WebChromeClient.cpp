@@ -2349,14 +2349,6 @@ void WebChromeClient::didAdjustVisibilityWithSelectors(Vector<String>&& selector
         page->didAdjustVisibilityWithSelectors(WTF::move(selectors));
 }
 
-#if ENABLE(GAMEPAD)
-void WebChromeClient::gamepadsRecentlyAccessed()
-{
-    if (RefPtr page = m_page.get())
-        page->gamepadsRecentlyAccessed();
-}
-#endif
-
 #if ENABLE(WRITING_TOOLS)
 
 void WebChromeClient::proofreadingSessionShowDetailsForSuggestionWithIDRelativeToRect(const WebCore::WritingTools::TextSuggestion::ID& replacementID, WebCore::IntRect selectionBoundsInRootView)

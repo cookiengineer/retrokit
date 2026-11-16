@@ -187,7 +187,6 @@ extern NSString *WebPreferencesCacheModelChangedInternalNotification WEBKIT_DEPR
 @property (nonatomic) BOOL shouldConvertPositionStyleOnCopy;
 @property (nonatomic) BOOL imageControlsEnabled;
 @property (nonatomic) BOOL serviceControlsEnabled;
-@property (nonatomic) BOOL gamepadsEnabled;
 @property (nonatomic) BOOL mediaPreloadingEnabled;
 @property (nonatomic) NSString *mediaKeysStorageDirectory;
 @property (nonatomic) BOOL metaRefreshEnabled;

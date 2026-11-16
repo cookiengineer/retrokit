@@ -83,7 +83,6 @@ RUN pacman -Syu --noconfirm --needed \
     libgudev \
     enchant \
     hyphen \
-    libmanette \
     libgcrypt \
     libtasn1 \
     libseccomp \
