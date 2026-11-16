@@ -18,7 +18,7 @@ type EquivalenceResult struct {
 // Equivalence checks a new fork tree against the removal manifest without
 // requiring the new tree to match the old baseline. This is the check to run
 // on a branch based on a newer upstream release.
-func Equivalence(repo *gitx.Repo, cfg *config.Config, forkRef string) (*EquivalenceResult, error) {
+func Equivalence(repo *gitx.Repo, cfg *config.Config, forkRef, onlyFeature string) (*EquivalenceResult, error) {
 	entries, _, err := LoadManifest(cfg)
 	if err != nil {
 		return nil, err
@@ -41,6 +41,9 @@ func Equivalence(repo *gitx.Repo, cfg *config.Config, forkRef string) (*Equivale
 	for i := range entries {
 		entry := &entries[i]
 		if !cfg.InScope(entry.Path) {
+			continue
+		}
+		if onlyFeature != "" && entry.Feature != onlyFeature {
 			continue
 		}
 		result.Checked++
