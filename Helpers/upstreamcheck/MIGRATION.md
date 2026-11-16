@@ -53,7 +53,7 @@ git apply --check manifest/candidates/geolocation.patch
 git apply manifest/candidates/geolocation.patch
 ./upstreamcheck refs --feature geolocation
 ./upstreamcheck lint --base vendor-base/2.34.1
-./upstreamcheck equivalence --fork HEAD
+./upstreamcheck equivalence --fork HEAD --feature geolocation
 ```
 
 `migrate` never edits the worktree. It writes a patch and a Markdown report

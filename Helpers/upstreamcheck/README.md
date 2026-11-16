@@ -83,6 +83,7 @@ used by leak scans.
 
 # Check a new fork tree against the removal manifest.
 ./upstreamcheck equivalence --fork <new-branch>
+./upstreamcheck equivalence --fork HEAD --feature webgl
 
 # Write the full feature-by-feature migration work queue.
 ./upstreamcheck report --target vendor/2.54.2 --out manifest/migration-plan.md

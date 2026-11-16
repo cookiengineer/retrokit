@@ -73,7 +73,7 @@ Usage:
   upstreamcheck plan    [--config FILE] [--target REF] [--feature ID] [--json]
   upstreamcheck refs    [--config FILE] [--fork REF] [--feature ID] [--limit N]
   upstreamcheck leaks   [--config FILE] [--fork REF] [--feature ID] [--limit N]
-  upstreamcheck equivalence [--config FILE] [--fork REF]
+  upstreamcheck equivalence [--config FILE] [--fork REF] [--feature ID]
   upstreamcheck report  [--config FILE] [--base REF] [--target REF] [--out FILE]
   upstreamcheck migrate --feature ID [--base REF] [--target REF] --out DIR
   upstreamcheck vendor import --upstream DIR [--version VERSION] [--base-tag TAG] [--base-from REF] [--tag TAG]
@@ -387,7 +387,7 @@ func cmdEquivalence(args []string) error {
 		return err
 	}
 	fork := refOr(cf.fork, "HEAD")
-	result, err := check.Equivalence(repo, cfg, fork)
+	result, err := check.Equivalence(repo, cfg, fork, cf.feature)
 	if err != nil {
 		return err
 	}
