@@ -887,16 +887,32 @@ What happened:
 - `URL.h` changed, so this feature triggers a near-full WebCore rebuild even
   though the diff is small.
 
+### Gamepad
+
+What happened:
+
+- Removed the Web Gamepad API, all provider backends (Manette, libwpe,
+  GameController/HID, mocks), the WebKit IPC/UI/Web-process layers, the
+  WPEPlatform gamepad API, the build option and the `libmanette` dependency.
+- The GameController framework soft-link was split: gamepad bindings were
+  deleted, and a small `GameControllerMouseSoftLink` remains for pointer-lock
+  mouse input. Check framework soft-links before deleting a whole platform
+  directory.
+- 336 removal entries, 0 errors, 0 warnings, 0 leaks.
+- `equivalence` does not index declarations inside `#if ENABLE(GAMEPAD)` or
+  nested class enums; those rows document intent, while leak tokens guard
+  against reappearance.
+
 ---
 
 ## 11. Next features
 
 Recommended order:
 
-1. **Gamepad** — enabled by default on GTK, exposes hardware identifiers and is
-   independent of the media stack. Curate the candidate first; it currently
-   contains unrelated `CMakeLists.txt` rows.
-2. Geolocation and DeviceMotion/Orientation.
+1. **Device Motion/Orientation** — self-contained fingerprinting API pair.
+   Curate the candidate first; it currently contains `PermissionName.idl`
+   values that belong to other features.
+2. Geolocation (including Geoclue).
 3. Remaining platform and dependency removals (libsecret, libnotify, geoclue).
 4. Media stack (capture, streams, recorder, EME, PiP/fullscreen).
 5. Automation, WebDriver, quirks and user-agent quirks.
@@ -954,16 +970,16 @@ cd Helpers/upstreamcheck && go build -o upstreamcheck ./cmd/upstreamcheck
 ./upstreamcheck report --target vendor/2.54.2 --out manifest/migration-plan.md
 
 # Migrate
-./upstreamcheck migrate --feature gamepad --target vendor/2.54.2 \
+./upstreamcheck migrate --feature device-sensors --target vendor/2.54.2 \
   --out manifest/candidates
-git apply --check manifest/candidates/gamepad.patch
-git apply manifest/candidates/gamepad.patch
+git apply --check manifest/candidates/device-sensors.patch
+git apply manifest/candidates/device-sensors.patch
 # or, if context moved:
-patch -p1 --no-backup-if-mismatch < manifest/candidates/gamepad.patch
+patch -p1 --no-backup-if-mismatch < manifest/candidates/device-sensors.patch
 
 # Inspect fallout
-./upstreamcheck refs --feature gamepad --limit 100
-./upstreamcheck leaks --fork HEAD --feature gamepad
+./upstreamcheck refs --feature device-sensors --limit 100
+./upstreamcheck leaks --fork HEAD --feature device-sensors
 
 # Build
 make image DISTRO=debian
@@ -977,9 +993,9 @@ make ccache-stats DISTRO=debian
 make ccache-clean DISTRO=debian
 
 # Verify and commit
-./upstreamcheck equivalence --fork HEAD --feature gamepad
+./upstreamcheck equivalence --fork HEAD --feature device-sensors
 git add -A Source Tools Helpers/upstreamcheck/manifest
-git commit -m ':unicorn: Remove Gamepad API'
+git commit -m ':unicorn: Remove Device Motion and Orientation APIs'
 ```
 
 ---

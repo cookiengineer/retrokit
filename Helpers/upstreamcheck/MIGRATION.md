@@ -10,7 +10,7 @@
   commit that imports RetroKit's downstream files and `upstreamcheck`).
 - `main` and `legacy/2.34` still point at the 2.34.1 fork; promote
   `migrate/2.54` during cutover.
-- Generated manifest: `manifest/divergence.tsv` (9,657 rows, 39 features).
+- Generated manifest: `manifest/divergence.tsv` (9,849 rows, 39 features).
 - The manifest now also records the new upstream WebXR/WebGPU-XR files and
   the WebXR/systemd/touch-bar migration edits.
 
@@ -56,10 +56,14 @@ Completed feature commits on `migrate/2.54`:
   leftovers. `equivalence --feature ftp` passes with 0 errors and 0 warnings
   over 82 entries; the leak scan is clean. The Debian container build and
   MiniBrowser smoke test pass.
+- **Gamepad** — removed the Web Gamepad API, its WebKit IPC and provider
+  stack, the WPEPlatform gamepad API, the `ENABLE_GAMEPAD` option and the
+  `libmanette` dependency. `equivalence --feature gamepad` passes with 0
+  errors and 0 warnings over 336 entries; the leak scan is clean.
 
-Gamepad is the next feature: it is enabled by default on GTK and is
-independent of the media stack. The `gamepad` candidate needs curation first
-because it contains unrelated `CMakeLists.txt` rows.
+Device Motion/Orientation is next, then Geolocation. Curate the
+`device-sensors` candidate before applying it: it contains `PermissionName.idl`
+values that belong to other features.
 
 ## Workflow
 

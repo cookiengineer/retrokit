@@ -42,6 +42,8 @@ media controls, inspector resources and the GLib dependency-file workaround.
 Recent commits on `migrate/2.54`:
 
 ```text
+eea8c5a8e Remove Gamepad API
+98e4d3fcb Document FTP removal and next steps
 aad3b2584 Remove FTP Support
 5965e68b9 Update handover commit list
 dc4278995 Add end-to-end migration runbook
@@ -135,7 +137,7 @@ The source of truth for intentional divergence is:
 feature  kind  symbol  path  disposition  scope  origin  notes
 ```
 
-It currently contains **9,657 rows across 39 features**. The manifest covers
+It currently contains **9,849 rows across 39 features**. The manifest covers
 the original 2.34.1 fork diff plus the new upstream WebXR/WebGPU-XR files and
 the migration edits for completed features.
 
@@ -249,20 +251,65 @@ Notes:
 - `ftp://` and `ftps://` are now non-special schemes and fail as unsupported
   loads.
 
+### Gamepad
+
+Commit: `eea8c5a8e Remove Gamepad API`
+
+Removed:
+
+- WebCore `Modules/gamepad` (Gamepad, GamepadButton, GamepadEvent,
+  GamepadHapticActuator, effect/haptic types, NavigatorGamepad,
+  GamepadManager) and `platform/gamepad` providers (Manette, libwpe,
+  Cocoa GameController/HID, mocks).
+- Event names/categories, DOM window handlers, builtin names, the Permissions
+  Policy `gamepad` feature, the `TaskSource` entry and the preferences
+  (`GamepadsEnabled`, trigger rumble, vibration actuator).
+- WebKit UI/Web-process gamepad IPC (`GamepadData`, `UIGamepad*`,
+  `WebGamepad*`), process-pool tracking, page activity hysteresis,
+  page-client/delegate hooks, C API test hooks and `WKPreferences`
+  getters/setters.
+- The `ENABLE_GAMEPAD` build option, `libmanette` detection, the container
+  dependency and the WPEPlatform `WPEGamepad*` API.
+- GameController framework soft-linking is retained, but only for
+  pointer-lock mouse input (`GameControllerMouseSoftLink`).
+
+Verification:
+
+```text
+equivalence --feature gamepad: 336 entries, 0 errors, 0 warnings
+leaks --feature gamepad:       0 residual occurrences
+make build DISTRO=debian:      success (WebKit + MiniBrowser)
+make smoke DISTRO=debian:      success
+```
+
+Notes:
+
+- `equivalence` cannot index declarations inside `#if ENABLE(GAMEPAD)` blocks
+  or nested class enums, so those manifest rows are documentation only. The
+  leak tokens (`Gamepad`, `gamepad`, `Manette`, …) are the regression guard.
+- The `gamepad` candidate contained bogus `CMakeLists.txt` rows from the
+  net-diff bootstrap; they were removed from the manifest.
+
 ## 5. Next steps
 
-### Immediate: Gamepad
+### Next: Device Motion and Orientation
 
-Gamepad is the next feature. `ENABLE_GAMEPAD` is enabled by default on GTK, it
-exposes hardware identifiers, and it is independent of the media stack.
+Gamepad is done. The next fingerprinting cleanup is the Device Motion and
+Orientation API pair, which is smaller than Geolocation and self-contained.
 
-- Remove `Source/WebCore/Modules/gamepad` and `platform/gamepad`, including the
-  GTK/Manette provider.
-- Remove the Gamepad IPC layer, preferences, testing hooks and the
-  `libmanette` build dependency.
-- Curate the `gamepad` candidate before applying it: it currently contains
-  unrelated `CMakeLists.txt` rows (`add_subdirectory(PerformanceTests)`,
-  `if (DEVELOPER_MODE)`).
+- Remove `Source/WebCore/dom/DeviceMotion*`, `DeviceOrientation*` and the
+  related navigator/window IDL, clients and mock providers.
+- Curate the `device-sensors` candidate first: it currently contains
+  `PermissionName.idl` enum values (`camera`, `bluetooth`, `geolocation`, …)
+  that belong to other features and must not be removed here.
+- Remove `DEVICE_ORIENTATION`/`ORIENTATION_EVENTS` build flags and preferences
+  only after confirming nothing else uses them.
+
+### Then: Geolocation
+
+After device sensors, remove Geolocation and the Geoclue integration. This is
+larger: it covers the WebCore API, the UI-process Geoclue provider, the GLib
+geolocation manager, IPC messages, settings and permission plumbing.
 
 ### Then: remaining features
 
@@ -271,7 +318,7 @@ with `equivalence --fork HEAD --feature <id>` and `leaks --feature <id>`.
 
 Suggested order:
 
-1. Fingerprinting APIs (Gamepad, Geolocation, DeviceMotion/Orientation).
+1. Device Motion/Orientation, then Geolocation.
 2. Remaining platform and dependency removals (libsecret, libnotify, geoclue).
 3. Media stack (capture, streams, recorder, EME, PiP/fullscreen).
 4. Automation, WebDriver, quirks and user-agent quirks.
@@ -436,7 +483,7 @@ podman info --format '{{.Host.Security.Rootless}}'
 2. `cd Helpers/upstreamcheck && go build -o upstreamcheck ./cmd/upstreamcheck`
 3. `make build DISTRO=debian` (or `archlinux`) to establish a full baseline
    build of the migrated tree.
-4. `./upstreamcheck plan --feature gamepad --target vendor/2.54.2`
-5. Curate the `gamepad` candidate, then use `./upstreamcheck migrate --feature
-   gamepad ...` and verify with `equivalence` and `leaks`.
+4. `./upstreamcheck plan --feature device-sensors --target vendor/2.54.2`
+5. Curate the `device-sensors` candidate, then use `./upstreamcheck migrate
+   --feature device-sensors ...` and verify with `equivalence` and `leaks`.
 6. Curate `needs-review.tsv` while build iterations run.
